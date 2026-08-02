@@ -1,423 +1,1405 @@
-import os
 import logging
-from datetime import datetime
-from dotenv import load_dotenv
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+import os
+import threading
+import psycopg2
+import requests
+import json
+import base64
+import math
+from datetime import datetime, timedelta
+from flask import Flask
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    ApplicationBuilder,
+    Application,
     CommandHandler,
-    CallbackQueryHandler,
     MessageHandler,
+    CallbackQueryHandler,
     ContextTypes,
     ConversationHandler,
     filters,
 )
 
-# ============================================================
-# 1. CONFIGURATION
-# ============================================================
+# ==============================================================================
+# 0. FLASK WEB SERVER
+# ==============================================================================
+web_app = Flask(__name__)
 
-load_dotenv()
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
+@web_app.route('/')
+def home():
+    return "✅ Broker Connect Bot በስኬት እየሰራ ይገኛል!", 200
 
-# Enhanced logging
+def run_flask():
+    port = int(os.environ.get("PORT", 8080))
+    web_app.run(host="0.0.0.0", port=port)
+
+# ==============================================================================
+# 1. CONFIGURATION & DATABASE
+# ==============================================================================
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+ADMIN_CHAT_ID = int(os.environ.get("ADMIN_CHAT_ID", "0"))
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+
+if not BOT_TOKEN:
+    raise RuntimeError("❌ BOT_TOKEN environment variable ውስጥ አልተገኘም።")
+
+LOGO_FILE_ID = "AgACAgQAAxkBAAEszTBqZGhpfKNE12Y948HvU4JhQHfZrQAC0g1rG4xKIFPy4FmrrNxjRAEAAwIAA3gAAz0E"
+
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
-logger = logging.getLogger(__name__)
 
-# Conversation States
-(
-    ROLE_SELECTION,
-    CATEGORY,
-    SELLER_TYPE,
-    INQUIRY_DETAILS,
-    REG_TYPE,
-    REG_NAME,
-    REG_PHONE,
-    REG_CONFIRM
-) = range(8)
+# ==============================================================================
+# 2. DATABASE CONNECTION & INITIALIZATION
+# ==============================================================================
 
-# ============================================================
-# 2. START & MAIN MENU
-# ============================================================
+def get_db_connection():
+    if DATABASE_URL:
+        db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1) if DATABASE_URL.startswith("postgres://") else DATABASE_URL
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = True
+        return conn
+    else:
+        import sqlite3
+        return sqlite3.connect("broker_bot.db")
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Entry point for the bot"""
+def get_placeholder():
+    return "%s" if DATABASE_URL else "?"
+
+def init_db():
+    conn = None
     try:
-        keyboard = [
-            [InlineKeyboardButton("🔍 ዕቃ / ቤት / መኪና እፈልጋለሁ (ገዢ)", callback_data="role_buyer")],
-            [InlineKeyboardButton("📝 እንደ አቅራቢ/ደላላ መመዝገብ እፈልጋለሁ", callback_data="role_vendor")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        conn = get_db_connection()
+        cursor = conn.cursor()
         
-        welcome_text = (
-            "👋 **እንኳን ወደ Adika Marketplace በደህና መጡ!**\n\n"
-            "የሀገሪቱ ታላቁ የመኪና፣ የቤት እና የንብረት ገበያ ማዕከል።\n\n"
-            "እባክዎን ከታች ካሉት አማራጮች አንዱን ይምረጡ፡"
-        )
-        
-        if update.message:
-            await update.message.reply_text(welcome_text, reply_markup=reply_markup, parse_mode="Markdown")
+        # Brokers table
+        if DATABASE_URL:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS brokers (
+                    id SERIAL PRIMARY KEY,
+                    chat_id BIGINT NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    email TEXT,
+                    broker_type TEXT NOT NULL,
+                    experience_years INTEGER DEFAULT 0,
+                    location TEXT NOT NULL,
+                    is_verified INTEGER DEFAULT 0,
+                    is_active INTEGER DEFAULT 1,
+                    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
         else:
-            query = update.callback_query
-            await query.answer()
-            await query.edit_message_text(welcome_text, reply_markup=reply_markup, parse_mode="Markdown")
-            
-        return ROLE_SELECTION
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS brokers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    email TEXT,
+                    broker_type TEXT NOT NULL,
+                    experience_years INTEGER DEFAULT 0,
+                    location TEXT NOT NULL,
+                    is_verified INTEGER DEFAULT 0,
+                    is_active INTEGER DEFAULT 1,
+                    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
         
-    except Exception as e:
-        logger.error(f"Error in start: {e}", exc_info=True)
-        await update.message.reply_text("❌ የሆነ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።")
-        return ConversationHandler.END
-
-# ============================================================
-# 3. BUYER FLOW
-# ============================================================
-
-async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle buyer role selection"""
-    try:
-        query = update.callback_query
-        await query.answer()
-        
-        keyboard = [
-            [InlineKeyboardButton("🚗 መኪና ፍለጋ (Auto)", callback_data="cat_car")],
-            [InlineKeyboardButton("🏠 ቤት / ቦታ ፍለጋ (Property)", callback_data="cat_house")],
-            [InlineKeyboardButton("🏢 ንግድ ቤት / ቢሮ (Commercial)", callback_data="cat_commercial")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            "🎯 **የሚፈልጉትን አገልግሎት ምድብ ይምረጡ፡**",
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-        return CATEGORY
-        
-    except Exception as e:
-        logger.error(f"Error in buyer_start: {e}", exc_info=True)
-        await update.callback_query.message.reply_text("❌ ስህተት ተከስቷል። እንደገና /start ይበሉ።")
-        return ConversationHandler.END
-
-async def category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle category selection"""
-    try:
-        query = update.callback_query
-        await query.answer()
-        
-        cat = query.data
-        context.user_data['category'] = cat
-        
-        if cat == "cat_car":
-            keyboard = [
-                [InlineKeyboardButton("🏪 ከመኪና መሸጫ (Showroom)", callback_data="seller_showroom")],
-                [InlineKeyboardButton("👤 ከባለቤቱ በቀጥታ (Direct Owner)", callback_data="seller_owner")],
-                [InlineKeyboardButton("👨‍💼 ከተረጋገጡ ደላሎች (Verified Broker)", callback_data="seller_broker")],
-                [InlineKeyboardButton("🌐 ከሁሉም አቅራቢዎች", callback_data="seller_all")]
-            ]
+        # Client requests table
+        if DATABASE_URL:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS client_requests (
+                    id SERIAL PRIMARY KEY,
+                    client_chat_id BIGINT NOT NULL,
+                    client_name TEXT,
+                    request_type TEXT NOT NULL,
+                    description TEXT,
+                    budget TEXT,
+                    location TEXT,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
         else:
-            keyboard = [
-                [InlineKeyboardButton("🏢 ከሪል እስቴት አልሚዎች (Developers)", callback_data="seller_realestate")],
-                [InlineKeyboardButton("👤 ከባለቤቱ በቀጥታ (Direct Owner)", callback_data="seller_owner")],
-                [InlineKeyboardButton("👨‍💼 ከተረጋገጡ ደላሎች (Verified Broker)", callback_data="seller_broker")],
-                [InlineKeyboardButton("🌐 ከሁሉም አቅራቢዎች", callback_data="seller_all")]
-            ]
-            
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
-            "📌 **ጥያቄዎ ለማን እንዲደርስ ይፈልጋሉ?**",
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-        return SELLER_TYPE
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS client_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_chat_id INTEGER NOT NULL,
+                    client_name TEXT,
+                    request_type TEXT NOT NULL,
+                    description TEXT,
+                    budget TEXT,
+                    location TEXT,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        
+        # Broker connections table
+        if DATABASE_URL:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS broker_connections (
+                    id SERIAL PRIMARY KEY,
+                    request_id INTEGER NOT NULL,
+                    broker_id INTEGER NOT NULL,
+                    client_chat_id BIGINT NOT NULL,
+                    broker_chat_id BIGINT NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (request_id) REFERENCES client_requests (id),
+                    FOREIGN KEY (broker_id) REFERENCES brokers (id)
+                )
+            """)
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS broker_connections (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_id INTEGER NOT NULL,
+                    broker_id INTEGER NOT NULL,
+                    client_chat_id INTEGER NOT NULL,
+                    broker_chat_id INTEGER NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (request_id) REFERENCES client_requests (id),
+                    FOREIGN KEY (broker_id) REFERENCES brokers (id)
+                )
+            """)
+        
+        # Search history table
+        if DATABASE_URL:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS search_history (
+                    id SERIAL PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    search_term TEXT NOT NULL,
+                    search_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS search_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    search_term TEXT NOT NULL,
+                    search_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        
+        if DATABASE_URL:
+            conn.commit()
+        logging.info("✅ Database initialized successfully")
         
     except Exception as e:
-        logger.error(f"Error in category_chosen: {e}", exc_info=True)
-        await update.callback_query.message.reply_text("❌ ስህተት ተከስቷል። እንደገና ይሞክሩ።")
-        return ConversationHandler.END
+        logging.error(f"Database initialization error: {e}")
+        if conn:
+            conn.rollback()
+    finally:
+        if conn:
+            conn.close()
 
-async def seller_type_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle seller type selection"""
+# ==============================================================================
+# 3. DATABASE HELPER FUNCTIONS
+# ==============================================================================
+
+# ========== BROKER FUNCTIONS ==========
+def register_broker_db(chat_id, full_name, phone, email, broker_type, experience_years, location):
+    conn = None
     try:
-        query = update.callback_query
-        await query.answer()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
         
-        context.user_data['seller_type'] = query.data
+        if DATABASE_URL:
+            cursor.execute(f"""
+                INSERT INTO brokers (chat_id, full_name, phone, email, broker_type, experience_years, location, is_verified)
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, 0)
+                RETURNING id
+            """, (chat_id, full_name, phone, email, broker_type, experience_years, location))
+            broker_id = cursor.fetchone()[0]
+            conn.commit()
+        else:
+            cursor.execute(f"""
+                INSERT INTO brokers (chat_id, full_name, phone, email, broker_type, experience_years, location, is_verified)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+            """, (chat_id, full_name, phone, email, broker_type, experience_years, location))
+            broker_id = cursor.lastrowid
         
-        await query.edit_message_text(
-            "✍️ **አሁን የሚፈልጉትን ዝርዝር ፍላጎት ይጻፉልን፡**\n\n"
-            "💡 *ምሳሌ፡* «አዲስ አበባ ቦሌ አካባቢ ባለ 2 መኝታ ቤት ኪራይ እስከ 40,000 ብር»\n"
-            "ወይም «2020 Model Vitz መኪና በ2 ሚሊዮን ብር ክልል»\n\n"
-            "መልእክትዎን ከታች ባለው የጽሑፍ ማዕቀፍ ያስገቡ፡",
-            parse_mode="Markdown"
-        )
-        return INQUIRY_DETAILS
-        
+        logging.info(f"✅ Broker registered: {full_name} (ID: {broker_id})")
+        return broker_id
     except Exception as e:
-        logger.error(f"Error in seller_type_chosen: {e}", exc_info=True)
-        await update.callback_query.message.reply_text("❌ ስህተት ተከስቷል። እንደገና ይሞክሩ።")
-        return ConversationHandler.END
+        if conn:
+            conn.rollback()
+        logging.error(f"Register broker error: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
 
-async def handle_inquiry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle the user's inquiry"""
+def get_broker_by_chat_id(chat_id):
+    conn = None
     try:
-        user_text = update.message.text
-        user = update.message.from_user
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"SELECT * FROM brokers WHERE chat_id = {p} AND is_active = 1", (chat_id,))
+        row = cursor.fetchone()
+        return row
+    except Exception as e:
+        logging.error(f"Get broker error: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def get_broker_by_id(broker_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"SELECT * FROM brokers WHERE id = {p} AND is_active = 1", (broker_id,))
+        row = cursor.fetchone()
+        return row
+    except Exception as e:
+        logging.error(f"Get broker by ID error: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def get_all_brokers():
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM brokers WHERE is_active = 1 AND is_verified = 1 ORDER BY registered_at DESC")
+        rows = cursor.fetchall()
+        return rows
+    except Exception as e:
+        logging.error(f"Get all brokers error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def get_brokers_by_type(broker_type):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"SELECT * FROM brokers WHERE broker_type = {p} AND is_active = 1 AND is_verified = 1", (broker_type,))
+        rows = cursor.fetchall()
+        return rows
+    except Exception as e:
+        logging.error(f"Get brokers by type error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def get_pending_brokers():
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM brokers WHERE is_verified = 0 AND is_active = 1 ORDER BY registered_at DESC")
+        rows = cursor.fetchall()
+        return rows
+    except Exception as e:
+        logging.error(f"Get pending brokers error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def verify_broker_db(broker_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"UPDATE brokers SET is_verified = 1 WHERE id = {p}", (broker_id,))
+        if DATABASE_URL:
+            conn.commit()
+        logging.info(f"✅ Broker {broker_id} verified")
+        return True
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logging.error(f"Verify broker error: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def delete_broker_db(broker_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"UPDATE brokers SET is_active = 0 WHERE id = {p}", (broker_id,))
+        if DATABASE_URL:
+            conn.commit()
+        logging.info(f"✅ Broker {broker_id} deleted")
+        return True
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logging.error(f"Delete broker error: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+# ========== REQUEST FUNCTIONS ==========
+def add_client_request(client_chat_id, client_name, request_type, description, budget, location):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
         
-        category = context.user_data.get('category', 'አልተጠቀሰም').replace('cat_', '').capitalize()
-        seller_type = context.user_data.get('seller_type', 'አልተጠቀሰም').replace('seller_', '').capitalize()
+        if DATABASE_URL:
+            cursor.execute(f"""
+                INSERT INTO client_requests (client_chat_id, client_name, request_type, description, budget, location)
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p})
+                RETURNING id
+            """, (client_chat_id, client_name, request_type, description, budget, location))
+            request_id = cursor.fetchone()[0]
+            conn.commit()
+        else:
+            cursor.execute(f"""
+                INSERT INTO client_requests (client_chat_id, client_name, request_type, description, budget, location)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (client_chat_id, client_name, request_type, description, budget, location))
+            request_id = cursor.lastrowid
         
-        # 1. Confirmation to buyer
-        summary = (
-            "✅ **ጥያቄዎ በ Adika Marketplace ተመዝግቧል!**\n\n"
-            f"🔹 **ምድብ:** {category}\n"
-            f"🔹 **የተመረጠ አቅራቢ:** {seller_type}\n"
-            f"📝 **የእርስዎ ጥያቄ:** {user_text}\n\n"
-            "🚀 ጥያቄዎ ለአቅራቢዎች ደርሷል። አማራጮች እንደደረሱን በቦቱ ይላኩልዎታል።"
-        )
-        await update.message.reply_text(summary, parse_mode="Markdown")
+        logging.info(f"✅ Request added: {request_type} (ID: {request_id})")
+        return request_id
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logging.error(f"Add request error: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def get_request_by_id(request_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"SELECT * FROM client_requests WHERE id = {p}", (request_id,))
+        row = cursor.fetchone()
+        return row
+    except Exception as e:
+        logging.error(f"Get request error: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def get_pending_requests():
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM client_requests WHERE status = 'pending' ORDER BY created_at DESC")
+        rows = cursor.fetchall()
+        return rows
+    except Exception as e:
+        logging.error(f"Get pending requests error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def update_request_status(request_id, status):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"UPDATE client_requests SET status = {p} WHERE id = {p}", (status, request_id))
+        if DATABASE_URL:
+            conn.commit()
+        return True
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logging.error(f"Update request status error: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+# ========== CONNECTION FUNCTIONS ==========
+def add_connection(request_id, broker_id, client_chat_id, broker_chat_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
         
-        # 2. Notify admin
-        if ADMIN_CHAT_ID:
-            admin_alert = (
-                "🔔 **አዲስ የገዢ ጥያቄ ደርሷል!**\n\n"
-                f"👤 **ገዢ:** @{user.username if user.username else 'የለውም'} (ID: {user.id})\n"
-                f"🔹 **ምድብ:** {category}\n"
-                f"🔹 **የተመረጠ አቅራቢ:** {seller_type}\n"
-                f"📝 **ጥያቄ:** {user_text}"
+        cursor.execute(f"""
+            INSERT INTO broker_connections (request_id, broker_id, client_chat_id, broker_chat_id)
+            VALUES ({p}, {p}, {p}, {p})
+        """, (request_id, broker_id, client_chat_id, broker_chat_id))
+        
+        cursor.execute(f"UPDATE client_requests SET status = 'connected' WHERE id = {p}", (request_id,))
+        
+        if DATABASE_URL:
+            conn.commit()
+        logging.info(f"✅ Connection added: Request {request_id} -> Broker {broker_id}")
+        return True
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logging.error(f"Add connection error: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def get_connections_by_broker(broker_chat_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"""
+            SELECT bc.*, cr.request_type, cr.description, cr.location
+            FROM broker_connections bc
+            JOIN client_requests cr ON bc.request_id = cr.id
+            WHERE bc.broker_chat_id = {p}
+            ORDER BY bc.connected_at DESC
+        """, (broker_chat_id,))
+        rows = cursor.fetchall()
+        return rows
+    except Exception as e:
+        logging.error(f"Get connections error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def get_connections_by_client(client_chat_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"""
+            SELECT bc.*, b.full_name, b.phone, b.broker_type, b.location
+            FROM broker_connections bc
+            JOIN brokers b ON bc.broker_id = b.id
+            WHERE bc.client_chat_id = {p}
+            ORDER BY bc.connected_at DESC
+        """, (client_chat_id,))
+        rows = cursor.fetchall()
+        return rows
+    except Exception as e:
+        logging.error(f"Get connections error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+# ========== SEARCH HISTORY ==========
+def save_search_history(user_id, search_term):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"""
+            INSERT INTO search_history (user_id, search_term)
+            VALUES ({p}, {p})
+        """, (user_id, search_term))
+        if DATABASE_URL:
+            conn.commit()
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        logging.error(f"Save search history error: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+def get_user_search_history(user_id, limit=10):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"""
+            SELECT search_term, search_date FROM search_history 
+            WHERE user_id = {p} ORDER BY search_date DESC LIMIT {p}
+        """, (user_id, limit))
+        rows = cursor.fetchall()
+        return rows
+    except Exception as e:
+        logging.error(f"Get search history error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+# ==============================================================================
+# 4. STATISTICS FUNCTIONS
+# ==============================================================================
+
+def get_bot_statistics():
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM brokers")
+        total_brokers = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM brokers WHERE is_verified = 1")
+        verified_brokers = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM brokers WHERE is_verified = 0")
+        pending_brokers = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM client_requests")
+        total_requests = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM client_requests WHERE status = 'pending'")
+        pending_requests = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM broker_connections")
+        total_connections = cursor.fetchone()[0]
+        return {
+            'total_brokers': total_brokers,
+            'verified_brokers': verified_brokers,
+            'pending_brokers': pending_brokers,
+            'total_requests': total_requests,
+            'pending_requests': pending_requests,
+            'total_connections': total_connections
+        }
+    except Exception as e:
+        logging.error(f"Get statistics error: {e}")
+        return {}
+    finally:
+        if conn:
+            conn.close()
+
+def get_top_brokers(limit=5):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(f"""
+            SELECT b.id, b.full_name, b.broker_type, COUNT(bc.id) as connection_count
+            FROM brokers b
+            LEFT JOIN broker_connections bc ON b.id = bc.broker_id
+            WHERE b.is_verified = 1 AND b.is_active = 1
+            GROUP BY b.id, b.full_name, b.broker_type
+            ORDER BY connection_count DESC
+            LIMIT {limit}
+        """ if DATABASE_URL else f"""
+            SELECT b.id, b.full_name, b.broker_type, COUNT(bc.id) as connection_count
+            FROM brokers b
+            LEFT JOIN broker_connections bc ON b.id = bc.broker_id
+            WHERE b.is_verified = 1 AND b.is_active = 1
+            GROUP BY b.id, b.full_name, b.broker_type
+            ORDER BY connection_count DESC
+            LIMIT {limit}
+        """)
+        rows = cursor.fetchall()
+        return rows
+    except Exception as e:
+        logging.error(f"Get top brokers error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+# ==============================================================================
+# 5. KEYBOARDS
+# ==============================================================================
+
+MAIN_KEYBOARD = [
+    ["🔍 ደላላ ፈልግ", "📋 ደላላ መዝግብ"],
+    ["📝 አዲስ ጥያቄ", "👤 መገለጫዬ"],
+    ["📊 የተመዘገቡ ደላሎች", "📋 ግንኙነቶች"],
+    ["📞 ድጋፍ", "📊 ስታቲስቲክስ"],
+    ["🏠 ዋና ገጽ"]
+]
+
+BROKER_TYPES = [
+    "🚗 የመኪና ደላላ",
+    "🏠 የቤት ደላላ",
+    "🏢 የንብረት ደላላ",
+    "📦 የሸቀጥ ደላላ",
+    "🔧 የአገልግሎት ደላላ",
+    "🏦 የፋይናንስ ደላላ",
+    "⚖️ የህግ ደላላ"
+]
+
+REQUEST_TYPES = [
+    "🏠 ቤት ለሽያጭ",
+    "🏠 ቤት ለኪራይ",
+    "🚗 መኪና ለሽያጭ",
+    "🚗 መኪና ለኪራይ",
+    "🏢 ንብረት ለሽያጭ",
+    "📦 ሸቀጥ ለሽያጭ",
+    "🔧 አገልግሎት"
+]
+
+LOCATION_KEYBOARD = [
+    ["ቦሌ", "አራዳ", "አዲስ ከተማ"],
+    ["የካ", "ቂርቆስ", "ልደታ"],
+    ["ኮልፌ ቀራኒዮ", "ንፋስ ስልክ", "አቃቂ ቃሊቲ"],
+    ["ባህር ዳር", "ጎንደር", "ደሴ"],
+    ["ሐረር", "ጅማ", "አርባ ምንጭ"],
+    ["🏠 ዋና ገጽ"]
+]
+
+# ==============================================================================
+# 6. STATES
+# ==============================================================================
+
+# Broker Registration States
+REG_NAME = 10
+REG_PHONE = 11
+REG_EMAIL = 12
+REG_TYPE = 13
+REG_EXPERIENCE = 14
+REG_LOCATION = 15
+
+# Client Request States
+REQ_TYPE = 20
+REQ_DESCRIPTION = 21
+REQ_BUDGET = 22
+REQ_LOCATION = 23
+
+# General States
+WAITING_FOR_SEARCH = 30
+WAITING_FOR_CONNECTION = 40
+WAITING_FOR_PRICE = 50
+
+# ==============================================================================
+# 7. HANDLERS - START
+# ==============================================================================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_name = update.effective_user.first_name if update.effective_user else "ወዳጄ"
+    user_id = update.effective_user.id
+    
+    welcome_text = (
+        f"👋 ሰላም {user_name}! ወደ **Broker Connect** በደህና መጡ።\n\n"
+        f"━━━ 🤝 ስለ ቦቱ ━━━\n"
+        f"• 🏢 ደላሎችን እና ደንበኞችን ያገናኛል\n"
+        f"• 🔍 ደላላ መፈለግ ወይም መመዝገብ ይችላሉ\n"
+        f"• 📝 አዲስ ጥያቄ ማስገባት ይችላሉ\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"👇 የሚፈልጉትን አገልግሎት ከታች ይምረጡ፦"
+    )
+    
+    if update.message:
+        try:
+            await update.message.reply_photo(
+                photo=LOGO_FILE_ID,
+                caption=welcome_text,
+                parse_mode="Markdown",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
             )
-            try:
-                await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_alert, parse_mode="Markdown")
-                logger.info(f"✅ Admin notified about new inquiry from {user.id}")
-            except Exception as e:
-                logger.error(f"Failed to send to admin: {e}")
-        
-        # 3. Clear user data
-        context.user_data.clear()
-        
-        return ConversationHandler.END
-        
-    except Exception as e:
-        logger.error(f"Error in handle_inquiry: {e}", exc_info=True)
-        await update.message.reply_text("❌ ስህተት ተከስቷል። እንደገና /start ይበሉ።")
-        return ConversationHandler.END
+        except Exception as e:
+            logging.error(f"Photo error: {e}")
+            await update.message.reply_text(
+                welcome_text,
+                parse_mode="Markdown",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            )
+    return ConversationHandler.END
 
-# ============================================================
-# 4. VENDOR REGISTRATION
-# ============================================================
+# ==============================================================================
+# 8. HANDLERS - BROKER REGISTRATION
+# ==============================================================================
 
-async def vendor_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Start vendor registration"""
-    try:
-        query = update.callback_query
-        await query.answer()
-        
-        keyboard = [
-            [InlineKeyboardButton("🏢 ሪል እስቴት አልሚ (Developer)", callback_data="vtype_realestate")],
-            [InlineKeyboardButton("🏪 የመኪና መሸጫ (Showroom)", callback_data="vtype_showroom")],
-            [InlineKeyboardButton("👨‍💼 የተመዘገበ ደላላ (Broker)", callback_data="vtype_broker")],
-            [InlineKeyboardButton("👤 የግል ባለቤት (Direct Owner)", callback_data="vtype_owner")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
-        await query.edit_message_text(
-            "📋 **የአቅራቢነት ምዝገባ**\n\n"
-            "በAdika Marketplace ላይ በየትኛው ዘርፍ መመዝገብ ይፈልጋሉ?",
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-        return REG_TYPE
-        
-    except Exception as e:
-        logger.error(f"Error in vendor_start: {e}", exc_info=True)
-        await update.callback_query.message.reply_text("❌ ስህተት ተከስቷል። እንደገና /start ይበሉ።")
-        return ConversationHandler.END
-
-async def vendor_type_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle vendor type selection"""
-    try:
-        query = update.callback_query
-        await query.answer()
-        
-        context.user_data['vendor_type'] = query.data
-        
-        await query.edit_message_text(
-            "✍️ **እባክዎን የድርጅትዎን ወይም የእርስዎን ሙሉ ስም ያስገቡ፡**\n"
-            "(ምሳሌ፡ *አቤል ካስቴል ሪል እስቴት* ወይም *ደላላ መሀመድ*)",
-            parse_mode="Markdown"
-        )
-        return REG_NAME
-        
-    except Exception as e:
-        logger.error(f"Error in vendor_type_chosen: {e}", exc_info=True)
-        await update.callback_query.message.reply_text("❌ ስህተት ተከስቷል። እንደገና ይሞክሩ።")
-        return ConversationHandler.END
-
-async def vendor_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle vendor name input"""
-    try:
-        context.user_data['vendor_name'] = update.message.text
-        
+async def start_broker_reg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # Check if already registered
+    existing = get_broker_by_chat_id(user_id)
+    if existing:
         await update.message.reply_text(
-            "📞 **እባክዎን የስልክ ቁጥርዎን ያስገቡ፡**\n"
-            "(ምሳሌ፡ *0911XXXXXX*)",
-            parse_mode="Markdown"
+            "✅ አስቀድመው እንደ ደላላ ተመዝግበዋል!\n\n"
+            f"👤 {existing[2]}\n"
+            f"🏢 {existing[5]}\n"
+            f"⭐ {existing[6]} አመታት\n"
+            f"📍 {existing[7]}\n\n"
+            f"📊 ሁኔታ: {'✅ የተረጋገጠ' if existing[8] else '⏳ በመጠበቅ ላይ'}",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
-        return REG_PHONE
-        
-    except Exception as e:
-        logger.error(f"Error in vendor_name_received: {e}", exc_info=True)
-        await update.message.reply_text("❌ ስህተት ተከስቷል። እንደገና ይሞክሩ።")
         return ConversationHandler.END
+    
+    await update.message.reply_text(
+        "📋 **ደላላ ምዝገባ**\n\n"
+        "1️⃣ ሙሉ ስምዎን ይላኩ:",
+        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
+    )
+    return REG_NAME
 
-async def vendor_phone_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Handle vendor phone input and complete registration"""
+async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await start(update, context)
+    
+    context.user_data["broker_name"] = update.message.text
+    await update.message.reply_text("📞 2️⃣ ስልክ ቁጥርዎን ይላኩ:")
+    return REG_PHONE
+
+async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await start(update, context)
+    
+    context.user_data["broker_phone"] = update.message.text
+    await update.message.reply_text("✉️ 3️⃣ ኢሜል አድራሻዎን ይላኩ (ካለ፣ ካልሆነ 'የለም' ይላኩ):")
+    return REG_EMAIL
+
+async def broker_reg_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await start(update, context)
+    
+    email = update.message.text
+    context.user_data["broker_email"] = "" if email.lower() == "የለም" else email
+    
+    keyboard = []
+    for i, b_type in enumerate(BROKER_TYPES):
+        keyboard.append([InlineKeyboardButton(b_type, callback_data=f"broker_type_{i}")])
+    
+    await update.message.reply_text(
+        "4️⃣ የደላላ አይነትዎን ይምረጡ:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return REG_TYPE
+
+async def broker_reg_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    index = int(query.data.split("_")[2])
+    context.user_data["broker_type"] = BROKER_TYPES[index]
+    
+    await query.edit_message_text(
+        f"✅ ዘርፍ: {BROKER_TYPES[index]}\n\n"
+        f"5️⃣ የልምድ አመታትዎን ይላኩ (ቁጥር ብቻ):"
+    )
+    return REG_EXPERIENCE
+
+async def broker_reg_experience(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await start(update, context)
+    
     try:
-        context.user_data['vendor_phone'] = update.message.text
-        user = update.message.from_user
-        
-        v_type = context.user_data.get('vendor_type', '').replace('vtype_', '').capitalize()
-        v_name = context.user_data.get('vendor_name')
-        v_phone = context.user_data.get('vendor_phone')
-        
-        # Confirmation to vendor
-        conf_text = (
-            "🎉 **ምዝገባዎ በስኬት ተጠናቋል!**\n\n"
-            f"🏷️ **የአቅራቢ አይነት:** {v_type}\n"
-            f"👤 **ስም:** {v_name}\n"
-            f"📞 **ስልክ:** {v_phone}\n\n"
-            "🔔 አካውንትዎ እንደተረጋገጠ (Verify) የገዢዎች ጥያቄ በቀጥታ በስልክዎ መድረስ ይጀምራል።\n\n"
-            "📌 ለማረጋገጫ አስተዳዳሪውን ያግኙ።"
+        context.user_data["broker_experience"] = int(update.message.text)
+        await update.message.reply_text(
+            "📍 6️⃣ የሚሰሩበትን አካባቢ ይምረጡ ወይም ይላኩ:",
+            reply_markup=ReplyKeyboardMarkup(LOCATION_KEYBOARD, resize_keyboard=True)
         )
-        await update.message.reply_text(conf_text, parse_mode="Markdown")
+        return REG_LOCATION
+    except ValueError:
+        await update.message.reply_text("❌ እባክዎ ትክክለኛ ቁጥር ይላኩ (ለምሳሌ፦ 5):")
+        return REG_EXPERIENCE
+
+async def broker_reg_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await start(update, context)
+    
+    context.user_data["broker_location"] = update.message.text
+    chat_id = update.effective_user.id
+    
+    broker_id = register_broker_db(
+        chat_id,
+        context.user_data["broker_name"],
+        context.user_data["broker_phone"],
+        context.user_data["broker_email"],
+        context.user_data["broker_type"],
+        context.user_data["broker_experience"],
+        context.user_data["broker_location"]
+    )
+    
+    if broker_id:
+        await update.message.reply_text(
+            f"✅ **በስኬት ተመዝግበዋል!**\n\n"
+            f"👤 {context.user_data['broker_name']}\n"
+            f"🏢 {context.user_data['broker_type']}\n"
+            f"⭐ {context.user_data['broker_experience']} አመታት\n"
+            f"📍 {context.user_data['broker_location']}\n\n"
+            f"⏳ እየተረጋገጠ ነው... ማሳወቂያ ይጠብቁ!",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
         
         # Notify admin
-        if ADMIN_CHAT_ID:
-            admin_vendor_alert = (
-                "🆕 **አዲስ አቅራቢ ተመዝግቧል!**\n\n"
-                f"👤 **Telegram User:** @{user.username if user.username else 'የለውም'} (ID: {user.id})\n"
-                f"🏷️ **አይነት:** {v_type}\n"
-                f"📛 **ስም:** {v_name}\n"
-                f"📞 **ስልክ:** {v_phone}"
-            )
-            try:
-                await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_vendor_alert, parse_mode="Markdown")
-                logger.info(f"✅ Admin notified about new vendor registration: {user.id}")
-            except Exception as e:
-                logger.error(f"Failed to send vendor reg to admin: {e}")
+        admin_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ ፈቅድ", callback_data=f"verify_broker_{broker_id}")],
+            [InlineKeyboardButton("❌ ውድቅ አድርግ", callback_data=f"reject_broker_{broker_id}")]
+        ])
         
-        # Clear user data
-        context.user_data.clear()
-        
-        return ConversationHandler.END
-        
-    except Exception as e:
-        logger.error(f"Error in vendor_phone_received: {e}", exc_info=True)
-        await update.message.reply_text("❌ ስህተት ተከስቷል። እንደገና /start ይበሉ።")
-        return ConversationHandler.END
-
-# ============================================================
-# 5. CANCEL & ERROR HANDLERS
-# ============================================================
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Cancel the conversation"""
-    try:
-        await update.message.reply_text(
-            "❌ ሂደቱ ተቋርጧል። እንደገና ለመጀመር /start ይበሉ።",
-            parse_mode="Markdown"
+        await context.bot.send_message(
+            chat_id=ADMIN_CHAT_ID,
+            text=f"🔔 **አዲስ ደላላ ምዝገባ!**\n\n"
+                 f"👤 {context.user_data['broker_name']}\n"
+                 f"📞 {context.user_data['broker_phone']}\n"
+                 f"✉️ {context.user_data['broker_email'] or 'የለም'}\n"
+                 f"🏢 {context.user_data['broker_type']}\n"
+                 f"⭐ {context.user_data['broker_experience']} አመታት\n"
+                 f"📍 {context.user_data['broker_location']}\n"
+                 f"🆔 {broker_id}",
+            reply_markup=admin_keyboard
         )
-        context.user_data.clear()
-        return ConversationHandler.END
-    except Exception as e:
-        logger.error(f"Error in cancel: {e}")
-        return ConversationHandler.END
+    else:
+        await update.message.reply_text(
+            "❌ ምዝገባ አልተሳካም። እባክዎ እንደገና ይሞክሩ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+    
+    return ConversationHandler.END
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle errors"""
-    logger.error(f"Exception occurred: {context.error}", exc_info=True)
+# ==============================================================================
+# 9. HANDLERS - FIND BROKERS
+# ==============================================================================
+
+async def find_brokers(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = []
+    for i, b_type in enumerate(BROKER_TYPES):
+        keyboard.append([InlineKeyboardButton(b_type, callback_data=f"find_type_{i}")])
+    keyboard.append([InlineKeyboardButton("🔙 ወደ መጀመሪያ", callback_data="go_home")])
     
-    # Log the full error details
-    error_type = type(context.error).__name__
-    error_msg = str(context.error)
-    logger.error(f"Error Type: {error_type}")
-    logger.error(f"Error Message: {error_msg}")
+    await update.message.reply_text(
+        "🔍 **ደላላ ፈልግ**\n\n"
+        "የሚፈልጉትን የደላላ አይነት ይምረጡ:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def find_brokers_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
     
-    # Try to notify user
-    try:
-        if update and hasattr(update, 'effective_message'):
-            await update.effective_message.reply_text(
-                f"❌ **ስህተት ተከስቷል!**\n\n"
-                f"🔴 {error_msg[:200]}\n\n"
-                f"💡 እባክዎ እንደገና /start ይበሉ ወይም አስተዳዳሪውን ያግኙ።",
-                parse_mode="Markdown"
+    data = query.data
+    if data.startswith("find_type_"):
+        index = int(data.split("_")[2])
+        broker_type = BROKER_TYPES[index]
+        
+        brokers = get_brokers_by_type(broker_type)
+        
+        if brokers:
+            text = f"📋 **{broker_type} ደላሎች**\n\n"
+            for broker in brokers:
+                text += f"👤 {broker[2]}\n"
+                text += f"📞 {broker[3]}\n"
+                text += f"⭐ {broker[6]} አመታት\n"
+                text += f"📍 {broker[7]}\n"
+                text += f"🆔 {broker[0]}\n"
+                text += "────────────────────\n"
+            
+            keyboard = [[InlineKeyboardButton("🔙 ተመለስ", callback_data="find_back")]]
+            await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await query.edit_message_text(
+                f"😅 በ{broker_type} ምንም የተመዘገበ ደላላ የለም።\n\n"
+                f"💡 እንደ ደላላ ለመመዝገብ '📋 ደላላ መዝግብ' ይጫኑ።",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🔙 ተመለስ", callback_data="find_back")
+                ]])
             )
-    except:
-        pass
+    
+    elif data == "find_back":
+        await query.edit_message_text(
+            "🔍 ወደ ደላላ ፍለጋ ተመለስክ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
 
-# ============================================================
-# 6. MAIN FUNCTION
-# ============================================================
+# ==============================================================================
+# 10. HANDLERS - NEW REQUEST
+# ==============================================================================
 
-def main():
-    """Start the bot"""
-    if not BOT_TOKEN:
-        print("❌ ERROR: BOT_TOKEN በ .env ፋይል ውስጥ አልተገኘም!")
-        print("💡 እባክዎ .env ፋይል ይፍጠሩ እና BOT_TOKEN ይጨምሩ።")
+async def new_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = []
+    for i, r_type in enumerate(REQUEST_TYPES):
+        keyboard.append([InlineKeyboardButton(r_type, callback_data=f"req_type_{i}")])
+    keyboard.append([InlineKeyboardButton("🔙 ሰረዝ", callback_data="go_home")])
+    
+    await update.message.reply_text(
+        "📝 **አዲስ ጥያቄ**\n\n"
+        "የጥያቄ አይነት ይምረጡ:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return REQ_TYPE
+
+async def new_request_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    index = int(query.data.split("_")[2])
+    context.user_data["request_type"] = REQUEST_TYPES[index]
+    
+    await query.edit_message_text(
+        f"✅ የጥያቄ አይነት: {REQUEST_TYPES[index]}\n\n"
+        f"📝 ዝርዝር መረጃ ይላኩ (ለምሳሌ፦ '3 መኝታ ቤት፣ 2 መታጠቢያ'):"
+    )
+    return REQ_DESCRIPTION
+
+async def new_request_description(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await start(update, context)
+    
+    context.user_data["request_description"] = update.message.text
+    await update.message.reply_text("💰 የበጀት መጠን ይላኩ (ለምሳሌ፦ '5,000,000 ብር'):")
+    return REQ_BUDGET
+
+async def new_request_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await start(update, context)
+    
+    context.user_data["request_budget"] = update.message.text
+    await update.message.reply_text(
+        "📍 አካባቢ ይምረጡ ወይም ይላኩ:",
+        reply_markup=ReplyKeyboardMarkup(LOCATION_KEYBOARD, resize_keyboard=True)
+    )
+    return REQ_LOCATION
+
+async def new_request_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await start(update, context)
+    
+    context.user_data["request_location"] = update.message.text
+    user = update.effective_user
+    
+    request_id = add_client_request(
+        user.id,
+        user.first_name or "",
+        context.user_data["request_type"],
+        context.user_data["request_description"],
+        context.user_data["request_budget"],
+        context.user_data["request_location"]
+    )
+    
+    if request_id:
+        await update.message.reply_text(
+            f"✅ **ጥያቄዎ ተመዝግቧል!** (ID: #{request_id})\n\n"
+            f"📋 {context.user_data['request_type']}\n"
+            f"📝 {context.user_data['request_description']}\n"
+            f"💰 {context.user_data['request_budget']}\n"
+            f"📍 {context.user_data['request_location']}\n\n"
+            f"🔔 ለተመዘገቡ ደላሎች ተልኳል። መልስ ይጠብቁ...",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        
+        # Notify all verified brokers
+        brokers = get_all_brokers()
+        for broker in brokers:
+            try:
+                keyboard = [[InlineKeyboardButton("✅ አለኝ", callback_data=f"broker_have_{request_id}_{user.id}_{broker[0]}")]]
+                await context.bot.send_message(
+                    chat_id=broker[1],
+                    text=f"🔔 **አዲስ ጥያቄ!**\n\n"
+                         f"📋 {context.user_data['request_type']}\n"
+                         f"📝 {context.user_data['request_description']}\n"
+                         f"💰 {context.user_data['request_budget']}\n"
+                         f"📍 {context.user_data['request_location']}\n\n"
+                         f"❓ አለህ?",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as e:
+                logging.error(f"Error notifying broker {broker[1]}: {e}")
+        
+        # Save search history
+        save_search_history(user.id, context.user_data["request_type"])
+        
+    else:
+        await update.message.reply_text("❌ ጥያቄውን ማስመዝገብ አልተቻለም።")
+    
+    return ConversationHandler.END
+
+# ==============================================================================
+# 11. HANDLERS - BROKER RESPONSE (HAVE)
+# ==============================================================================
+
+async def broker_have_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data.split("_")
+    request_id = int(data[2])
+    client_chat_id = data[3]
+    broker_id = int(data[4])
+    broker_chat_id = update.effective_user.id
+    
+    # Get broker info
+    broker = get_broker_by_id(broker_id)
+    if not broker:
+        await query.edit_message_text("❌ የደላላ መረጃ አልተገኘም።")
         return
     
-    if not ADMIN_CHAT_ID:
-        print("⚠️ WARNING: ADMIN_CHAT_ID አልተገኘም! አስተዳዳሪ ማሳወቂያዎች አይላኩም።")
-
-    try:
-        app = ApplicationBuilder().token(BOT_TOKEN).build()
-        
-        # Conversation Handler
-        conv_handler = ConversationHandler(
-            entry_points=[CommandHandler('start', start)],
-            states={
-                ROLE_SELECTION: [
-                    CallbackQueryHandler(buyer_start, pattern='^role_buyer$'),
-                    CallbackQueryHandler(vendor_start, pattern='^role_vendor$')
-                ],
-                CATEGORY: [
-                    CallbackQueryHandler(category_chosen, pattern='^cat_')
-                ],
-                SELLER_TYPE: [
-                    CallbackQueryHandler(seller_type_chosen, pattern='^seller_')
-                ],
-                INQUIRY_DETAILS: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, handle_inquiry)
-                ],
-                REG_TYPE: [
-                    CallbackQueryHandler(vendor_type_chosen, pattern='^vtype_')
-                ],
-                REG_NAME: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, vendor_name_received)
-                ],
-                REG_PHONE: [
-                    MessageHandler(filters.TEXT & ~filters.COMMAND, vendor_phone_received)
-                ],
-            },
-            fallbacks=[CommandHandler('cancel', cancel)],
+    # Check if already connected
+    if add_connection(request_id, broker_id, client_chat_id, broker_chat_id):
+        # Send broker info to client
+        await context.bot.send_message(
+            chat_id=client_chat_id,
+            text=f"✅ **ደላላ ተገኝቷል!**\n\n"
+                 f"👤 **{broker[2]}**\n"
+                 f"📞 {broker[3]}\n"
+                 f"🏢 {broker[5]}\n"
+                 f"⭐ {broker[6]} አመታት ልምድ\n"
+                 f"📍 {broker[7]}\n\n"
+                 f"📞 በመደወል ይነጋገሩት!",
+            parse_mode="Markdown"
         )
         
-        app.add_handler(conv_handler)
-        app.add_error_handler(error_handler)
-        
-        print("🚀 Adika Marketplace Bot is successfully running...")
-        print(f"📌 Bot started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"🤖 Bot Token: {BOT_TOKEN[:10]}...")
-        print(f"👤 Admin ID: {ADMIN_CHAT_ID or 'Not set'}")
-        
-        app.run_polling()
-        
-    except Exception as e:
-        logger.error(f"Failed to start bot: {e}", exc_info=True)
-        print(f"❌ Failed to start bot: {e}")
+        await query.edit_message_text(
+            f"✅ ምላሽህ ተልኳል!\n\n"
+            f"👤 {broker[2]}\n"
+            f"📞 {broker[3]}\n\n"
+            f"📌 ደንበኛው በቅርቡ ያነጋግርሃል።",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("🏠 ዋና ሜኑ", callback_data="go_home")
+            ]])
+        )
+    else:
+        await query.edit_message_text(
+            "❌ ግንኙነቱን መመዝገብ አልተቻለም። ምናልባት አስቀድሞ መልስ ሰጥተህ ይሆናል።"
+        )
 
-if __name__ == '__main__':
+# ==============================================================================
+# 12. HANDLERS - PROFILE
+# ==============================================================================
+
+async def my_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # Check if broker
+    broker = get_broker_by_chat_id(user_id)
+    if broker:
+        text = (
+            f"👤 **መገለጫህ**\n\n"
+            f"📛 {broker[2]}\n"
+            f"📞 {broker[3]}\n"
+            f"✉️ {broker[4] or 'የለም'}\n"
+            f"🏢 {broker[5]}\n"
+            f"⭐ {broker[6]} አመታት\n"
+            f"📍 {broker[7]}\n"
+            f"📊 {'✅ የተረጋገጠ' if broker[8] else '⏳ በመጠበቅ ላይ'}\n"
+            f"📅 {broker[9]}\n"
+        )
+        await update.message.reply_text(text, parse_mode="Markdown")
+        return
+    
+    # Check if client has requests
+    connections = get_connections_by_client(user_id)
+    if connections:
+        text = "📋 **የእርስዎ ግንኙነቶች**\n\n"
+        for conn in connections:
+            text += f"👤 {conn[7]}\n"
+            text += f"📞 {conn[8]}\n"
+            text += f"🏢 {conn[9]}\n"
+            text += f"📍 {conn[10]}\n"
+            text += "────────────────────\n"
+        await update.message.reply_text(text, parse_mode="Markdown")
+        return
+    
+    await update.message.reply_text(
+        "👤 ምንም መረጃ አልተገኘም።\n\n"
+        "💡 እንደ ደላላ ለመመዝገብ '📋 ደላላ መዝግብ' ይጫኑ።",
+        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+    )
+
+# ==============================================================================
+# 13. HANDLERS - LIST BROKERS
+# ==============================================================================
+
+async def list_all_brokers(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    brokers = get_all_brokers()
+    
+    if not brokers:
+        await update.message.reply_text(
+            "📭 ምንም የተመዘገበ ደላላ የለም።\n\n"
+            "💡 የመጀመሪያ ደላላ ለመሆን '📋 ደላላ መዝግብ' ይጫኑ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+    
+    text = "📊 **የተመዘገቡ ደላሎች**\n\n"
+    for broker in brokers[:15]:
+        text += f"👤 {broker[2]}\n"
+        text += f"🏢 {broker[5]}\n"
+        text += f"⭐ {broker[6]} አመታት\n"
+        text += f"📍 {broker[7]}\n"
+        text += "────────────────────\n"
+    
+    if len(brokers) > 15:
+        text += f"\n... እና {len(brokers)-15} ሌሎች ደላሎች"
+    
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+# ==============================================================================
+# 14. HANDLERS - CONNECTIONS
+# ==============================================================================
+
+async def my_connections(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    # Check if broker
+    broker = get_broker_by_chat_id(user_id)
+    if broker:
+        connections = get_connections_by_broker(user_id)
+        if connections:
+            text = "📋 **የእርስዎ ግንኙነቶች**\n\n"
+            for conn in connections:
+                text += f"📝 {conn[5]}\n"
+                text += f"📋 {conn[6]}\n"
+                text += f"📍 {conn[7]}\n"
+                text += f"🕐 {conn[9]}\n"
+                text += "────────────────────\n"
+            await update.message.reply_text(text, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(
+                "📋 ምንም ግንኙነቶች የሉም።\n\n"
+                "💡 አዲስ ጥያቄ ሲመጣ 'አለኝ' ብለህ መልስ ስጥ!",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+        return
+    
+    # Check if client
+    connections = get_connections_by_client(user_id)
+    if connections:
+        text = "📋 **የእርስዎ ግንኙነቶች**\n\n"
+        for conn in connections:
+            text += f"👤 {conn[7]}\n"
+            text += f"📞 {conn[8]}\n"
+            text += f"🏢 {conn[9]}\n"
+            text += f"📍 {conn[10]}\n"
+            text += "────────────────────\n"
+        await update.message.reply_text(text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(
+            "📋 ምንም ግንኙነቶች የሉም።\n\n"
+            "💡 አዲስ ጥያቄ ለማስገባት '📝 አዲስ ጥያቄ' ይጫኑ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+
+# ==============================================================================
+# 15. HANDLERS - ADMIN
+# ==============================================================================
+
+async def admin_manage_brokers(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_CHAT_ID:
+        await update.message.reply_text("⛔ ይህ ለአድሚን ብቻ ነው።")
+        return
+    
+    pending = get_pending_brokers()
+    
+    if not pending:
+        await update.message.reply_text(
+            "✅ ምንም ያልተረጋገጠ ደላላ የለም።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+    
+    text = "📋 **ያልተረጋገጡ ደላሎች**\n\n"
+    for broker in pending:
+        text += f"🆔 {broker[0]}\n"
+        text += f"👤 {broker[2]}\n"
+        text += f"📞 {broker[3]}\n"
+        text += f"🏢 {broker[5]}\n"
+        text += f"📍 {broker[7]}\n"
+        text += f"📅 {broker[9]}\n"
+        text += "────────────────────\n"
+    
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+async def admin_verify_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    if user_id != ADMIN_CHAT_ID:
+        await query.edit_message_text("⛔ ለአድሚን ብቻ")
+        return
+    
+    data = query.data
+    if data.startswith("verify_broker_"):
+        broker_id = int(data.split("_")[2])
+        if verify_broker_db(broker_id):
+            broker = get_broker_by_id(broker_id)
+            if broker:
+                await query.edit_message_text(f"✅ ደላላ {broker[2]} ተረጋግጧል!")
+                # Notify broker
+                try:
+                    await context.bot.send_message(
+                        chat_id=broker[1],
+                        text=f"🎉 **በስኬት ተረጋገጡ!**\n\n"
+                             f"👤 {broker[2]}\n"
+                             f"🏢 {broker[5]}\n\n"
+                             f"📌 አሁን አዳዲስ ጥያቄዎች ይደርስዎታል!"
+                    )
+                except:
+                    pass
+        else:
+            await query.edit_message_text("❌ ማረጋገጥ አልተቻለም።")
+    
+    elif data.startswith("reject_broker_"):
+        broker_id = int(data.split("_")[2])
+        broker = get_broker_by_id(broker_id)
+        if broker:
+            delete_broker_db(broker_id)
+            await query.edit_message_text(f"❌ ደላላ {broker[2]} ውድቅ ተደርጓል!")
+            try:
+                await context.bot.send_message(
+                    chat_id=broker[1],
+                    text="❌ የደላላ ምዝገባዎ ውድቅ ተደርጓል። ለበለጠ መረጃ አስተዳዳሪውን ያግኙ።"
+                )
+            except:
+                pass
+
+# ==============================================================================
+# 16. HANDLERS - STATISTICS
+# ==============================================================================
+
+async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    is_admin = (user_id == ADMIN_CHAT_ID)
+    
+    stats = get_bot_statistics()
+    top_brokers = get_top_brokers()
+    search_history = get_user_search_history(user_id, 5)
+    
+    text = "📊 **ስታቲስቲክስ**\n\n"
+    text += f"👤 **ደላሎች**\n"
+    text += f"• ጠቅላላ: {stats.get('total_brokers', 0)}\n"
+    text += f"• የተረጋገጡ: {stats.get('verified_brokers', 0)}\n"
+    if is_admin:
+        text += f"• ያልተረጋገጡ: {stats.get('pending_brokers', 0)}\n"
+    text += "\n"
+    
+    text += f"📝 **ጥያቄዎች**\n"
+    text += f"• ጠቅላላ: {stats.get('total_requests', 0)}\n"
+    text += f"• በመጠበቅ ላይ: {stats.get('pending_requests', 0)}\n"
+    text += "\n"
+    
+    text += f"🤝 **ግንኙነቶች**\n"
+    text += f"• ጠቅላላ: {stats.get('total_connections', 0)}\n"
+    text += "\n"
+    
+    if top_brokers:
+        text += "🏆 **ከፍተኛ ደላሎች**\n"
+        for idx, (bid, name, btype, count) in enumerate(top_brokers, 1):
+            text += f"• {idx}. {name} ({count} ግንኙነቶች)\n"
+        text += "\n"
+    
+    if search_history:
+        text += "📝 **የቅርብ ጊዜ ፍለጋዎች**\n"
+        for term, date in search_history:
+            text += f"• {term}\n"
+    
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+# ==============================================================================
+# 17. HANDLERS - HELP
+# ==============================================================================
+
+async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = """
+❓ **እንዴት እንደሚሰራ**
+
+🤝 **ደላላ ከሆንክ:**
+• '📋 ደላላ መዝግብ' ተጫን
+• መረጃህን ሙሉ ለሙሉ አስገባ
+• አስተዳዳሪ ካረጋገጠ በኋላ አዲስ ጥያቄ ሲመጣ ማሳወቂያ ታገኛለህ
+• 'አለኝ' ብለህ መልስ ስጥ ደንበኛው መረጃህን ያገኛል
+
+🔍 **ደንበኛ ከሆንክ:**
+• '🔍 ደላላ ፈልግ' ተጫን
+• የምትፈልገውን የደላላ አይነት ምረጥ
+• የደላሎች ዝርዝር ታያለህ
+• '📝 አዲስ ጥያቄ' ተጫን ለደላላ ለመላክ
+
+📞 **ግንኙነት:**
+• ደላላ ሲያገኝ 'አለኝ' ይላል
+• የደላላውን ስልክ ቁጥር ታገኛለህ
+• በቀጥታ ተደውለህ ተነጋገር
+
+📌 **ሌሎች አማራጮች:**
+• '👤 መገለጫዬ' - መረጃህን ተመልከት
+• '📋 ግንኙነቶች' - ያስተናገድካቸውን ግንኙነቶች ተመልከት
+• '📊 ስታቲስቲክስ' - የቦቱ አጠቃቀም መረጃ
+• '📞 ድጋፍ' - ለእርዳታ ያግኙን
+"""
+    await update.message.reply_text(help_text, parse_mode="Markdown")
+
+# ==============================================================================
+# 18. MAIN FUNCTION
+# ==============================================================================
+
+def main():
+    init_db()
+    threading.Thread(target=run_flask, daemon=True).start()
+
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    # ========== BROKER REGISTRATION CONVERSATION ==========
+    broker_reg_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📋 ደላላ መዝግብ$"), start_broker_reg)],
+        states={
+            REG_NAME: [MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start), MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name)],
+            REG_PHONE: [MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start), MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone)],
+            REG_EMAIL: [MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start), MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_email)],
+            REG_TYPE: [CallbackQueryHandler(broker_reg_type_callback, pattern="^broker_type_")],
+            REG_EXPERIENCE: [MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start), MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_experience)],
+            REG_LOCATION: [MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start), MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_location)],
+        },
+        fallbacks=[CommandHandler("start", start), MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start)],
+    )
+
+    # ========== NEW REQUEST CONVERSATION ==========
+    request_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📝 አዲስ ጥያቄ$"), new_request)],
+        states={
+            REQ_TYPE: [CallbackQueryHandler(new_request_type_callback, pattern="^req_type_")],
+            REQ_DESCRIPTION: [MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start), MessageHandler(filters.TEXT & ~filters.COMMAND, new_request_description)],
+            REQ_BUDGET: [MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start), MessageHandler(filters.TEXT & ~filters.COMMAND, new_request_budget)],
+            REQ_LOCATION: [MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start), MessageHandler(filters.TEXT & ~filters.COMMAND, new_request_location)],
+        },
+        fallbacks=[CommandHandler("start", start), MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start)],
+    )
+
+    # ========== COMMAND HANDLERS ==========
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("stats", show_stats))
+    app.add_handler(CommandHandler("manage", admin_manage_brokers))
+
+    # ========== MESSAGE HANDLERS ==========
+    app.add_handler(MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start))
+    app.add_handler(MessageHandler(filters.Regex("^🔍 ደላላ ፈልግ$"), find_brokers))
+    app.add_handler(MessageHandler(filters.Regex("^👤 መገለጫዬ$"), my_profile))
+    app.add_handler(MessageHandler(filters.Regex("^📊 የተመዘገቡ ደላሎች$"), list_all_brokers))
+    app.add_handler(MessageHandler(filters.Regex("^📋 ግንኙነቶች$"), my_connections))
+    app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), show_help))
+    app.add_handler(MessageHandler(filters.Regex("^📊 ስታቲስቲክስ$"), show_stats))
+
+    # ========== CALLBACK QUERY HANDLERS ==========
+    app.add_handler(CallbackQueryHandler(find_brokers_callback, pattern="^find_"))
+    app.add_handler(CallbackQueryHandler(broker_have_callback, pattern="^broker_have_"))
+    app.add_handler(CallbackQueryHandler(admin_verify_callback, pattern="^(verify_broker_|reject_broker_)"))
+    app.add_handler(CallbackQueryHandler(lambda u, c: start(u, c), pattern="^go_home$"))
+
+    # ========== CONVERSATION HANDLERS ==========
+    app.add_handler(broker_reg_conv)
+    app.add_handler(request_conv)
+
+    # ========== ERROR HANDLER ==========
+    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+        logging.error(f"Update {update} caused error {context.error}")
+    
+    app.add_error_handler(error_handler)
+
+    print("🤖 Broker Connect Bot ተጀምሯል...")
+    app.run_polling()
+
+if __name__ == "__main__":
     main()
