@@ -292,7 +292,9 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     vendor = get_vendor_by_chat_id(user_id)
     if vendor:
-        status_text = "✅ የተረጋገጠ አቅራቢ" if vendor[6] else "⏳ ማረጋገጫ በመጠበቅ ላይ"
+        # id(0), chat_id(1), full_name(2), phone(3), vendor_type(4), document_id(5), is_verified(6)
+        is_verified = vendor[6] if len(vendor) > 6 else 0
+        status_text = "✅ የተረጋገጠ አቅራቢ" if is_verified else "⏳ ማረጋገጫ በመጠበቅ ላይ"
         text = (
             f"👤 **የአቅራቢ መገለጫ**\n\n"
             f"📛 **ስም/ድርጅት:** {vendor[2]}\n"
@@ -391,9 +393,10 @@ async def start_vendor_reg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     existing = get_vendor_by_chat_id(user_id)
     if existing:
+        is_verified = existing[6] if len(existing) > 6 else 0
         await update.message.reply_text(
             f"✅ አስቀድመው ተመዝግበዋል!\n\n👤 {existing[2]}\n📞 {existing[3]}\n🏢 {existing[4]}\n"
-            f"📊 ሁኔታ: {'✅ የተረጋገጠ' if existing[6] else '⏳ በመጠበቅ ላይ'}"
+            f"📊 ሁኔታ: {'✅ የተረጋገጠ' if is_verified else '⏳ በመጠበቅ ላይ'}"
         )
         return ConversationHandler.END
 
@@ -434,7 +437,6 @@ async def vendor_phone_received(update: Update, context: ContextTypes.DEFAULT_TY
 async def vendor_doc_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
-    # ፎቶ ወይም ዶክመንት መሆኑን ማረጋገጥ
     doc_id = None
     if update.message.photo:
         doc_id = update.message.photo[-1].file_id
@@ -455,7 +457,6 @@ async def vendor_doc_received(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
-        # ለአድሚን የመፍቀጃ ቁልፍ ያለው ማሳወቂያ መላክ
         if ADMIN_CHAT_ID:
             try:
                 admin_kbd = InlineKeyboardMarkup([
@@ -526,7 +527,6 @@ async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         if verify_vendor_db(v_id):
             vendor = get_vendor_by_id(v_id)
             await query.edit_message_caption(caption=f"✅ **አቅራቢ {vendor[2]} በስኬት ተረጋግጧል!**", parse_mode="Markdown")
-            # ለአቅራቢው ማሳወቂያ መላክ
             try:
                 await context.bot.send_message(
                     chat_id=vendor[1],
@@ -558,7 +558,15 @@ def main():
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Buyer Flow
+    # 1. Standard Commands & Top-Level Menu Handlers (አስቀድመው መመደብ አለባቸው)
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))
+    
+    app.add_handler(MessageHandler(filters.Regex("^👤 መገለጫዬ$"), show_profile))
+    app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), show_help))
+    app.add_handler(MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start))
+
+    # 2. Conversation Handlers
     buyer_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🔍 ዕቃ/ቤት/መኪና እፈልጋለሁ$"), start_buyer_request)],
         states={
@@ -569,7 +577,6 @@ def main():
         fallbacks=[CommandHandler("start", start), MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start)],
     )
 
-    # Vendor Flow
     vendor_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ መመዝገብ$"), start_vendor_reg)],
         states={
@@ -581,20 +588,10 @@ def main():
         fallbacks=[CommandHandler("start", start), MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start)],
     )
 
-    # Command Handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("admin", admin_panel))
-    
-    # Message Handlers
-    app.add_handler(MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start))
-    app.add_handler(MessageHandler(filters.Regex("^👤 መገለጫዬ$"), show_profile))
-    app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), show_help))
-    
-    # Conversation Handlers
     app.add_handler(buyer_conv)
     app.add_handler(vendor_conv)
 
-    # Callback Query Handlers for Admin
+    # 3. Callback Handlers
     app.add_handler(CallbackQueryHandler(admin_callback_handler, pattern="^admin_"))
 
     # Error Handler
