@@ -42,7 +42,7 @@ logging.basicConfig(
 )
 
 # ==============================================================================
-# 2. DATABASE INITIALIZATION (PostgreSQL / SQLite)
+# 2. DATABASE INITIALIZATION
 # ==============================================================================
 def get_db_connection():
     if DATABASE_URL:
@@ -63,7 +63,7 @@ def init_db():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # 1. የአቅራቢዎች / ደላሎች ሰንጠረዥ (Vendors Table)
+        # 1. Vendors Table
         if DATABASE_URL:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS vendors (
@@ -72,6 +72,7 @@ def init_db():
                     full_name TEXT NOT NULL,
                     phone TEXT NOT NULL,
                     vendor_type TEXT NOT NULL,
+                    document_id TEXT,
                     is_verified INTEGER DEFAULT 0,
                     is_active INTEGER DEFAULT 1,
                     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -85,13 +86,14 @@ def init_db():
                     full_name TEXT NOT NULL,
                     phone TEXT NOT NULL,
                     vendor_type TEXT NOT NULL,
+                    document_id TEXT,
                     is_verified INTEGER DEFAULT 0,
                     is_active INTEGER DEFAULT 1,
                     registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
-        # 2. የገዢዎች ጥያቄ ሰንጠረዥ (Requests Table)
+        # 2. Buyer Requests Table
         if DATABASE_URL:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS buyer_requests (
@@ -129,20 +131,28 @@ def init_db():
 # ==============================================================================
 # 3. DATABASE HELPER FUNCTIONS
 # ==============================================================================
-def register_vendor_db(chat_id, full_name, phone, vendor_type):
+def register_vendor_db(chat_id, full_name, phone, vendor_type, document_id):
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
-        cursor.execute(f"""
-            INSERT INTO vendors (chat_id, full_name, phone, vendor_type)
-            VALUES ({p}, {p}, {p}, {p})
-        """, (chat_id, full_name, phone, vendor_type))
-        return True
+        if DATABASE_URL:
+            cursor.execute(f"""
+                INSERT INTO vendors (chat_id, full_name, phone, vendor_type, document_id)
+                VALUES ({p}, {p}, {p}, {p}, {p}) RETURNING id
+            """, (chat_id, full_name, phone, vendor_type, document_id))
+            v_id = cursor.fetchone()[0]
+        else:
+            cursor.execute(f"""
+                INSERT INTO vendors (chat_id, full_name, phone, vendor_type, document_id)
+                VALUES ({p}, {p}, {p}, {p}, {p})
+            """, (chat_id, full_name, phone, vendor_type, document_id))
+            v_id = cursor.lastrowid
+        return v_id
     except Exception as e:
         logging.error(f"Register vendor error: {e}")
-        return False
+        return None
     finally:
         if conn:
             conn.close()
@@ -158,6 +168,65 @@ def get_vendor_by_chat_id(chat_id):
     except Exception as e:
         logging.error(f"Get vendor error: {e}")
         return None
+    finally:
+        if conn:
+            conn.close()
+
+def get_vendor_by_id(vendor_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"SELECT * FROM vendors WHERE id = {p}", (vendor_id,))
+        return cursor.fetchone()
+    except Exception as e:
+        logging.error(f"Get vendor by ID error: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def get_pending_vendors():
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM vendors WHERE is_verified = 0 AND is_active = 1 ORDER BY registered_at DESC")
+        return cursor.fetchall()
+    except Exception as e:
+        logging.error(f"Get pending vendors error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def verify_vendor_db(vendor_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"UPDATE vendors SET is_verified = 1 WHERE id = {p}", (vendor_id,))
+        return True
+    except Exception as e:
+        logging.error(f"Verify vendor error: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+def delete_vendor_db(vendor_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"UPDATE vendors SET is_active = 0 WHERE id = {p}", (vendor_id,))
+        return True
+    except Exception as e:
+        logging.error(f"Delete vendor error: {e}")
+        return False
     finally:
         if conn:
             conn.close()
@@ -188,21 +257,6 @@ def add_buyer_request(buyer_chat_id, buyer_name, category, seller_preference, de
         if conn:
             conn.close()
 
-def verify_vendor_db(vendor_id):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"UPDATE vendors SET is_verified = 1 WHERE id = {p}", (vendor_id,))
-        return True
-    except Exception as e:
-        logging.error(f"Verify vendor error: {e}")
-        return False
-    finally:
-        if conn:
-            conn.close()
-
 # ==============================================================================
 # 4. KEYBOARDS & CONSTANTS
 # ==============================================================================
@@ -212,9 +266,8 @@ MAIN_KEYBOARD = [
     ["🏠 ዋና ገጽ"]
 ]
 
-# States
 REQ_CATEGORY, REQ_SELLER_PREF, REQ_DETAILS = range(3)
-REG_V_TYPE, REG_V_NAME, REG_V_PHONE = range(3, 6)
+REG_V_TYPE, REG_V_NAME, REG_V_PHONE, REG_V_DOC = range(3, 7)
 
 # ==============================================================================
 # 5. HANDLERS
@@ -223,7 +276,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
         "👋 **እንኳን ወደ Adika Marketplace በደህና መጡ!**\n\n"
         "የሀገሪቱ ታላቁ የመኪና፣ የቤት እና የንብረት ገበያ ማዕከል።\n\n"
-        "እባክዎን ከታች ካሉት አማራጮች አንዱን ይምረጡ፡"
+        "እባክዎን ከታች ካሉት አማራጮች አንዱን ይምረጡ፦"
     )
     await update.message.reply_text(
         welcome_text,
@@ -232,7 +285,40 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return ConversationHandler.END
 
-# ----- የገዢ ጥያቄ ሂደት (Buyer Flow) -----
+# ----- PROFILE & HELP -----
+async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_name = update.effective_user.first_name
+    
+    vendor = get_vendor_by_chat_id(user_id)
+    if vendor:
+        status_text = "✅ የተረጋገጠ አቅራቢ" if vendor[6] else "⏳ ማረጋገጫ በመጠበቅ ላይ"
+        text = (
+            f"👤 **የአቅራቢ መገለጫ**\n\n"
+            f"📛 **ስም/ድርጅት:** {vendor[2]}\n"
+            f"📞 **ስልክ ቁጥር:** {vendor[3]}\n"
+            f"🏷️ **የአቅራቢ አይነት:** {vendor[4]}\n"
+            f"📊 **ሁኔታ:** {status_text}\n"
+        )
+    else:
+        text = (
+            f"👤 **የተጠቃሚ መገለጫ**\n\n"
+            f"👋 **ስም:** {user_name}\n"
+            f"🆔 **ID:** `{user_id}`\n\n"
+            f"💡 እስካሁን እንደ አቅራቢ አልተመዘገቡም። ለመመዝገብ **«📝 እንደ አቅራቢ መመዝገብ»** የሚለውን ቁልፍ ይጫኑ።"
+        )
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = (
+        "📞 **Adika Marketplace የድጋፍ ማዕከል**\n\n"
+        "ጥያቄ፣ አስተያየት ወይም እገዛ ከፈለጉ በቴሌግራም አድራሻችን ያግኙን፦\n"
+        "💬 **አድሚን:** @AdikaSupport\n"
+        "🌐 **ዌብሳይት:** AdikaCar.com"
+    )
+    await update.message.reply_text(help_text, parse_mode="Markdown")
+
+# ----- BUYER FLOW -----
 async def start_buyer_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("🚗 መኪና ፍለጋ (Auto)", callback_data="cat_car")],
@@ -240,7 +326,7 @@ async def start_buyer_request(update: Update, context: ContextTypes.DEFAULT_TYPE
         [InlineKeyboardButton("🏢 ንግድ ቤት / ቢሮ (Commercial)", callback_data="cat_commercial")],
     ]
     await update.message.reply_text(
-        "🎯 **የሚፈልጉትን አገልግሎት ምድብ ይምረጡ፡**",
+        "🎯 **የሚፈልጉትን አገልግሎት ምድብ ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -249,7 +335,6 @@ async def start_buyer_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     context.user_data['category'] = query.data
     keyboard = [
         [InlineKeyboardButton("🏢 ከሪል እስቴት/ሾውሩም", callback_data="pref_company")],
@@ -267,12 +352,10 @@ async def category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def seller_pref_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     context.user_data['seller_pref'] = query.data
     await query.edit_message_text(
-        "✍️ **አሁን የሚፈልጉትን ዝርዝር ፍላጎት ይጻፉልን፡**\n\n"
-        "💡 *ምሳሌ፡* «አዲስ አበባ ቦሌ አካባቢ ባለ 2 መኝታ ቤት ኪራይ እስከ 40,000 ብር»\n"
-        "ወይም «2020 Model Vitz መኪና በ2 ሚሊዮን ብር ክልል»",
+        "✍️ **አሁን የሚፈልጉትን ዝርዝር ፍላጎት ይጻፉልን፦**\n\n"
+        "💡 *ምሳሌ፦* «አዲስ አበባ ቦሌ አካባቢ ባለ 2 መኝታ ቤት ኪራይ እስከ 40,000 ብር»",
         parse_mode="Markdown"
     )
     return REQ_DETAILS
@@ -284,7 +367,6 @@ async def save_buyer_request(update: Update, context: ContextTypes.DEFAULT_TYPE)
     pref = context.user_data.get('seller_pref', 'All')
 
     req_id = add_buyer_request(user.id, user.first_name, cat, pref, desc)
-    
     if req_id:
         await update.message.reply_text(
             f"✅ **ጥያቄዎ በ Adika Marketplace ተመዝግቧል!** (#REQ-{req_id})\n\n"
@@ -292,7 +374,6 @@ async def save_buyer_request(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "🚀 ለአቅራቢዎች ተልኳል፤ አማራጮች ሲኖሩ ይደርስዎታል።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
-        # ለአድሚን ማሳወቅ
         if ADMIN_CHAT_ID:
             try:
                 await context.bot.send_message(
@@ -303,17 +384,16 @@ async def save_buyer_request(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 logging.error(f"Admin notify error: {e}")
     else:
         await update.message.reply_text("❌ ጥያቄውን ማስመዝገብ አልተቻለም።")
-        
     return ConversationHandler.END
 
-# ----- የአቅራቢ ምዝገባ ሂደት (Vendor Registration) -----
+# ----- VENDOR REGISTRATION WITH FILE UPLOAD -----
 async def start_vendor_reg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     existing = get_vendor_by_chat_id(user_id)
     if existing:
         await update.message.reply_text(
             f"✅ አስቀድመው ተመዝግበዋል!\n\n👤 {existing[2]}\n📞 {existing[3]}\n🏢 {existing[4]}\n"
-            f"📊 ሁኔታ: {'✅ የተረጋገጠ' if existing[5] else '⏳ በመጠበቅ ላይ'}"
+            f"📊 ሁኔታ: {'✅ የተረጋገጠ' if existing[6] else '⏳ በመጠበቅ ላይ'}"
         )
         return ConversationHandler.END
 
@@ -333,33 +413,63 @@ async def start_vendor_reg(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def vendor_type_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     context.user_data['vendor_type'] = query.data
-    await query.edit_message_text("✍️ **እባክዎን የድርጅትዎን ወይም የእርስዎን ሙሉ ስም ያስገቡ፡**")
+    await query.edit_message_text("✍️ **እባክዎን የድርጅትዎን ወይም የእርስዎን ሙሉ ስም ያስገቡ፦**")
     return REG_V_NAME
 
 async def vendor_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['vendor_name'] = update.message.text
-    await update.message.reply_text("📞 **እባክዎን የስልክ ቁጥርዎን ያስገቡ፡**")
+    await update.message.reply_text("📞 **እባክዎን የስልክ ቁጥርዎን ያስገቡ፦**")
     return REG_V_PHONE
 
 async def vendor_phone_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['vendor_phone'] = update.message.text
+    await update.message.reply_text(
+        "📄 **እባክዎን የመታወቂያ ወይም የንግድ ፈቃድ ፎቶ/ፋይል ይላኩ፦**\n\n"
+        "*(ምዝገባዎን ለማረጋገጥ ያገለግላል)*",
+        parse_mode="Markdown"
+    )
+    return REG_V_DOC
+
+async def vendor_doc_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    phone = update.message.text
+    
+    # ፎቶ ወይም ዶክመንት መሆኑን ማረጋገጥ
+    doc_id = None
+    if update.message.photo:
+        doc_id = update.message.photo[-1].file_id
+    elif update.message.document:
+        doc_id = update.message.document.file_id
+    else:
+        await update.message.reply_text("❌ እባክዎ ትክክለኛ ፎቶ ወይም ፋይል ይላኩ!")
+        return REG_V_DOC
+
     name = context.user_data.get('vendor_name')
+    phone = context.user_data.get('vendor_phone')
     v_type = context.user_data.get('vendor_type')
 
-    if register_vendor_db(user.id, name, phone, v_type):
+    v_id = register_vendor_db(user.id, name, phone, v_type, doc_id)
+    if v_id:
         await update.message.reply_text(
-            "🎉 **ምዝገባዎ በስኬት ተጠናቋል!**\n\nአካውንትዎ እንደተረጋገጠ ማሳወቂያ ይደርስዎታል።",
+            "🎉 **ምዝገባዎ በስኬት ተጠናቋል!**\n\nአካውንትዎ በአድሚን ተመርምሮ እንደተረጋገጠ ማሳወቂያ ይደርስዎታል።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
+        
+        # ለአድሚን የመፍቀጃ ቁልፍ ያለው ማሳወቂያ መላክ
         if ADMIN_CHAT_ID:
             try:
-                await context.bot.send_message(
-                    chat_id=ADMIN_CHAT_ID,
-                    text=f"🆕 **አዲስ አቅራቢ ተመዝግቧል!**\n\n👤 {name}\n📞 {phone}\n🏷️ {v_type}"
-                )
+                admin_kbd = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("✅ ፈቅድ (Approve)", callback_data=f"admin_approve_{v_id}"),
+                        InlineKeyboardButton("❌ ውድቅ አድርግ", callback_data=f"admin_reject_{v_id}")
+                    ]
+                ])
+                admin_text = f"🆕 **አዲስ የአቅራቢ ምዝገባ!** (#ID-{v_id})\n\n👤 **ስም:** {name}\n📞 **ስልክ:** {phone}\n🏷️ **ዘርፍ:** {v_type}"
+                
+                if update.message.photo:
+                    await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=doc_id, caption=admin_text, reply_markup=admin_kbd, parse_mode="Markdown")
+                else:
+                    await context.bot.send_document(chat_id=ADMIN_CHAT_ID, document=doc_id, caption=admin_text, reply_markup=admin_kbd, parse_mode="Markdown")
             except Exception as e:
                 logging.error(f"Admin notify error: {e}")
     else:
@@ -368,17 +478,87 @@ async def vendor_phone_received(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 # ==============================================================================
-# 6. MAIN FUNCTION
+# 6. ADMIN PANEL & CALLBACKS
+# ==============================================================================
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id != ADMIN_CHAT_ID:
+        await update.message.reply_text("⛔ ይህ ትእዛዝ ለአድሚን ብቻ የተፈቀደ ነው!")
+        return
+
+    pending = get_pending_vendors()
+    if not pending:
+        await update.message.reply_text("✅ ምንም ያልተረጋገጠ አቅራቢ የለም።")
+        return
+
+    await update.message.reply_text(f"📋 **ያልተረጋገጡ አቅራቢዎች ብዛት:** {len(pending)}\n\nከታች ባሉት ቁልፎች ማረጋገጥ ይችላሉ፦", parse_mode="Markdown")
+    
+    for v in pending:
+        v_id, chat_id, name, phone, v_type, doc_id, is_ver, is_act, reg_at = v
+        admin_kbd = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ ፈቅድ", callback_data=f"admin_approve_{v_id}"),
+                InlineKeyboardButton("❌ ውድቅ አድርግ", callback_data=f"admin_reject_{v_id}")
+            ]
+        ])
+        caption = f"🆔 **ID:** {v_id}\n👤 **ስም:** {name}\n📞 **ስልክ:** {phone}\n🏷️ **ዘርፍ:** {v_type}"
+        
+        try:
+            if doc_id:
+                await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=doc_id, caption=caption, reply_markup=admin_kbd, parse_mode="Markdown")
+            else:
+                await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=caption, reply_markup=admin_kbd, parse_mode="Markdown")
+        except Exception as e:
+            await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=caption, reply_markup=admin_kbd, parse_mode="Markdown")
+
+async def admin_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    if user_id != ADMIN_CHAT_ID:
+        await query.edit_message_caption(caption="⛔ ለአድሚን ብቻ!")
+        return
+
+    data = query.data
+    if data.startswith("admin_approve_"):
+        v_id = int(data.split("_")[2])
+        if verify_vendor_db(v_id):
+            vendor = get_vendor_by_id(v_id)
+            await query.edit_message_caption(caption=f"✅ **አቅራቢ {vendor[2]} በስኬት ተረጋግጧል!**", parse_mode="Markdown")
+            # ለአቅራቢው ማሳወቂያ መላክ
+            try:
+                await context.bot.send_message(
+                    chat_id=vendor[1],
+                    text="🎉 **እንኳን ደስ አለዎት!**\n\nየAdika Marketplace አቅራቢነት አካውንትዎ በስኬት ተረጋግጧል። አሁን የገዢዎችን ጥያቄ ማየት ይችላሉ!"
+                )
+            except Exception as e:
+                logging.error(f"Notify vendor error: {e}")
+
+    elif data.startswith("admin_reject_"):
+        v_id = int(data.split("_")[2])
+        vendor = get_vendor_by_id(v_id)
+        if vendor:
+            delete_vendor_db(v_id)
+            await query.edit_message_caption(caption=f"❌ **የአቅራቢ {vendor[2]} ምዝገባ ውድቅ ተደርጓል!**", parse_mode="Markdown")
+            try:
+                await context.bot.send_message(
+                    chat_id=vendor[1],
+                    text="❌ **ማሳወቂያ፦**\n\nየአቅራቢነት ምዝገባዎ ውድቅ ተደርጓል። ለበለጠ መረጃ ድጋፍ ሰጪውን ያግኙ።"
+                )
+            except Exception as e:
+                logging.error(f"Notify vendor error: {e}")
+
+# ==============================================================================
+# 7. MAIN FUNCTION
 # ==============================================================================
 def main():
     init_db()
-    
-    # Render Port Binding እንዲሰራ Flask በ Background ማስነሳት
     threading.Thread(target=run_flask, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # ገዢዎች ጥያቄ ማቅረቢያ Conversational Handler
+    # Buyer Flow
     buyer_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🔍 ዕቃ/ቤት/መኪና እፈልጋለሁ$"), start_buyer_request)],
         states={
@@ -389,22 +569,33 @@ def main():
         fallbacks=[CommandHandler("start", start), MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start)],
     )
 
-    # አቅራቢዎች መመዝገቢያ Conversational Handler
+    # Vendor Flow
     vendor_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ መመዝገብ$"), start_vendor_reg)],
         states={
             REG_V_TYPE: [CallbackQueryHandler(vendor_type_chosen, pattern="^vtype_")],
             REG_V_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, vendor_name_received)],
             REG_V_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, vendor_phone_received)],
+            REG_V_DOC: [MessageHandler(filters.PHOTO | filters.Document.ALL, vendor_doc_received)],
         },
         fallbacks=[CommandHandler("start", start), MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start)],
     )
 
-    # Handlers ማያያዝ
+    # Command Handlers
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("admin", admin_panel))
+    
+    # Message Handlers
     app.add_handler(MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), start))
+    app.add_handler(MessageHandler(filters.Regex("^👤 መገለጫዬ$"), show_profile))
+    app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), show_help))
+    
+    # Conversation Handlers
     app.add_handler(buyer_conv)
     app.add_handler(vendor_conv)
+
+    # Callback Query Handlers for Admin
+    app.add_handler(CallbackQueryHandler(admin_callback_handler, pattern="^admin_"))
 
     # Error Handler
     async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
