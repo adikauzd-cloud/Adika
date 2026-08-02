@@ -244,11 +244,16 @@ async def vendor_phone_received(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 
-# ------------------ CANCEL HANDLER ------------------
+# ------------------ CANCEL & ERROR HANDLERS ------------------
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await update.message.reply_text("ሂደቱ ተቋርጧል። እንደገና ለመጀመር /start ይበሉ።")
     return ConversationHandler.END
+
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """ኤረር ሲከሰት ሰርቨሩ እንዳይቋረጥ ማድረጊያ እና ኤረሩን መመዝገቢያ"""
+    logging.error("Exception occurred while handling an update:", exc_info=context.error)
 
 
 # ------------------ MAIN FUNCTION ------------------
@@ -278,6 +283,9 @@ def main():
     )
     
     app.add_handler(conv_handler)
+    
+    # ኤረር ሀንድለሩን ማያያዝ
+    app.add_error_handler(error_handler)
     
     print("🚀 Adika Marketplace Bot is successfully running...")
     app.run_polling()
