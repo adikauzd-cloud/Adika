@@ -12,18 +12,18 @@ from telegram.ext import (
     filters,
 )
 
-# 1. Environment Variables ማንበብ
+# 1. Environment Variables
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID")
 
-# Logging ማዘጋጀት
+# Logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 
-# Conversation ደረጃዎች (States)
+# Conversation States
 (
     ROLE_SELECTION,
     CATEGORY,
@@ -35,8 +35,9 @@ logging.basicConfig(
     REG_CONFIRM
 ) = range(8)
 
-
-# ------------------ START & MAIN MENU ------------------
+# ============================================================
+# 🏠 START & MAIN MENU
+# ============================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     keyboard = [
@@ -60,8 +61,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         
     return ROLE_SELECTION
 
-
-# ------------------ BUYER FLOW (የገዢዎች ክፍል) ------------------
+# ============================================================
+# 🛒 BUYER FLOW
+# ============================================================
 
 async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -80,7 +82,6 @@ async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         parse_mode="Markdown"
     )
     return CATEGORY
-
 
 async def category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -112,7 +113,6 @@ async def category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     )
     return SELLER_TYPE
 
-
 async def seller_type_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -128,7 +128,6 @@ async def seller_type_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     return INQUIRY_DETAILS
 
-
 async def handle_inquiry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     user_text = update.message.text
     user = update.message.from_user
@@ -136,7 +135,7 @@ async def handle_inquiry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     category = context.user_data.get('category', 'አልተጠቀሰም').replace('cat_', '').capitalize()
     seller_type = context.user_data.get('seller_type', 'አልተጠቀሰም').replace('seller_', '').capitalize()
     
-    # 1. ለገዢው ማረጋገጫ መስጠት
+    # 1. ለገዢው ማረጋገጫ
     summary = (
         "✅ **ጥያቄዎ በ Adika Marketplace ተመዝግቧል!**\n\n"
         f"🔹 **ምድብ:** {category}\n"
@@ -146,7 +145,7 @@ async def handle_inquiry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
     await update.message.reply_text(summary, parse_mode="Markdown")
     
-    # 2. ለአድሚን ጥያቄውን ማስተላለፍ (በ .env በተቀመጠው ADMIN_CHAT_ID)
+    # 2. ለአድሚን ማስታወቂያ
     if ADMIN_CHAT_ID:
         admin_alert = (
             "🔔 **አዲስ የገዢ ጥያቄ ደርሷል!**\n\n"
@@ -162,8 +161,9 @@ async def handle_inquiry(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             
     return ConversationHandler.END
 
-
-# ------------------ VENDOR REGISTRATION FLOW (የአቅራቢዎች መመዝገቢያ) ------------------
+# ============================================================
+# 📝 VENDOR REGISTRATION FLOW
+# ============================================================
 
 async def vendor_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
@@ -185,7 +185,6 @@ async def vendor_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     )
     return REG_TYPE
 
-
 async def vendor_type_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     query = update.callback_query
     await query.answer()
@@ -194,20 +193,20 @@ async def vendor_type_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     await query.edit_message_text(
         "✍️ **እባክዎን የድርጅትዎን ወይም የእርስዎን ሙሉ ስም ያስገቡ፡**\n"
-        "(ምሳሌ፡ *አቤል ካስቴል ሪል እስቴት* ወይም *ደላላ መሀመድ*)"
+        "(ምሳሌ፡ *አቤል ካስቴል ሪል እስቴት* ወይም *ደላላ መሀመድ*)",
+        parse_mode="Markdown"
     )
     return REG_NAME
-
 
 async def vendor_name_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['vendor_name'] = update.message.text
     
     await update.message.reply_text(
         "📞 **እባክዎን የስልክ ቁጥርዎን ያስገቡ፡**\n"
-        "(ምሳሌ፡ *0911XXXXXX*)"
+        "(ምሳሌ፡ *0911XXXXXX*)",
+        parse_mode="Markdown"
     )
     return REG_PHONE
-
 
 async def vendor_phone_received(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     context.user_data['vendor_phone'] = update.message.text
@@ -217,17 +216,18 @@ async def vendor_phone_received(update: Update, context: ContextTypes.DEFAULT_TY
     v_name = context.user_data.get('vendor_name')
     v_phone = context.user_data.get('vendor_phone')
     
-    # ለተመዝጋቢው የሚላክ ማረጋገጫ
+    # ለተመዝጋቢው ማረጋገጫ
     conf_text = (
         "🎉 **ምዝገባዎ በስኬት ተጠናቋል!**\n\n"
         f"🏷️ **የአቅራቢ አይነት:** {v_type}\n"
         f"👤 **ስም:** {v_name}\n"
         f"📞 **ስልክ:** {v_phone}\n\n"
-        "አካውንትዎ እንደተረጋገጠ (Verify እንደሆነ) የገዢዎች ጥያቄ በቀጥታ በስልክዎ መድረስ ይጀምራል።"
+        "🔔 አካውንትዎ እንደተረጋገጠ (Verify) የገዢዎች ጥያቄ በቀጥታ በስልክዎ መድረስ ይጀምራል።\n\n"
+        "📌 ለማረጋገጫ አስተዳዳሪውን ያግኙ።"
     )
     await update.message.reply_text(conf_text, parse_mode="Markdown")
     
-    # ለአድሚን የመዝገብ መረጃ መላክ
+    # ለአድሚን ማስታወቂያ
     if ADMIN_CHAT_ID:
         admin_vendor_alert = (
             "🆕 **አዲስ አቅራቢ ተመዝግቧል!**\n\n"
@@ -243,28 +243,45 @@ async def vendor_phone_received(update: Update, context: ContextTypes.DEFAULT_TY
             
     return ConversationHandler.END
 
-
-# ------------------ CANCEL & ERROR HANDLERS ------------------
+# ============================================================
+# ❌ CANCEL & ERROR HANDLERS
+# ============================================================
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    await update.message.reply_text("ሂደቱ ተቋርጧል። እንደገና ለመጀመር /start ይበሉ።")
+    await update.message.reply_text(
+        "❌ ሂደቱ ተቋርጧል። እንደገና ለመጀመር /start ይበሉ።",
+        parse_mode="Markdown"
+    )
     return ConversationHandler.END
 
-
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """ኤረር ሲከሰት ሰርቨሩ እንዳይቋረጥ ማድረጊያ እና ኤረሩን መመዝገቢያ"""
-    logging.error("Exception occurred while handling an update:", exc_info=context.error)
+    logging.error("Exception occurred:", exc_info=context.error)
+    
+    # ለተጠቃሚ ማሳወቅ
+    if update and hasattr(update, 'effective_message'):
+        try:
+            await update.effective_message.reply_text(
+                "❌ የሆነ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።"
+            )
+        except:
+            pass
 
-
-# ------------------ MAIN FUNCTION ------------------
+# ============================================================
+# 🚀 MAIN FUNCTION
+# ============================================================
 
 def main():
     if not BOT_TOKEN:
         print("❌ ERROR: BOT_TOKEN በ .env ፋይል ውስጥ አልተገኘም!")
+        print("💡 እባክዎ .env ፋይል ይፍጠሩ እና BOT_TOKEN ይጨምሩ።")
         return
+    
+    if not ADMIN_CHAT_ID:
+        print("⚠️ WARNING: ADMIN_CHAT_ID አልተገኘም! አስተዳዳሪ ማሳወቂያዎች አይላኩም።")
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
     
+    # Conversation Handler
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler('start', start)],
         states={
@@ -272,24 +289,35 @@ def main():
                 CallbackQueryHandler(buyer_start, pattern='^role_buyer$'),
                 CallbackQueryHandler(vendor_start, pattern='^role_vendor$')
             ],
-            CATEGORY: [CallbackQueryHandler(category_chosen, pattern='^cat_')],
-            SELLER_TYPE: [CallbackQueryHandler(seller_type_chosen, pattern='^seller_')],
-            INQUIRY_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_inquiry)],
-            REG_TYPE: [CallbackQueryHandler(vendor_type_chosen, pattern='^vtype_')],
-            REG_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, vendor_name_received)],
-            REG_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, vendor_phone_received)],
+            CATEGORY: [
+                CallbackQueryHandler(category_chosen, pattern='^cat_')
+            ],
+            SELLER_TYPE: [
+                CallbackQueryHandler(seller_type_chosen, pattern='^seller_')
+            ],
+            INQUIRY_DETAILS: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_inquiry)
+            ],
+            REG_TYPE: [
+                CallbackQueryHandler(vendor_type_chosen, pattern='^vtype_')
+            ],
+            REG_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, vendor_name_received)
+            ],
+            REG_PHONE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, vendor_phone_received)
+            ],
         },
         fallbacks=[CommandHandler('cancel', cancel)],
     )
     
     app.add_handler(conv_handler)
-    
-    # ኤረር ሀንድለሩን ማያያዝ
     app.add_error_handler(error_handler)
     
     print("🚀 Adika Marketplace Bot is successfully running...")
+    print("📌 Bot started at:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     app.run_polling()
 
-
 if __name__ == '__main__':
+    from datetime import datetime
     main()
