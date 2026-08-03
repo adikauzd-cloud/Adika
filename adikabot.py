@@ -21,7 +21,7 @@ web_app = Flask(__name__)
 
 @web_app.route('/')
 def home():
-    return "? Adika Marketplace Bot ???? ???? ????!", 200
+    return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -35,7 +35,7 @@ ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "0")
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 if not BOT_TOKEN:
-    raise RuntimeError("? BOT_TOKEN environment variable ??? ???????")
+    raise RuntimeError("❌ BOT_TOKEN environment variable ውስጥ አልተገኘም።")
 
 ADMIN_CHAT_ID_INT = int(ADMIN_CHAT_ID) if ADMIN_CHAT_ID else 0
 
@@ -126,7 +126,7 @@ def init_db():
         
         if DATABASE_URL:
             conn.commit()
-        logger.info("? Database initialized successfully")
+        logger.info("✅ Database initialized successfully")
     except Exception as e:
         logger.error(f"Database initialization error: {e}")
     finally:
@@ -309,23 +309,23 @@ def get_broker(chat_id):
 # 3. KEYBOARDS & CONSTANTS
 # ==============================================================================
 MAIN_KEYBOARD = [
-    ["?? ???? / ?????", "?? ??? / ?????"],
-    ["?? ??? ???? ?????", "?? ?????? ????"],
-    ["?? ???", "?? ?? ??"]
+    ["🔍 መግዛት / መከራየት", "📢 መሸጥ / ማከራየት"],
+    ["📝 እንደ አቅራቢ መመዝገብ", "📋 የፈላጊዎች ዝርዝር"],
+    ["📞 ድጋፍ", "🏠 ዋና ገጽ"]
 ]
 
-LOCATIONS = ["??", "????", "???", "???", "???", "?????", "????", "???", "???", "???"]
+LOCATIONS = ["ቦሌ", "ሲኤምሲ", "ሳሪስ", "አያት", "ገርጂ", "ካዛንችስ", "መገናኛ", "ቃሊቲ", "ልደታ", "አራዳ"]
 
 # Sub-categories
-CAR_SUB_CATEGORIES = ["?? ??? ???", "?? ??? ???", "?? ??? ??????/???"]
+CAR_SUB_CATEGORIES = ["🚗 የቤት መኪና", "🚚 የሥራ መኪና", "🚜 ከባድ ተሽከርካሪ/ማሽን"]
 
-HOUSE_TYPES = ["?? ??", "?? ?? ??", "?? ?????", "?? ?? ????", "??? ???/??"]
+HOUSE_TYPES = ["🏡 ቪላ", "🏢 ሙሉ ግቢ", "🏢 አፓርታማ", "🏢 ሪል እስቴት", "🏞️ መሬት/ቦታ"]
 
 # Action types
-ACTION_TYPES = ["??? ???", "?? ???"]
+ACTION_TYPES = ["🛍️ ሽያጭ", "🔑 ኪራይ"]
 
 # Property types for house
-PROPERTY_TYPES = ["?? ????", "?? ??? ??"]
+PROPERTY_TYPES = ["🏠 መኖሪያ", "🏢 የሥራ ቦታ"]
 
 # ==============================================================================
 # 4. CONVERSATION STATES
@@ -347,9 +347,9 @@ RESP_MAIN, RESP_ACTION, RESP_CATEGORY, RESP_SUB, RESP_PROPERTY, RESP_DETAILS, RE
 # ==============================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
-        "?? **???? ?? Adika Marketplace ???? ??!**\n\n"
-        "????? ??? ????? ??? ?? ????? ??? ?????\n\n"
-        "????? ??? ??? ????? ???? ?????"
+        "👋 **እንኳን ወደ Adika Marketplace በደህና መጡ!**\n\n"
+        "የሀገሪቱ ታላቁ የመኪና፣ የቤት እና የንብረት ገበያ ማዕከል።\n\n"
+        "እባክዎን ከታች ካሉት አማራጮች አንዱን ይምረጡ፦"
     )
     await update.message.reply_text(
         welcome_text,
@@ -364,9 +364,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     welcome_text = (
-        "?? **???? ?? Adika Marketplace ???? ??!**\n\n"
-        "????? ??? ????? ??? ?? ????? ??? ?????\n\n"
-        "????? ??? ??? ????? ???? ?????"
+        "👋 **እንኳን ወደ Adika Marketplace በደህና መጡ!**\n\n"
+        "የሀገሪቱ ታላቁ የመኪና፣ የቤት እና የንብረት ገበያ ማዕከል።\n\n"
+        "እባክዎን ከታች ካሉት አማራጮች አንዱን ይምረጡ፦"
     )
     
     if update.message:
@@ -393,13 +393,13 @@ async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['req_type'] = 'BUY'
     
     keyboard = [
-        [InlineKeyboardButton("?? ???", callback_data="flow_buy_cat_car")],
-        [InlineKeyboardButton("?? ?? / ??", callback_data="flow_buy_cat_house")],
-        [InlineKeyboardButton("?? ??? ?? / ???", callback_data="flow_buy_cat_commercial")],
-        [InlineKeyboardButton("?? ?? ??", callback_data="flow_home")]
+        [InlineKeyboardButton("🚗 መኪና", callback_data="flow_buy_cat_car")],
+        [InlineKeyboardButton("🏠 ቤት / ቦታ", callback_data="flow_buy_cat_house")],
+        [InlineKeyboardButton("🏢 የሥራ ቦታ / ንግድ", callback_data="flow_buy_cat_commercial")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     await update.message.reply_text(
-        "?? **??????? ??? ?????**",
+        "🔍 **የሚፈልጉትን ምድብ ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -419,9 +419,9 @@ async def buyer_category_chosen(update: Update, context: ContextTypes.DEFAULT_TY
         keyboard = []
         for sub in CAR_SUB_CATEGORIES:
             keyboard.append([InlineKeyboardButton(sub, callback_data=f"flow_buy_sub_{sub}")])
-        keyboard.append([InlineKeyboardButton("?? ?? ??", callback_data="flow_home")])
+        keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
         await query.edit_message_text(
-            "?? **???? ??? ??? ?????**",
+            "🚗 **የመኪና ንኡስ ምድብ ይምረጡ፦**",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -429,12 +429,12 @@ async def buyer_category_chosen(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         # House or Commercial - show action type first
         keyboard = [
-            [InlineKeyboardButton("??? ???", callback_data="flow_buy_action_sell")],
-            [InlineKeyboardButton("?? ???", callback_data="flow_buy_action_rent")],
-            [InlineKeyboardButton("?? ?? ??", callback_data="flow_home")]
+            [InlineKeyboardButton("🛍️ ሽያጭ", callback_data="flow_buy_action_sell")],
+            [InlineKeyboardButton("🔑 ኪራይ", callback_data="flow_buy_action_rent")],
+            [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
         ]
         await query.edit_message_text(
-            "? **??????? ????? ???? ?????**",
+            "❓ **የሚፈልጉትን የድርጊት አይነት ይምረጡ፦**",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -451,12 +451,12 @@ async def buyer_sub_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # For car, show action type
     keyboard = [
-        [InlineKeyboardButton("??? ???", callback_data="flow_buy_action_sell")],
-        [InlineKeyboardButton("?? ???", callback_data="flow_buy_action_rent")],
-        [InlineKeyboardButton("?? ?? ??", callback_data="flow_home")]
+        [InlineKeyboardButton("🛍️ ሽያጭ", callback_data="flow_buy_action_sell")],
+        [InlineKeyboardButton("🔑 ኪራይ", callback_data="flow_buy_action_rent")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     await query.edit_message_text(
-        f"? {sub}\n\n? **??????? ????? ???? ?????**",
+        f"✅ {sub}\n\n❓ **የሚፈልጉትን የድርጊት አይነት ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -470,14 +470,14 @@ async def buyer_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.answer()
     action = query.data.replace("flow_buy_action_", "")
     context.user_data['action_type'] = "sell" if action == "sell" else "rent"
-    action_label = "???" if action == "sell" else "???"
+    action_label = "ሽያጭ" if action == "sell" else "ኪራይ"
     
     main_cat = context.user_data.get('main_category', '')
     
     if main_cat == "car":
         await query.edit_message_text(
-            "?? **??????? ??? ???? ??? ?????**\n\n"
-            "?? *????* ??? ??? 2020? ??? ??? 2.5 ???? ??",
+            "✍️ **የሚፈልጉትን መኪና ዝርዝር መረጃ ያስገቡ፦**\n\n"
+            "💡 *ምሳሌ፦* ቶዮታ ቪትዝ 2020፣ ባጀት እስከ 2.5 ሚሊዮን ብር",
             parse_mode="Markdown"
         )
         return BUYER_DETAILS
@@ -486,9 +486,9 @@ async def buyer_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
         keyboard = []
         for ptype in PROPERTY_TYPES:
             keyboard.append([InlineKeyboardButton(ptype, callback_data=f"flow_buy_prop_{ptype}")])
-        keyboard.append([InlineKeyboardButton("?? ?? ??", callback_data="flow_home")])
+        keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
         await query.edit_message_text(
-            f"?? **?{action_label} ???/?? ???? ?????**",
+            f"🏠 **የ{action_label} የቤት/ቦታ አይነት ይምረጡ፦**",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -507,10 +507,10 @@ async def buyer_property_chosen(update: Update, context: ContextTypes.DEFAULT_TY
     keyboard = []
     for htype in HOUSE_TYPES:
         keyboard.append([InlineKeyboardButton(htype, callback_data=f"flow_buy_htype_{htype}")])
-    keyboard.append([InlineKeyboardButton("?? ?? ??", callback_data="flow_home")])
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
     
     await query.edit_message_text(
-        f"?? **??? ???? ?????**",
+        f"🏠 **የቤት አይነት ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -526,9 +526,9 @@ async def buyer_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data['property_subtype'] = htype
     
     await query.edit_message_text(
-        f"?? **{htype}**\n\n"
-        "?? **??????? ??/?? ???? ??? ?????**\n\n"
-        "?? *????* ?? ???? ???? 2 ???? ??? ??? 10 ???? ??",
+        f"🏠 **{htype}**\n\n"
+        "✍️ **የሚፈልጉትን ቤት/ቦታ ዝርዝር መረጃ ያስገቡ፦**\n\n"
+        "💡 *ምሳሌ፦* ቦሌ አትላስ አካባቢ 2 መኝታ፣ ባጀት እስከ 10 ሚሊዮን ብር",
         parse_mode="Markdown"
     )
     return BUYER_DETAILS
@@ -536,9 +536,9 @@ async def buyer_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['description'] = update.message.text
     await update.message.reply_text(
-        "?? **????? ??????? ???? ??? ?????**",
+        "📞 **እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**",
         parse_mode="Markdown",
-        reply_markup=ReplyKeyboardMarkup([["?? ?? ??"]], resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
     )
     return BUYER_PHONE
 
@@ -553,7 +553,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     description = context.user_data.get('description', '')
     
     # Build description
-    desc = f"?? {description}\n?? {phone}"
+    desc = f"📝 {description}\n📞 {phone}"
     
     req_id = add_listing(
         user.id, user.first_name, 'BUY', main_cat, sub_cat, action_type, property_type, desc
@@ -561,20 +561,20 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if req_id:
         action_kbd = InlineKeyboardMarkup([
-            [InlineKeyboardButton("? ???", callback_data=f"item_resp_{req_id}_{user.id}_{main_cat}")]
+            [InlineKeyboardButton("✅ አለኝ", callback_data=f"item_resp_{req_id}_{user.id}_{main_cat}")]
         ])
         
         await update.message.reply_text(
-            f"? **???? ??????!** (#REQ-{req_id})\n\n"
-            f"?? {description}\n"
-            f"?? {phone}\n\n"
-            f"?? ???? ?'?? ?????? ????' ??? ?????",
+            f"✅ **ጥያቄዎ ተመዝግቧል!** (#REQ-{req_id})\n\n"
+            f"📝 {description}\n"
+            f"📞 {phone}\n\n"
+            f"📌 ጥያቄዎ በ'📋 የፈላጊዎች ዝርዝር' ውስጥ ይታያል።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
         if ADMIN_CHAT_ID_INT:
             try:
-                admin_msg = f"?? ??? ???!\n\n{desc}"
+                admin_msg = f"🔔 አዲስ ጥያቄ!\n\n{desc}"
                 await context.bot.send_message(
                     chat_id=ADMIN_CHAT_ID_INT,
                     text=admin_msg,
@@ -594,12 +594,12 @@ async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['req_type'] = 'SELL'
     
     keyboard = [
-        [InlineKeyboardButton("??? ???", callback_data="flow_sell_action_sell")],
-        [InlineKeyboardButton("?? ???", callback_data="flow_sell_action_rent")],
-        [InlineKeyboardButton("?? ?? ??", callback_data="flow_home")]
+        [InlineKeyboardButton("🛍️ ሽያጭ", callback_data="flow_sell_action_sell")],
+        [InlineKeyboardButton("🔑 ኪራይ", callback_data="flow_sell_action_rent")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     await update.message.reply_text(
-        "?? **??????? ????? ???? ?????**",
+        "📢 **የሚፈልጉትን የድርጊት አይነት ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -615,13 +615,13 @@ async def seller_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data['action_type'] = "sell" if action == "sell" else "rent"
     
     keyboard = [
-        [InlineKeyboardButton("?? ???", callback_data="flow_sell_cat_car")],
-        [InlineKeyboardButton("?? ?? / ??", callback_data="flow_sell_cat_house")],
-        [InlineKeyboardButton("?? ??? ?? / ???", callback_data="flow_sell_cat_commercial")],
-        [InlineKeyboardButton("?? ?? ??", callback_data="flow_home")]
+        [InlineKeyboardButton("🚗 መኪና", callback_data="flow_sell_cat_car")],
+        [InlineKeyboardButton("🏠 ቤት / ቦታ", callback_data="flow_sell_cat_house")],
+        [InlineKeyboardButton("🏢 የሥራ ቦታ / ንግድ", callback_data="flow_sell_cat_commercial")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     await query.edit_message_text(
-        "??? **??????/??????? ??? ?????**",
+        "🏷️ **የሚሸጡትን/የሚከራዩትን ምድብ ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -640,9 +640,9 @@ async def seller_category_chosen(update: Update, context: ContextTypes.DEFAULT_T
         keyboard = []
         for sub in CAR_SUB_CATEGORIES:
             keyboard.append([InlineKeyboardButton(sub, callback_data=f"flow_sell_sub_{sub}")])
-        keyboard.append([InlineKeyboardButton("?? ?? ??", callback_data="flow_home")])
+        keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
         await query.edit_message_text(
-            "?? **???? ??? ??? ?????**",
+            "🚗 **የመኪና ንኡስ ምድብ ይምረጡ፦**",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -652,9 +652,9 @@ async def seller_category_chosen(update: Update, context: ContextTypes.DEFAULT_T
         keyboard = []
         for ptype in PROPERTY_TYPES:
             keyboard.append([InlineKeyboardButton(ptype, callback_data=f"flow_sell_prop_{ptype}")])
-        keyboard.append([InlineKeyboardButton("?? ?? ??", callback_data="flow_home")])
+        keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
         await query.edit_message_text(
-            "?? **???/?? ???? ?????**",
+            "🏠 **የቤት/ቦታ አይነት ይምረጡ፦**",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -670,8 +670,8 @@ async def seller_sub_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['sub_category'] = sub
     
     await query.edit_message_text(
-        "?? **?????? ???? ??? ?????**\n\n"
-        "?? *????* ??? ??? 2020? 50,000 ?? ???",
+        "✍️ **የመኪናውን ዝርዝር መረጃ ያስገቡ፦**\n\n"
+        "💡 *ምሳሌ፦* ቶዮታ ቪትዝ 2020፣ 50,000 ኪሎ ሜትር",
         parse_mode="Markdown"
     )
     return SELLER_DETAILS
@@ -688,10 +688,10 @@ async def seller_property_chosen(update: Update, context: ContextTypes.DEFAULT_T
     keyboard = []
     for htype in HOUSE_TYPES:
         keyboard.append([InlineKeyboardButton(htype, callback_data=f"flow_sell_htype_{htype}")])
-    keyboard.append([InlineKeyboardButton("?? ?? ??", callback_data="flow_home")])
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
     
     await query.edit_message_text(
-        "?? **??? ???? ?????**",
+        "🏠 **የቤት አይነት ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -707,8 +707,8 @@ async def seller_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['property_subtype'] = htype
     
     await query.edit_message_text(
-        "?? **????/???? ???? ??? ?????**\n\n"
-        "?? *????* ?? ???? ???? 3 ??? ??",
+        "✍️ **የቤቱን/ቦታውን ዝርዝር መረጃ ያስገቡ፦**\n\n"
+        "💡 *ምሳሌ፦* ቦሌ አትላስ አካባቢ 3 መኝታ ቤት",
         parse_mode="Markdown"
     )
     return SELLER_DETAILS
@@ -716,21 +716,21 @@ async def seller_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def seller_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['description'] = update.message.text
     await update.message.reply_text(
-        "?? **????/????? ?? ?????**",
+        "💰 **የመሸጫ/የመከራያ ዋጋ ያስገቡ፦**",
         parse_mode="Markdown",
-        reply_markup=ReplyKeyboardMarkup([["?? ?? ??"]], resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
     )
     return SELLER_PRICE
 
 async def seller_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['price'] = update.message.text
     keyboard = [
-        [InlineKeyboardButton("?? ???? ???", callback_data="flow_sell_nego_yes")],
-        [InlineKeyboardButton("? ???? ????", callback_data="flow_sell_nego_no")],
-        [InlineKeyboardButton("?? ?? ??", callback_data="flow_home")]
+        [InlineKeyboardButton("🔄 ድርድር አለው", callback_data="flow_sell_nego_yes")],
+        [InlineKeyboardButton("❌ ድርድር የለውም", callback_data="flow_sell_nego_no")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     await update.message.reply_text(
-        "?? **??? ???? ??? ?????**",
+        "🔄 **የዋጋ ድርድር ሁኔታ ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -742,10 +742,10 @@ async def seller_nego(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await go_home(update, context)
     
     await query.answer()
-    context.user_data['negotiable'] = "? ???? ???" if query.data == "flow_sell_nego_yes" else "? ???? ????"
+    context.user_data['negotiable'] = "✅ ድርድር አለው" if query.data == "flow_sell_nego_yes" else "❌ ድርድር የለውም"
     
     await query.edit_message_text(
-        "?? **????? ??????? ???? ??? ?????**",
+        "📞 **እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**",
         parse_mode="Markdown"
     )
     return SELLER_PHONE
@@ -753,9 +753,9 @@ async def seller_nego(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['phone'] = update.message.text
     await update.message.reply_text(
-        "?? **?????? ?? ?????**",
+        "📸 **የንብረቱን ፎቶ ያስገቡ፦**",
         parse_mode="Markdown",
-        reply_markup=ReplyKeyboardMarkup([["?? ?? ??"]], resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
     )
     return SELLER_PHOTO
 
@@ -764,14 +764,14 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo_id = update.message.photo[-1].file_id if update.message.photo else None
     
     if not photo_id:
-        await update.message.reply_text("? ???? ????? ?? ???!")
+        await update.message.reply_text("❌ እባክዎ ትክክለኛ ፎቶ ይላኩ!")
         return SELLER_PHOTO
     
     desc = (
-        f"?? {context.user_data.get('description')}\n"
-        f"?? {context.user_data.get('price')}\n"
-        f"?? {context.user_data.get('negotiable')}\n"
-        f"?? {context.user_data.get('phone')}"
+        f"📝 {context.user_data.get('description')}\n"
+        f"💰 {context.user_data.get('price')}\n"
+        f"🔄 {context.user_data.get('negotiable')}\n"
+        f"📞 {context.user_data.get('phone')}"
     )
     
     req_id = add_listing(
@@ -785,12 +785,12 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if req_id:
         action_kbd = InlineKeyboardMarkup([
-            [InlineKeyboardButton("? ???????", callback_data=f"item_resp_{req_id}_{user.id}_{context.user_data.get('main_category', '')}")]
+            [InlineKeyboardButton("✅ እፈልገዋለሁ", callback_data=f"item_resp_{req_id}_{user.id}_{context.user_data.get('main_category', '')}")]
         ])
         
         await update.message.reply_photo(
             photo=photo_id,
-            caption=f"? **?????? ??????!** (#REQ-{req_id})\n\n{desc}",
+            caption=f"✅ **ማስታወቂያ ተመዝግቧል!** (#REQ-{req_id})\n\n{desc}",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
@@ -799,7 +799,7 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_photo(
                     chat_id=ADMIN_CHAT_ID_INT,
                     photo=photo_id,
-                    caption=f"?? ??? ??????!\n\n{desc}",
+                    caption=f"🔔 አዲስ ማስታወቂያ!\n\n{desc}",
                     reply_markup=action_kbd,
                     parse_mode="Markdown"
                 )
@@ -814,19 +814,19 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     await update.message.reply_text(
-        "?? **??? ????/??? ?????**\n\n"
-        "1?? ?? ???? ?????",
+        "📝 **እንደ አቅራቢ/ደላላ መመዝገብ**\n\n"
+        "1️⃣ ሙሉ ስምዎን ያስገቡ፦",
         parse_mode="Markdown",
-        reply_markup=ReplyKeyboardMarkup([["?? ?? ??"]], resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
     )
     return BROKER_NAME
 
 async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['broker_name'] = update.message.text
     await update.message.reply_text(
-        "2?? ???? ????? ?????",
+        "2️⃣ የስልክ ቁጥርዎን ያስገቡ፦",
         parse_mode="Markdown",
-        reply_markup=ReplyKeyboardMarkup([["?? ?? ??"]], resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
     )
     return BROKER_PHONE
 
@@ -836,10 +836,10 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = []
     for loc in LOCATIONS:
         keyboard.append([InlineKeyboardButton(loc, callback_data=f"broker_loc_{loc}")])
-    keyboard.append([InlineKeyboardButton("?? ?? ??", callback_data="flow_home")])
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
     
     await update.message.reply_text(
-        "3?? ??????? ???? ?????",
+        "3️⃣ የሚሰሩበትን አካባቢ ይምረጡ፦",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -858,17 +858,17 @@ async def broker_reg_location(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     if broker_id:
         await query.edit_message_text(
-            f"? **???? ???????!**\n\n"
-            f"?? {context.user_data['broker_name']}\n"
-            f"?? {context.user_data['broker_phone']}\n"
-            f"?? {location}\n\n"
-            f"?? ??? '?? ?????? ????' ????? ?????? ??? ????!",
+            f"✅ **በስኬት ተመዝግበዋል!**\n\n"
+            f"👤 {context.user_data['broker_name']}\n"
+            f"📞 {context.user_data['broker_phone']}\n"
+            f"📍 {location}\n\n"
+            f"📋 አሁን '📋 የፈላጊዎች ዝርዝር' በመጠቀም ጥያቄዎችን ማየት ይችላሉ!",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
             parse_mode="Markdown"
         )
     else:
         await query.edit_message_text(
-            "? ?????? ???????!",
+            "❌ አስቀድመው ተመዝግበዋል!",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
     
@@ -886,8 +886,8 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     broker = get_broker(user_id)
     if not broker:
         await update.message.reply_text(
-            "? ??? ?? ??? ????? ?????? ??????/???? ?? ???!\n\n"
-            "?? ????? ????? '?? ??? ???? ?????' ?????",
+            "⛔ ይህን ገጽ ማየት የሚችሉት የተመዘገቡ አቅራቢዎች/ደላሎች ብቻ ናቸው!\n\n"
+            "📝 እባክዎን መጀመሪያ '📝 እንደ አቅራቢ መመዝገብ' ይምረጡ።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return
@@ -904,36 +904,36 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     if not listings:
         await update.message.reply_text(
-            "?? ??? ?? ????? ????",
+            "📭 ምንም ንቁ ጥያቄዎች የሉም።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return
     
-    text = f"?? **?????? ????** (?? {page+1})\n\n"
+    text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1})\n\n"
     
     for idx, listing in enumerate(listings, 1):
         req_id, chat_id, name, req_type, main_cat, sub_cat, action_type, prop_type, desc, status, created = listing
-        icon = "??" if main_cat == "car" else "??"
-        action_icon = "???" if action_type == "sell" else "??"
+        icon = "🚗" if main_cat == "car" else "🏠"
+        action_icon = "🛍️" if action_type == "sell" else "🔑"
         
         text += f"{icon} **#{req_id}** {action_icon}\n"
-        text += f"?? {desc[:100]}...\n" if len(desc) > 100 else f"?? {desc}\n"
-        text += f"?? {created.strftime('%Y-%m-%d') if hasattr(created, 'strftime') else created}\n"
-        text += f"?? {chat_id}\n"
+        text += f"📝 {desc[:100]}...\n" if len(desc) > 100 else f"📝 {desc}\n"
+        text += f"📅 {created.strftime('%Y-%m-%d') if hasattr(created, 'strftime') else created}\n"
+        text += f"🆔 {chat_id}\n"
         
         # Add response button for each listing
-        keyboard = [[InlineKeyboardButton(f"? ??? - #{req_id}", callback_data=f"item_resp_{req_id}_{chat_id}_{main_cat}")]]
-        text += "--------------------\n"
+        keyboard = [[InlineKeyboardButton(f"✅ አለኝ - #{req_id}", callback_data=f"item_resp_{req_id}_{chat_id}_{main_cat}")]]
+        text += "────────────────────\n"
     
     # Pagination buttons
     nav_buttons = []
     if page > 0:
-        nav_buttons.append(InlineKeyboardButton("?? ???", callback_data=f"page_{page-1}"))
+        nav_buttons.append(InlineKeyboardButton("⬅️ ቀዳሚ", callback_data=f"page_{page-1}"))
     if offset + ITEMS_PER_PAGE < total:
-        nav_buttons.append(InlineKeyboardButton("?? ???", callback_data=f"page_{page+1}"))
-    nav_buttons.append(InlineKeyboardButton("?? ?? ??", callback_data="flow_home"))
+        nav_buttons.append(InlineKeyboardButton("➡️ ቀጣይ", callback_data=f"page_{page+1}"))
+    nav_buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
     
-    keyboard = [[InlineKeyboardButton("?? ?? ???? ???", callback_data=f"detail_view_{listings[0][0]}")]]
+    keyboard = [[InlineKeyboardButton("📋 ሙሉ ዝርዝር አሳይ", callback_data=f"detail_view_{listings[0][0]}")]]
     if nav_buttons:
         keyboard.append(nav_buttons)
     
@@ -966,12 +966,12 @@ async def start_item_response(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data['target_cat'] = parts[4] if len(parts) > 4 else "car"
     
     keyboard = [
-        [InlineKeyboardButton("?? ????? ???? ??", callback_data="resp_role_owner")],
-        [InlineKeyboardButton("????? ??? ??", callback_data="resp_role_broker")],
-        [InlineKeyboardButton("?? ?? ??", callback_data="flow_home")]
+        [InlineKeyboardButton("👤 የንብረቱ ባለቤት ነኝ", callback_data="resp_role_owner")],
+        [InlineKeyboardButton("👨‍💼 ደላላ ነኝ", callback_data="resp_role_broker")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     await query.message.reply_text(
-        "?? **???? ?? ?????**",
+        "📋 **የምላሽ ሰጭ ማንነት፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -983,14 +983,14 @@ async def resp_role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await go_home(update, context)
     
     await query.answer()
-    context.user_data['resp_role'] = "?? ????" if query.data == "resp_role_owner" else "????? ???"
+    context.user_data['resp_role'] = "👤 ባለቤት" if query.data == "resp_role_owner" else "👨‍💼 ደላላ"
     
     target_cat = context.user_data.get('target_cat', 'car')
     
     if target_cat == "car":
         await query.edit_message_text(
-            "?? **??? ???**\n\n"
-            "1?? ?????? ??? ?????",
+            "🚘 **መኪና መልስ**\n\n"
+            "1️⃣ የመኪናውን ሞዴል ያስገቡ፦",
             parse_mode="Markdown"
         )
         return RESP_DETAILS
@@ -998,10 +998,10 @@ async def resp_role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = []
         for ptype in PROPERTY_TYPES:
             keyboard.append([InlineKeyboardButton(ptype, callback_data=f"resp_prop_{ptype}")])
-        keyboard.append([InlineKeyboardButton("?? ?? ??", callback_data="flow_home")])
+        keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
         await query.edit_message_text(
-            "?? **?? ???**\n\n"
-            "1?? ???/?? ???? ?????",
+            "🏠 **ቤት መልስ**\n\n"
+            "1️⃣ የቤት/ቦታ አይነት ይምረጡ፦",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
@@ -1019,10 +1019,10 @@ async def resp_property_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
     keyboard = []
     for htype in HOUSE_TYPES:
         keyboard.append([InlineKeyboardButton(htype, callback_data=f"resp_htype_{htype}")])
-    keyboard.append([InlineKeyboardButton("?? ?? ??", callback_data="flow_home")])
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
     
     await query.edit_message_text(
-        "?? **??? ???? ?????**",
+        "🏠 **የቤት አይነት ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -1038,8 +1038,8 @@ async def resp_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['resp_htype'] = htype
     
     await query.edit_message_text(
-        "?? **???? ?????**\n"
-        "?? *????* ?? ????",
+        "📍 **አካባቢ ያስገቡ፦**\n"
+        "💡 *ምሳሌ፦* ቦሌ አትላስ",
         parse_mode="Markdown"
     )
     return RESP_DETAILS
@@ -1047,21 +1047,21 @@ async def resp_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def resp_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['resp_details'] = update.message.text
     await update.message.reply_text(
-        "?? **?? ?????**",
+        "💰 **ዋጋ ያስገቡ፦**",
         parse_mode="Markdown",
-        reply_markup=ReplyKeyboardMarkup([["?? ?? ??"]], resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
     )
     return RESP_PRICE
 
 async def resp_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['resp_price'] = update.message.text
     keyboard = [
-        [InlineKeyboardButton("?? ???? ???", callback_data="resp_nego_yes")],
-        [InlineKeyboardButton("? ???? ????", callback_data="resp_nego_no")],
-        [InlineKeyboardButton("?? ?? ??", callback_data="flow_home")]
+        [InlineKeyboardButton("🔄 ድርድር አለው", callback_data="resp_nego_yes")],
+        [InlineKeyboardButton("❌ ድርድር የለውም", callback_data="resp_nego_no")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     await update.message.reply_text(
-        "?? **??? ???? ??? ?????**",
+        "🔄 **የዋጋ ድርድር ሁኔታ ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -1073,10 +1073,10 @@ async def resp_nego(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await go_home(update, context)
     
     await query.answer()
-    context.user_data['resp_nego'] = "? ???? ???" if query.data == "resp_nego_yes" else "? ???? ????"
+    context.user_data['resp_nego'] = "✅ ድርድር አለው" if query.data == "resp_nego_yes" else "❌ ድርድር የለውም"
     
     await query.edit_message_text(
-        "?? **????? ??????? ???? ??? ?????**",
+        "📞 **እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**",
         parse_mode="Markdown"
     )
     return RESP_PHONE
@@ -1084,9 +1084,9 @@ async def resp_nego(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def resp_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['resp_phone'] = update.message.text
     await update.message.reply_text(
-        "?? **?????? ?? ?????**",
+        "📸 **የንብረቱን ፎቶ ያስገቡ፦**",
         parse_mode="Markdown",
-        reply_markup=ReplyKeyboardMarkup([["?? ?? ??"]], resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
     )
     return RESP_PHOTO
 
@@ -1097,25 +1097,25 @@ async def resp_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo_id = update.message.photo[-1].file_id if update.message.photo else None
     
     if not photo_id:
-        await update.message.reply_text("? ???? ????? ?? ???!")
+        await update.message.reply_text("❌ እባክዎ ትክክለኛ ፎቶ ይላኩ!")
         return RESP_PHOTO
     
-    role = context.user_data.get('resp_role', '????')
+    role = context.user_data.get('resp_role', 'አቅራቢ')
     target_cat = context.user_data.get('target_cat', 'car')
     
     if target_cat == "car":
-        detail_str = f"?? {context.user_data.get('resp_details')}"
+        detail_str = f"🚘 {context.user_data.get('resp_details')}"
     else:
-        detail_str = f"?? {context.user_data.get('resp_property')} - {context.user_data.get('resp_htype')}\n?? {context.user_data.get('resp_details')}"
+        detail_str = f"🏠 {context.user_data.get('resp_property')} - {context.user_data.get('resp_htype')}\n📍 {context.user_data.get('resp_details')}"
     
     desc = (
-        f"?? **??? ????!** (#REQ-{req_id})\n\n"
-        f"?? ??: {role}\n"
+        f"🎉 **አዲስ አማራጭ!** (#REQ-{req_id})\n\n"
+        f"🎭 ሚና: {role}\n"
         f"{detail_str}\n"
-        f"?? {context.user_data.get('resp_price')}\n"
-        f"?? {context.user_data.get('resp_nego')}\n"
-        f"?? {context.user_data.get('resp_phone')}\n"
-        f"?? @{responder.username if responder.username else responder.first_name}"
+        f"💰 {context.user_data.get('resp_price')}\n"
+        f"🔄 {context.user_data.get('resp_nego')}\n"
+        f"📞 {context.user_data.get('resp_phone')}\n"
+        f"👤 @{responder.username if responder.username else responder.first_name}"
     )
     
     await context.bot.send_photo(
@@ -1128,8 +1128,8 @@ async def resp_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     update_listing_status(int(req_id), 'responded')
     
     await update.message.reply_text(
-        "? **????? ????? ?????!**\n\n"
-        "?? ???? ?'?? ?????? ????' ??????",
+        "✅ **መረጃዎች ለፈላጊው ተልከዋል!**\n\n"
+        "📌 ጥያቄው ከ'📋 የፈላጊዎች ዝርዝር' ተወግዷል።",
         reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
     )
     
@@ -1140,29 +1140,29 @@ async def resp_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==============================================================================
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
-? **???? ???????**
+❓ **እንዴት እንደሚጠቀሙ**
 
-?? **???? ????:**
-• '?? ???? / ?????' ????
-• ??? ???? (???/??/???)
-• ??? ??? ????
-• ??? ???
+🔍 **መግዛት ከፈለጉ:**
+• '🔍 መግዛት / መከራየት' ይምረጡ
+• ምድብ ይምረጡ (መኪና/ቤት/ንግድ)
+• ንኡስ ምድብ ይምረጡ
+• መረጃ ይሙሉ
 
-?? **??? ????:**
-• '?? ??? / ?????' ????
-• ????? ???? ????
-• ??? ????
-• ??? ???
+📢 **መሸጥ ከፈለጉ:**
+• '📢 መሸጥ / ማከራየት' ይምረጡ
+• የድርጊት አይነት ይምረጡ
+• ምድብ ይምረጡ
+• መረጃ ይሙሉ
 
-?? **??? ???? ??????:**
-• '?? ??? ???? ?????' ????
-• ??? ???
-• ?????? ??? ????
+📝 **እንደ አቅራቢ ለመመዝገብ:**
+• '📝 እንደ አቅራቢ መመዝገብ' ይምረጡ
+• መረጃ ይሙሉ
+• ጥያቄዎችን ማየት ይችላሉ
 
-?? **?????? ????:**
-• ?????? ?????? ??
-• ?? ?????? ????
-• ??? ??????
+📋 **የፈላጊዎች ዝርዝር:**
+• ለተመዘገቡ አቅራቢዎች ብቻ
+• ንቁ ጥያቄዎችን ያሳያል
+• በገጽ ይከፋፈላል
 """
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
@@ -1177,12 +1177,12 @@ def main():
     
     app.add_handler(CommandHandler("start", start))
 
-    cancel_filter = filters.Regex("^?? ?? ??$")
+    cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
     cancel_message_handler = MessageHandler(cancel_filter, go_home)
 
     # ===== BUYER CONVERSATION =====
     buyer_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^?? ???? / ?????$"), buyer_start)],
+        entry_points=[MessageHandler(filters.Regex("^🔍 መግዛት / መከራየት$"), buyer_start)],
         states={
             BUYER_MAIN: [CallbackQueryHandler(buyer_category_chosen, pattern="^flow_buy_cat_"), cancel_message_handler],
             BUYER_ACTION: [CallbackQueryHandler(buyer_action_chosen, pattern="^flow_buy_action_"), cancel_message_handler],
@@ -1199,7 +1199,7 @@ def main():
 
     # ===== SELLER CONVERSATION =====
     seller_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^?? ??? / ?????$"), seller_start)],
+        entry_points=[MessageHandler(filters.Regex("^📢 መሸጥ / ማከራየት$"), seller_start)],
         states={
             SELLER_MAIN: [CallbackQueryHandler(seller_action_chosen, pattern="^flow_sell_action_"), cancel_message_handler],
             SELLER_ACTION: [CallbackQueryHandler(seller_action_chosen, pattern="^flow_sell_action_"), cancel_message_handler],
@@ -1219,7 +1219,7 @@ def main():
 
     # ===== BROKER REGISTRATION =====
     broker_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^?? ??? ???? ?????$"), broker_reg_start)],
+        entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ መመዝገብ$"), broker_reg_start)],
         states={
             BROKER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name), cancel_message_handler],
             BROKER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone), cancel_message_handler],
@@ -1249,8 +1249,8 @@ def main():
     )
 
     # ===== OTHER HANDLERS =====
-    app.add_handler(MessageHandler(filters.Regex("^?? ?????? ????$"), view_requests))
-    app.add_handler(MessageHandler(filters.Regex("^?? ???$"), help_command))
+    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
+    app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
     app.add_handler(MessageHandler(cancel_filter, go_home))
     
     # Pagination handler
@@ -1269,7 +1269,7 @@ def main():
 
     app.add_error_handler(error_handler)
 
-    logger.info("?? Adika Marketplace Bot ?????...")
+    logger.info("🚀 Adika Marketplace Bot ተጀምሯል...")
     app.run_polling()
 
 if __name__ == "__main__":
