@@ -147,6 +147,9 @@ MAIN_KEYBOARD = [
     RESP_HOUSE_DESC, RESP_HOUSE_PRICE, RESP_HOUSE_PHONE, RESP_HOUSE_PHOTO
 ) = range(20, 30)
 
+# Global filter for cancellation / Main Menu
+MAIN_PAGE_FILTER = MessageHandler(filters.Regex("^🏠 ዋና ገጽ$") | filters.Regex("^/start$"), None)
+
 # ==============================================================================
 # 4. GENERAL HANDLERS
 # ==============================================================================
@@ -157,11 +160,18 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "የሀገሪቱ ታላቁ የመኪና፣ የቤት እና የንብረት ገበያ ማዕከል።\n\n"
         "እባክዎን ከታች ካሉት አማራጮች አንዱን ይምረጡ፦"
     )
-    await update.message.reply_text(
-        welcome_text,
-        parse_mode="Markdown",
-        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-    )
+    if update.message:
+        await update.message.reply_text(
+            welcome_text,
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(
+            welcome_text,
+            parse_mode="Markdown",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
     return ConversationHandler.END
 
 async def cancel_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -412,7 +422,7 @@ async def finalize_listing(update: Update, context: ContextTypes.DEFAULT_TYPE, c
         title = "🔍 የገዢ ጥያቄ" if req_type == 'BUY' else "📢 የሻጭ ማስታወቂያ"
         action_btn_text = "✅ አለኝ (ንብረቱ አለኝ)" if req_type == 'BUY' else "✅ እፈልገዋለሁ (ደንበኛ አለኝ)"
         
-        # Category passes strictly to guarantee the right response form!
+        # FIX: Explicitly passing the exact category (cat_car or cat_house) in Callback Data
         action_kbd = InlineKeyboardMarkup([[InlineKeyboardButton(action_btn_text, callback_data=f"item_resp_{req_id}_{user.id}_{cat}")]])
 
         reply_msg = f"✅ **{title}ዎ በስኬት ተመዝግቧል!** (#REQ-{req_id})\n\n👤 **ማንነት:** {role}\n{formatted_desc}\n\n🚀 ጥያቄዎ ለአቅራቢዎች ተልኳል፤ ምላሾች ሲኖሩ ይደርስዎታል።"
@@ -583,29 +593,32 @@ def main():
     
     app.add_handler(CommandHandler("start", start))
 
-    # Cancel Filter for Keyboard Buttons
-    cancel_filter = MessageHandler(filters.Regex(".*(ዋና ገጽ|መግዛት|መሸጥ|መመዝገብ|መገለጫዬ|ድጋፍ).*"), cancel_flow)
+    # Cancel Handler for all text states
+    cancel_handler = MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), cancel_flow)
 
     # Response Flow
     response_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_item_response, pattern="^item_resp_")],
         states={
-            RESP_ROLE: [CallbackQueryHandler(resp_role_chosen, pattern="^resp_role_")],
+            RESP_ROLE: [
+                cancel_handler,
+                CallbackQueryHandler(resp_role_chosen, pattern="^resp_role_")
+            ],
             
-            # Car Response Steps
-            RESP_CAR_MAKE: [MessageHandler(filters.TEXT & ~filters.COMMAND, resp_car_make_received)],
-            RESP_CAR_MODEL: [MessageHandler(filters.TEXT & ~filters.COMMAND, resp_car_model_received)],
-            RESP_CAR_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, resp_car_price_received)],
-            RESP_CAR_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, resp_car_phone_received)],
-            RESP_CAR_PHOTO: [MessageHandler(filters.PHOTO, resp_car_photo_received)],
+            # Car Response Steps with strict Main Page Reset
+            RESP_CAR_MAKE: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, resp_car_make_received)],
+            RESP_CAR_MODEL: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, resp_car_model_received)],
+            RESP_CAR_PRICE: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, resp_car_price_received)],
+            RESP_CAR_PHONE: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, resp_car_phone_received)],
+            RESP_CAR_PHOTO: [cancel_handler, MessageHandler(filters.PHOTO, resp_car_photo_received)],
             
-            # House Response Steps
-            RESP_HOUSE_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, resp_house_desc_received)],
-            RESP_HOUSE_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, resp_house_price_received)],
-            RESP_HOUSE_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, resp_house_phone_received)],
-            RESP_HOUSE_PHOTO: [MessageHandler(filters.PHOTO, resp_house_photo_received)],
+            # House Response Steps with strict Main Page Reset
+            RESP_HOUSE_DESC: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, resp_house_desc_received)],
+            RESP_HOUSE_PRICE: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, resp_house_price_received)],
+            RESP_HOUSE_PHONE: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, resp_house_phone_received)],
+            RESP_HOUSE_PHOTO: [cancel_handler, MessageHandler(filters.PHOTO, resp_house_photo_received)],
         },
-        fallbacks=[CommandHandler("start", start), cancel_filter],
+        fallbacks=[CommandHandler("start", start), cancel_handler],
     )
 
     # Market Buyer/Seller Flow
@@ -615,35 +628,35 @@ def main():
             MessageHandler(filters.Regex(".*መሸጥ.*"), start_sell_flow)
         ],
         states={
-            FLOW_ROLE: [CallbackQueryHandler(flow_role_chosen, pattern="^role_")],
-            FLOW_CAT: [CallbackQueryHandler(flow_category_chosen, pattern="^cat_")],
+            FLOW_ROLE: [cancel_handler, CallbackQueryHandler(flow_role_chosen, pattern="^role_")],
+            FLOW_CAT: [cancel_handler, CallbackQueryHandler(flow_category_chosen, pattern="^cat_")],
             
             # Buyer Car Steps
-            BUY_CAR_TYPE: [CallbackQueryHandler(buy_car_type_chosen, pattern="^bcartype_")],
-            BUY_CAR_MODEL: [MessageHandler(filters.TEXT & ~filters.COMMAND, buy_car_model_received)],
-            BUY_CAR_BUDGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, buy_car_budget_received)],
-            BUY_CAR_PAY: [CallbackQueryHandler(buy_car_pay_chosen, pattern="^bpay_")],
-            BUY_CAR_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buy_car_phone_received)],
+            BUY_CAR_TYPE: [cancel_handler, CallbackQueryHandler(buy_car_type_chosen, pattern="^bcartype_")],
+            BUY_CAR_MODEL: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, buy_car_model_received)],
+            BUY_CAR_BUDGET: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, buy_car_budget_received)],
+            BUY_CAR_PAY: [cancel_handler, CallbackQueryHandler(buy_car_pay_chosen, pattern="^bpay_")],
+            BUY_CAR_PHONE: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, buy_car_phone_received)],
 
             # Buyer House Steps
-            BUY_HOUSE_TYPE: [CallbackQueryHandler(buy_house_type_chosen, pattern="^bhtype_")],
-            BUY_HOUSE_ACT: [CallbackQueryHandler(buy_house_act_chosen, pattern="^bhact_")],
-            BUY_HOUSE_LOC: [MessageHandler(filters.TEXT & ~filters.COMMAND, buy_house_loc_received)],
-            BUY_HOUSE_BUDGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, buy_house_budget_received)],
-            BUY_HOUSE_PAY: [CallbackQueryHandler(buy_house_pay_chosen, pattern="^bhpay_")],
-            BUY_HOUSE_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buy_house_phone_received)],
+            BUY_HOUSE_TYPE: [cancel_handler, CallbackQueryHandler(buy_house_type_chosen, pattern="^bhtype_")],
+            BUY_HOUSE_ACT: [cancel_handler, CallbackQueryHandler(buy_house_act_chosen, pattern="^bhact_")],
+            BUY_HOUSE_LOC: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, buy_house_loc_received)],
+            BUY_HOUSE_BUDGET: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, buy_house_budget_received)],
+            BUY_HOUSE_PAY: [cancel_handler, CallbackQueryHandler(buy_house_pay_chosen, pattern="^bhpay_")],
+            BUY_HOUSE_PHONE: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, buy_house_phone_received)],
 
             # Seller Car Steps
-            SELL_CAR_MAKE: [MessageHandler(filters.TEXT & ~filters.COMMAND, sell_car_make_received)],
-            SELL_CAR_MODEL: [MessageHandler(filters.TEXT & ~filters.COMMAND, sell_car_model_received)],
-            SELL_CAR_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, sell_car_price_received)],
-            SELL_CAR_PAY: [CallbackQueryHandler(sell_car_pay_chosen, pattern="^spay_")],
-            SELL_CAR_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, sell_car_phone_received)],
-            SELL_CAR_PHOTO: [MessageHandler(filters.PHOTO, sell_car_photo_received)],
+            SELL_CAR_MAKE: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, sell_car_make_received)],
+            SELL_CAR_MODEL: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, sell_car_model_received)],
+            SELL_CAR_PRICE: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, sell_car_price_received)],
+            SELL_CAR_PAY: [cancel_handler, CallbackQueryHandler(sell_car_pay_chosen, pattern="^spay_")],
+            SELL_CAR_PHONE: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, sell_car_phone_received)],
+            SELL_CAR_PHOTO: [cancel_handler, MessageHandler(filters.PHOTO, sell_car_photo_received)],
 
-            GENERIC_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, generic_desc_received)],
+            GENERIC_DESC: [cancel_handler, MessageHandler(filters.TEXT & ~filters.COMMAND, generic_desc_received)],
         },
-        fallbacks=[CommandHandler("start", start), cancel_filter],
+        fallbacks=[CommandHandler("start", start), cancel_handler],
     )
 
     app.add_handler(response_conv)
