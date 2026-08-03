@@ -162,11 +162,11 @@ MAIN_KEYBOARD = [
 FLOW_ROLE, FLOW_CAT, FLOW_CAR_TYPE, FLOW_CAR_PAYMENT, FLOW_DESC = range(5)
 SELL_MAKE, SELL_MODEL, SELL_PRICE, SELL_PAYMENT, SELL_PHONE, SELL_PHOTO = range(5, 11)
 
-# States for Response Flow (ምላሽ መስጫ)
+# States for Response Flow
 RESP_ROLE, RESP_CAR_MAKE, RESP_CAR_MODEL, RESP_PRICE, RESP_PHONE, RESP_PHOTO = range(11, 17)
 
 # ==============================================================================
-# 4. GENERAL HANDLERS
+# 4. GENERAL HANDLERS & RESET
 # ==============================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
@@ -180,6 +180,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
     )
     return ConversationHandler.END
+
+async def cancel_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ማንኛውም የዋና ገጽ ወይም የሌላ በተን ጥያቄ ሲመጣ የቀደመውን ፍሰት ያቋርጣል"""
+    return await start(update, context)
 
 # ==============================================================================
 # 5. STEP-BY-STEP SELLER FLOW (የሻጭ/አካራይ ደረጃ በደረጃ ፎርም)
@@ -236,7 +240,6 @@ async def flow_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
             )
             return FLOW_DESC
     else:
-        # Buyer logic
         if cat == "cat_car":
             keyboard = [
                 [InlineKeyboardButton("🚘 የቤት መኪና (Automobile)", callback_data="cartype_personal")],
@@ -455,7 +458,7 @@ async def save_listing_request(update: Update, context: ContextTypes.DEFAULT_TYP
     return ConversationHandler.END
 
 # ==============================================================================
-# 6. PROFESSIONAL RESPONSE FLOW (የምላሽ አሰጣጥ ደረጃዎች)
+# 6. PROFESSIONAL RESPONSE FLOW
 # ==============================================================================
 async def start_item_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -552,9 +555,11 @@ def main():
     threading.Thread(target=run_flask, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).build()
+    
+    # 1. Command Handlers
     app.add_handler(CommandHandler("start", start))
 
-    # Response Handler
+    # 2. Response Flow
     response_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(start_item_response, pattern="^item_(have|want)_")],
         states={
@@ -565,14 +570,17 @@ def main():
             RESP_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, resp_phone_received)],
             RESP_PHOTO: [MessageHandler(filters.PHOTO, resp_photo_received)],
         },
-        fallbacks=[CommandHandler("start", start)],
+        fallbacks=[
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex("^(🏠 ዋና ገጽ|🔍 መግዛት / መከራየት|📢 መሸጥ / ማከራየት)$"), cancel_flow)
+        ],
     )
 
-    # Market Buyer/Seller Handler
+    # 3. Market Buyer/Seller Flow (የተስተካከለ Filter)
     market_conv = ConversationHandler(
         entry_points=[
-            MessageHandler(filters.Regex("^(🔍 መግዛት / መከራየት|መግዛት / መከራየት)$"), start_buy_flow),
-            MessageHandler(filters.Regex("^(📢 መሸጥ / ማከራየት|መሸጥ / ማከራየት)$"), start_sell_flow)
+            MessageHandler(filters.Regex(".*መግዛት.*"), start_buy_flow),
+            MessageHandler(filters.Regex(".*መሸጥ.*"), start_sell_flow)
         ],
         states={
             FLOW_ROLE: [CallbackQueryHandler(flow_role_chosen, pattern="^role_")],
@@ -589,7 +597,10 @@ def main():
             SELL_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, sell_car_phone_received)],
             SELL_PHOTO: [MessageHandler(filters.PHOTO, sell_car_photo_received)],
         },
-        fallbacks=[CommandHandler("start", start)],
+        fallbacks=[
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex("^(🏠 ዋና ገጽ|🔍 መግዛት / መከራየት|📢 መሸጥ / ማከራየት)$"), cancel_flow)
+        ],
     )
 
     app.add_handler(response_conv)
