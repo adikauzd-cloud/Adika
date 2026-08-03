@@ -345,7 +345,6 @@ async def save_listing_request(update: Update, context: ContextTypes.DEFAULT_TYP
     if req_id:
         if req_type == 'BUY':
             title = "🔍 የገዢ ጥያቄ"
-            # ገዢ ሲሆን ደላላው "አለኝ" / "የለኝም" ይላል
             action_kbd = InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("✅ አለኝ (ንብረቱ አለኝ)", callback_data=f"item_have_{req_id}_{user.id}"),
@@ -354,7 +353,6 @@ async def save_listing_request(update: Update, context: ContextTypes.DEFAULT_TYP
             ])
         else:
             title = "📢 የሻጭ ማስታወቂያ"
-            # ሻጭ ሲሆን ደላላው "እፈልገዋለሁ" / "አልፈልገውም" ይላል
             action_kbd = InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("✅ እፈልገዋለሁ (ደንበኛ አለኝ)", callback_data=f"item_want_{req_id}_{user.id}"),
@@ -373,7 +371,7 @@ async def save_listing_request(update: Update, context: ContextTypes.DEFAULT_TYP
             try:
                 await context.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
-                    text=f"🔔 **አዲስ {title}!** (#REQ-{req_id})\n\n👤 **ደበኛ:** {user.first_name} (@{user.username})\n📝 **መረጃ:** {desc}",
+                    text=f"🔔 **አዲስ {title}!** (#REQ-{req_id})\n\n👤 **ደብዳቤ ላኪ:** {user.first_name} (@{user.username})\n📝 **መረጃ:** {desc}",
                     reply_markup=action_kbd,
                     parse_mode="Markdown"
                 )
@@ -383,24 +381,39 @@ async def save_listing_request(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("❌ ጥያቄውን ማስመዝገብ አልተቻለም።")
     return ConversationHandler.END
 
-# ----- RESPONSE HANDLING FOR BROKERS/ADMIN -----
+# ----- RESPONSE DETAILS HANDLING (WITH PHOTO & PHONE SUPPORT) -----
 async def handle_response_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     responder = update.effective_user
-    details = update.message.text
     target_user_id = context.user_data.get('target_user_id')
     req_id = context.user_data.get('target_req_id')
     action_type = context.user_data.get('action_type', 'have')
 
+    # ፎቶ ወይም ጽሁፍ መኖሩን ማረጋገጥ
+    photo_id = update.message.photo[-1].file_id if update.message.photo else None
+    text_content = update.message.caption if photo_id else update.message.text
+
+    if not text_content and not photo_id:
+        await update.message.reply_text("❌ እባክዎ መረጃውን በጽሁፍ ወይም ከፎቶ ጋር አብረው ይላኩ።")
+        return RESPONSE_DETAILS
+
     if target_user_id:
         try:
             if action_type == 'have':
-                msg = f"🎉 **ከአቅራቢ/ደላላ የቀረበ አማራጭ!** (#REQ-{req_id})\n\n👤 **አቅራቢ:** {responder.first_name} (@{responder.username})\n📝 **መረጃ:**\n{details}"
+                header = f"🎉 **ከአቅራቢ/ደላላ የቀረበ ንብረት አማራጭ!** (#REQ-{req_id})\n\n👤 **አቅራቢ:** {responder.first_name} (@{responder.username})\n"
             else:
-                msg = f"🎉 **የሚሸጡትን ንብረት የሚፈልግ ደላላ/ገዢ ተገኝቷል!** (#REQ-{req_id})\n\n👤 **አቅራቢ/ደላላ:** {responder.first_name} (@{responder.username})\n📝 **ያለው የገዢ መረጃ/አስተያየት:**\n{details}"
+                header = f"🎉 **የሚሸጡትን ንብረት የሚፈልግ ደላላ/ገዢ ተገኝቷል!** (#REQ-{req_id})\n\n👤 **ደላላ/አቅራቢ:** {responder.first_name} (@{responder.username})\n"
 
-            await context.bot.send_message(chat_id=target_user_id, text=msg, parse_mode="Markdown")
-            await update.message.reply_text("✅ መረጃዎ ለደንበኛው በስኬት ተልኳል! አመሰግናለሁ።")
+            full_msg = f"{header}\n📝 **የቀረበ መረጃ እና የስልክ ቁጥር፦**\n{text_content}"
+
+            # ፎቶ ካለ ከነ ፎቶው፣ ከሌለ በጽሁፍ መላክ
+            if photo_id:
+                await context.bot.send_photo(chat_id=target_user_id, photo=photo_id, caption=full_msg, parse_mode="Markdown")
+            else:
+                await context.bot.send_message(chat_id=target_user_id, text=full_msg, parse_mode="Markdown")
+
+            await update.message.reply_text("✅ መረጃዎ እና ፎቶው ለደንበኛው በስኬት ተልኳል! አመሰግናለሁ።")
         except Exception as e:
+            logging.error(f"Error sending response details: {e}")
             await update.message.reply_text("❌ መረጃውን ለደንበኛው መላክ አልተቻለም።")
     else:
         await update.message.reply_text("❌ የደንበኛ መረጃ አልተገኘም።")
@@ -563,23 +576,30 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['target_req_id'] = parts[2]
         context.user_data['target_user_id'] = int(parts[3])
         context.user_data['action_type'] = 'have'
-        await query.message.reply_text("✍️ **እባክዎን ያለዎትን የንብረት ዝርዝር፣ ዋጋ እና መረጃ አሁን ይጻፉ፦**")
+        await query.message.reply_text(
+            "✍️ **እባክዎን ያለዎትን ንብረት ዝርዝር መረጃ፣ ዋጋ፣ የእርስዎን የስልክ ቁጥር እና የንብረቱን ፎቶ አሁን ይላኩ፦**\n\n"
+            "💡 *(ማስታወሻ፡ ፎቶ ካለዎት ከነጽሁፉ አብረው መላክ ይችላሉ)*",
+            parse_mode="Markdown"
+        )
         return RESPONSE_DETAILS
 
     elif data.startswith("item_nohave_"):
         await query.edit_message_text(text=f"{query.message.text}\n\n*(❌ የለኝም ብለው መልሰዋል)*")
 
     # Seller Request Reactions (ለሻጭ፡ እፈልገዋለሁ / አልፈልገውም)
+    elif data.startswith("item_nowant_"):
+        await query.edit_message_text(text=f"{query.message.text}\n\n*(❌ አልፈልገውም ብለው መልሰዋል)*")
+
     elif data.startswith("item_want_"):
         parts = data.split("_")
         context.user_data['target_req_id'] = parts[2]
         context.user_data['target_user_id'] = int(parts[3])
         context.user_data['action_type'] = 'want'
-        await query.message.reply_text("✍️ **እባክዎን ከዚህ ንብረት ጋር የሚጣጣም ያለዎትን የገዢ መረጃ ወይም ማብራሪያ አሁን ይጻፉ፦**")
+        await query.message.reply_text(
+            "✍️ **እባክዎን ከዚህ ንብረት ጋር የሚጣጣም ያለዎትን የገዢ መረጃ፣ የእርስዎን የስልክ ቁጥር እና አስፈላጊ ፎቶ/ማብራሪያ አሁን ይላኩ፦**",
+            parse_mode="Markdown"
+        )
         return RESPONSE_DETAILS
-
-    elif data.startswith("item_nowant_"):
-        await query.edit_message_text(text=f"{query.message.text}\n\n*(❌ አልፈልገውም ብለው መልሰዋል)*")
 
 # ==============================================================================
 # 7. MAIN FUNCTION
@@ -599,11 +619,11 @@ def main():
     app.add_handler(MessageHandler(filters.Regex("^(📞 ድጋፍ|ድጋፍ)$"), show_help))
     app.add_handler(MessageHandler(filters.Regex("^(🏠 ዋና ገጽ|ዋና ገጽ)$"), start))
 
-    # Response Details Conversation (መረጃ ማስገቢያ)
+    # Response Details Conversation (መረጃ እና ፎቶ ማስገቢያ)
     response_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(callback_handler, pattern="^(item_have_|item_want_)")],
         states={
-            RESPONSE_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_response_details)],
+            RESPONSE_DETAILS: [MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, handle_response_details)],
         },
         fallbacks=[CommandHandler("start", start)],
     )
