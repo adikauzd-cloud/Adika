@@ -236,9 +236,9 @@ MAIN_KEYBOARD = [
     ["📞 ድጋፍ", "🏠 ዋና ገጽ"]
 ]
 
-FLOW_CAT, FLOW_DESC = range(2)
-REG_V_TYPE, REG_V_NAME, REG_V_PHONE, REG_V_DOC = range(2, 6)
-RESPONSE_DETAILS = 6
+FLOW_ROLE, FLOW_CAT, FLOW_DESC = range(3)
+REG_V_TYPE, REG_V_NAME, REG_V_PHONE, REG_V_DOC = range(3, 7)
+RESPONSE_DETAILS = 7
 
 # ==============================================================================
 # 5. HANDLERS
@@ -296,26 +296,42 @@ async def show_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start_buy_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['req_type'] = 'BUY'
     keyboard = [
-        [InlineKeyboardButton("🚗 መኪና ፍለጋ (Auto)", callback_data="cat_car")],
-        [InlineKeyboardButton("🏠 ቤት / ቦታ ፍለጋ (Property)", callback_data="cat_house")],
-        [InlineKeyboardButton("🏢 ንግድ ቤት / ቢሮ (Commercial)", callback_data="cat_commercial")],
+        [InlineKeyboardButton("👤 ለራሴ የምፈልግ ገዢ ነኝ", callback_data="role_self")],
+        [InlineKeyboardButton("👨‍💼 ደላላ ነኝ (ለደንበኛዬ)", callback_data="role_broker")]
     ]
     await update.message.reply_text(
-        "🔍 **ለመግዛት/ለመከራየት የሚፈልጉትን ምድብ ይምረጡ፦**",
+        "👤 **እባክዎን ማንነትዎን ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-    return FLOW_CAT
+    return FLOW_ROLE
 
 async def start_sell_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['req_type'] = 'SELL'
     keyboard = [
-        [InlineKeyboardButton("🚗 መኪና ለመሸጥ/ለማከራየት", callback_data="cat_car")],
-        [InlineKeyboardButton("🏠 ቤት / ቦታ ለመሸጥ/ለማከራየት", callback_data="cat_house")],
-        [InlineKeyboardButton("🏢 ንግድ ቤት / ቢሮ", callback_data="cat_commercial")],
+        [InlineKeyboardButton("👤 የንብረቱ ባለቤት ነኝ", callback_data="role_self")],
+        [InlineKeyboardButton("👨‍💼 ደላላ ነኝ (የደንበኛ ንብረት)", callback_data="role_broker")]
     ]
     await update.message.reply_text(
-        "📢 **ለመሸጥ/ለማከራየት የሚፈልጉትን ምድብ ይምረጡ፦**",
+        "👤 **እባክዎን ማንነትዎን ይምረጡ፦**",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return FLOW_ROLE
+
+async def flow_role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    role_text = "👤 ባለቤት/ለራሱ" if query.data == "role_self" else "👨‍💼 ደላላ"
+    context.user_data['user_role'] = role_text
+
+    keyboard = [
+        [InlineKeyboardButton("🚗 መኪና (Auto)", callback_data="cat_car")],
+        [InlineKeyboardButton("🏠 ቤት / ቦታ (Property)", callback_data="cat_house")],
+        [InlineKeyboardButton("🏢 ንግድ ቤት / ቢሮ (Commercial)", callback_data="cat_commercial")],
+    ]
+    await query.edit_message_text(
+        "🏷️ **ምድብ ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -330,18 +346,30 @@ async def flow_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
     if req_type == 'BUY':
         msg = "✍️ **የሚፈልጉትን ዕቃ/ቤት/መኪና ዝርዝር መረጃ ያስገቡ፦**\n\n💡 *ምሳሌ፦* «ቦሌ አካባቢ ባለ 2 መኝታ ቤት ኪራይ እስከ 40,000 ብር»"
     else:
-        msg = "✍️ **የሚሸጡትን/የሚያከራዩትን ንብረት ዝርዝር መረጃ፣ ዋጋ እና ስልክ ቁጥር ያስገቡ፦**"
+        msg = (
+            "📸✍️ **የሚሸጡትን/የሚያከራዩትን ንብረት ፎቶ እና ዝርዝር መረጃ አብረው ይላኩ፦**\n\n"
+            "💡 *ማስታወሻ፦* ፎቶውን በሚልኩበት ጊዜ በሥሩ (Caption) ላይ የንብረቱን ዝርዝር መረጃ፣ ዋጋ እና የስልክ ቁጥርዎን ጽፈው ይላኩ።"
+        )
         
     await query.edit_message_text(msg, parse_mode="Markdown")
     return FLOW_DESC
 
 async def save_listing_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    desc = update.message.text
     req_type = context.user_data.get('req_type', 'BUY')
     cat = context.user_data.get('category', 'General')
+    role = context.user_data.get('user_role', 'ባለቤት')
 
-    req_id = add_listing(user.id, user.first_name, req_type, cat, desc)
+    photo_id = update.message.photo[-1].file_id if update.message.photo else None
+    desc = update.message.caption if photo_id else update.message.text
+
+    if not desc:
+        await update.message.reply_text("❌ እባክዎ ከፎቶው ጋር የንብረቱን ዝርዝር መረጃ አብረው ይጻፉ!")
+        return FLOW_DESC
+
+    full_desc = f"[{role}]\n{desc}"
+    req_id = add_listing(user.id, user.first_name, req_type, cat, full_desc)
+
     if req_id:
         if req_type == 'BUY':
             title = "🔍 የገዢ ጥያቄ"
@@ -352,7 +380,7 @@ async def save_listing_request(update: Update, context: ContextTypes.DEFAULT_TYP
                 ]
             ])
         else:
-            title = "📢 የሻጭ ማስታወቂያ"
+            title = "📢 የሻጭ/አካራይ ማስታወቂያ"
             action_kbd = InlineKeyboardMarkup([
                 [
                     InlineKeyboardButton("✅ እፈልገዋለሁ (ደንበኛ አለኝ)", callback_data=f"item_want_{req_id}_{user.id}"),
@@ -362,6 +390,7 @@ async def save_listing_request(update: Update, context: ContextTypes.DEFAULT_TYP
 
         await update.message.reply_text(
             f"✅ **{title}ዎ በስኬት ተመዝግቧል!** (#REQ-{req_id})\n\n"
+            f"👤 **ማንነት:** {role}\n"
             f"📝 **ዝርዝር:** {desc}\n\n"
             "🚀 ጥያቄዎ ለአቅራቢዎች ተልኳል፤ ምላሾች ሲኖሩ ይደርስዎታል።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
@@ -369,26 +398,24 @@ async def save_listing_request(update: Update, context: ContextTypes.DEFAULT_TYP
         
         if ADMIN_CHAT_ID:
             try:
-                await context.bot.send_message(
-                    chat_id=ADMIN_CHAT_ID,
-                    text=f"🔔 **አዲስ {title}!** (#REQ-{req_id})\n\n👤 **ደብዳቤ ላኪ:** {user.first_name} (@{user.username})\n📝 **መረጃ:** {desc}",
-                    reply_markup=action_kbd,
-                    parse_mode="Markdown"
-                )
+                admin_msg = f"🔔 **አዲስ {title}!** (#REQ-{req_id})\n\n👤 **ላኪ:** {user.first_name} (@{user.username})\n🎭 **ማንነት:** {role}\n📝 **መረጃ:**\n{desc}"
+                if photo_id:
+                    await context.bot.send_photo(chat_id=ADMIN_CHAT_ID, photo=photo_id, caption=admin_msg, reply_markup=action_kbd, parse_mode="Markdown")
+                else:
+                    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=admin_msg, reply_markup=action_kbd, parse_mode="Markdown")
             except Exception as e:
                 logging.error(f"Admin notify error: {e}")
     else:
         await update.message.reply_text("❌ ጥያቄውን ማስመዝገብ አልተቻለም።")
     return ConversationHandler.END
 
-# ----- RESPONSE DETAILS HANDLING (WITH PHOTO & PHONE SUPPORT) -----
+# ----- RESPONSE DETAILS HANDLING -----
 async def handle_response_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     responder = update.effective_user
     target_user_id = context.user_data.get('target_user_id')
     req_id = context.user_data.get('target_req_id')
     action_type = context.user_data.get('action_type', 'have')
 
-    # ፎቶ ወይም ጽሁፍ መኖሩን ማረጋገጥ
     photo_id = update.message.photo[-1].file_id if update.message.photo else None
     text_content = update.message.caption if photo_id else update.message.text
 
@@ -405,7 +432,6 @@ async def handle_response_details(update: Update, context: ContextTypes.DEFAULT_
 
             full_msg = f"{header}\n📝 **የቀረበ መረጃ እና የስልክ ቁጥር፦**\n{text_content}"
 
-            # ፎቶ ካለ ከነ ፎቶው፣ ከሌለ በጽሁፍ መላክ
             if photo_id:
                 await context.bot.send_photo(chat_id=target_user_id, photo=photo_id, caption=full_msg, parse_mode="Markdown")
             else:
@@ -635,8 +661,9 @@ def main():
             MessageHandler(filters.Regex("^(📢 መሸጥ / ማከራየት|መሸጥ / ማከራየት)$"), start_sell_flow)
         ],
         states={
+            FLOW_ROLE: [CallbackQueryHandler(flow_role_chosen, pattern="^role_")],
             FLOW_CAT: [CallbackQueryHandler(flow_category_chosen, pattern="^cat_")],
-            FLOW_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, save_listing_request)],
+            FLOW_DESC: [MessageHandler((filters.TEXT | filters.PHOTO) & ~filters.COMMAND, save_listing_request)],
         },
         fallbacks=[CommandHandler("start", start), MessageHandler(filters.Regex("^(🏠 ዋና ገጽ|ዋና ገጽ)$"), start)],
     )
