@@ -199,7 +199,7 @@ MAIN_KEYBOARD = [
     ["📞 ድጋፍ", "🏠 ዋና ገጽ"]
 ]
 
-# States for Market Flow (Buyer & Seller)
+# Total 37 States
 (
     FLOW_ROLE, FLOW_CAT,
     # Buyer Car
@@ -211,15 +211,12 @@ MAIN_KEYBOARD = [
     # Seller House
     SELL_HOUSE_LOC, SELL_HOUSE_TYPE, SELL_HOUSE_AREA, SELL_HOUSE_COND, SELL_HOUSE_PRICE, SELL_HOUSE_NEG, SELL_HOUSE_PHONE, SELL_HOUSE_PHOTO,
     # Broker Registration
-    BROKER_NAME, BROKER_PHONE, BROKER_AREA
-) = range(23)
-
-# States for Response Flow
-(
+    BROKER_NAME, BROKER_PHONE, BROKER_AREA,
+    # Response Flow
     RESP_ROLE, 
     RESP_CAR_MODEL, RESP_CAR_YEAR, RESP_CAR_PRICE, RESP_CAR_NEG, RESP_CAR_PHONE, RESP_CAR_PHOTO,
     RESP_HOUSE_LOC, RESP_HOUSE_AREA, RESP_HOUSE_COND, RESP_HOUSE_PRICE, RESP_HOUSE_NEG, RESP_HOUSE_PHONE, RESP_HOUSE_PHOTO
-) = range(23, 37)
+) = range(37)
 
 # ==============================================================================
 # 4. CANCEL & START HANDLER
@@ -354,7 +351,6 @@ async def flow_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
             await query.edit_message_text("📍 **የሚፈልጉትን አካባቢ ይምረጡ፦**", reply_markup=InlineKeyboardMarkup(loc_kbd), parse_mode="Markdown")
             return BUY_HOUSE_LOC
     else:
-        # SELLER FLOW
         if cat == "cat_car":
             await query.edit_message_text("🚘 **የመኪናውን ሞዴል ያስገቡ፦**\n\n💡 *ምሳሌ፦* Suzuki Desire, Vitz...", parse_mode="Markdown")
             return SELL_CAR_MODEL
