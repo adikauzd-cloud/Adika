@@ -138,25 +138,31 @@ MAIN_KEYBOARD = [
     ["📞 ድጋፍ", "🏠 ዋና ገጽ"]
 ]
 
-# States for Market Flow (Buyer & Seller)
-(
-    FLOW_ROLE, FLOW_CAT, 
-    FLOW_CAR_TYPE, FLOW_CAR_PAYMENT, FLOW_CAR_DESC,
-    FLOW_HOUSE_TYPE, FLOW_HOUSE_ACTION, FLOW_HOUSE_PAYMENT, FLOW_HOUSE_DESC,
-    FLOW_COMMERCIAL_DESC,
-    SELL_MAKE, SELL_MODEL, SELL_PRICE, SELL_PAYMENT, SELL_PHONE, SELL_PHOTO
-) = range(0, 17)
+# ==============================================================================
+# 4. CONVERSATION STATES - FIXED
+# ==============================================================================
+# Market Flow States (Buyer & Seller)
+FLOW_ROLE, FLOW_CAT = range(2)
 
-# States for Response Flow
-(
-    RESP_ROLE, 
-    RESP_CAR_MAKE, RESP_CAR_MODEL, 
-    RESP_HOUSE_DESC,
-    RESP_PRICE, RESP_PHONE, RESP_PHOTO
-) = range(17, 24)
+# Buyer Car States
+FLOW_CAR_TYPE, FLOW_CAR_PAYMENT, FLOW_CAR_DESC = range(2, 5)
+
+# Buyer House States  
+FLOW_HOUSE_TYPE, FLOW_HOUSE_ACTION, FLOW_HOUSE_PAYMENT, FLOW_HOUSE_DESC = range(5, 9)
+
+# Buyer Commercial States
+FLOW_COMMERCIAL_DESC = 9
+
+# Seller Car States
+SELL_MAKE, SELL_MODEL, SELL_PRICE, SELL_PAYMENT, SELL_PHONE, SELL_PHOTO = range(10, 16)
+
+# Response Flow States
+RESP_ROLE, RESP_CAR_MAKE, RESP_CAR_MODEL, RESP_HOUSE_DESC, RESP_PRICE, RESP_PHONE, RESP_PHOTO = range(16, 23)
+
+# Total: 23 states
 
 # ==============================================================================
-# 4. GENERAL HANDLERS
+# 5. GENERAL HANDLERS
 # ==============================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
@@ -179,7 +185,7 @@ async def cancel_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 5. MARKET FLOW (BUYER & SELLER)
+# 6. MARKET FLOW (BUYER & SELLER)
 # ==============================================================================
 async def start_buy_flow(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -246,7 +252,7 @@ async def flow_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
                 "✍️ **የንብረቱን/የቤቱን ዝርዝር መረጃ ያስገቡ፦**\n\n💡 *ምሳሌ፦* «ቦሌ አትላስ አካባቢ 3 መኝታ ያለው ቪላ ቤት»",
                 parse_mode="Markdown"
             )
-            return FLOW_HOUSE_DESC  # Changed from FLOW_DESC
+            return FLOW_HOUSE_DESC
 
     # ========== BUYER FLOW ==========
     if cat == "cat_car":
@@ -320,7 +326,6 @@ async def flow_car_payment_chosen(update: Update, context: ContextTypes.DEFAULT_
     return FLOW_CAR_DESC
 
 async def save_car_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """መኪና ጥያቄ ማስቀመጫ"""
     user = update.effective_user
     desc = update.message.text
     
@@ -413,7 +418,6 @@ async def flow_house_payment_chosen(update: Update, context: ContextTypes.DEFAUL
     return FLOW_HOUSE_DESC
 
 async def save_house_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ቤት ጥያቄ ማስቀመጫ"""
     user = update.effective_user
     desc = update.message.text
     
@@ -453,9 +457,8 @@ async def save_house_request(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     return ConversationHandler.END
 
-# ========== COMMERCIAL REQUEST ==========
+# ========== BUYER COMMERCIAL FLOW ==========
 async def save_commercial_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የንግድ ቤት ጥያቄ ማስቀመጫ"""
     user = update.effective_user
     desc = update.message.text
     role = context.user_data.get('user_role', 'ባለቤት')
@@ -490,7 +493,7 @@ async def save_commercial_request(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 # ==============================================================================
-# 6. SELLER FLOW (ሻጭ)
+# 7. SELLER FLOW
 # ==============================================================================
 async def sell_car_make_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['sell_make'] = update.message.text
@@ -583,7 +586,7 @@ async def sell_car_photo_received(update: Update, context: ContextTypes.DEFAULT_
     return ConversationHandler.END
 
 # ==============================================================================
-# 7. RESPONSE FLOW (መላሽ)
+# 8. RESPONSE FLOW
 # ==============================================================================
 async def start_item_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -717,7 +720,7 @@ async def resp_photo_received(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ConversationHandler.END
 
 # ==============================================================================
-# 8. MAIN FUNCTION
+# 9. MAIN FUNCTION
 # ==============================================================================
 def main():
     init_db()
@@ -739,7 +742,11 @@ def main():
             RESP_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, resp_phone_received)],
             RESP_PHOTO: [MessageHandler(filters.PHOTO, resp_photo_received)],
         },
-        fallbacks=[CommandHandler("start", start), MessageHandler(filters.TEXT & ~filters.COMMAND, cancel_flow)],
+        fallbacks=[
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex(".*(ዋና ገጽ|መግዛት|መሸጥ).*"), cancel_flow)
+        ],
+        allow_reentry=True,
     )
 
     # Market Flow (Buyer & Seller)
@@ -774,7 +781,11 @@ def main():
             SELL_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, sell_car_phone_received)],
             SELL_PHOTO: [MessageHandler(filters.PHOTO, sell_car_photo_received)],
         },
-        fallbacks=[CommandHandler("start", start), MessageHandler(filters.TEXT & ~filters.COMMAND, cancel_flow)],
+        fallbacks=[
+            CommandHandler("start", start),
+            MessageHandler(filters.Regex(".*(ዋና ገጽ|መግዛት|መሸጥ).*"), cancel_flow)
+        ],
+        allow_reentry=True,
     )
 
     app.add_handler(response_conv)
