@@ -93,14 +93,14 @@ def init_db():
                 )
             """)
 
-        # 2. Marketplace Requests/Listings Table (ለገዢዎችም ለሻጮችም)
+        # 2. Marketplace Listings Table
         if DATABASE_URL:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS listings (
                     id SERIAL PRIMARY KEY,
                     user_chat_id BIGINT NOT NULL,
                     user_name TEXT,
-                    req_type TEXT NOT NULL, -- 'BUY' ወይም 'SELL'
+                    req_type TEXT NOT NULL,
                     category TEXT NOT NULL,
                     description TEXT NOT NULL,
                     status TEXT DEFAULT 'pending',
@@ -238,6 +238,7 @@ MAIN_KEYBOARD = [
 
 FLOW_CAT, FLOW_DESC = range(2)
 REG_V_TYPE, REG_V_NAME, REG_V_PHONE, REG_V_DOC = range(2, 6)
+RESPONSE_DETAILS = 6
 
 # ==============================================================================
 # 5. HANDLERS
@@ -342,23 +343,34 @@ async def save_listing_request(update: Update, context: ContextTypes.DEFAULT_TYP
 
     req_id = add_listing(user.id, user.first_name, req_type, cat, desc)
     if req_id:
-        title = "🔍 የገዢ ጥያቄ" if req_type == 'BUY' else "📢 የሻጭ ማስታወቂያ"
+        if req_type == 'BUY':
+            title = "🔍 የገዢ ጥያቄ"
+            # ገዢ ሲሆን ደላላው "አለኝ" / "የለኝም" ይላል
+            action_kbd = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ አለኝ (ንብረቱ አለኝ)", callback_data=f"item_have_{req_id}_{user.id}"),
+                    InlineKeyboardButton("❌ የለኝም", callback_data=f"item_nohave_{req_id}")
+                ]
+            ])
+        else:
+            title = "📢 የሻጭ ማስታወቂያ"
+            # ሻጭ ሲሆን ደላላው "እፈልገዋለሁ" / "አልፈልገውም" ይላል
+            action_kbd = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ እፈልገዋለሁ (ደንበኛ አለኝ)", callback_data=f"item_want_{req_id}_{user.id}"),
+                    InlineKeyboardButton("❌ አልፈልገውም", callback_data=f"item_nowant_{req_id}")
+                ]
+            ])
+
         await update.message.reply_text(
             f"✅ **{title}ዎ በስኬት ተመዝግቧል!** (#REQ-{req_id})\n\n"
             f"📝 **ዝርዝር:** {desc}\n\n"
-            "🚀 ጥያቄዎ ለአቅራቢዎች ተልኳል፤ አማራጮች ሲኖሩ ይደርስዎታል።",
+            "🚀 ጥያቄዎ ለአቅራቢዎች ተልኳል፤ ምላሾች ሲኖሩ ይደርስዎታል።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
-        # ለአድሚን «አለኝ / የለኝም» ቁልፍ ያለው ማሳወቂያ መላክ
         if ADMIN_CHAT_ID:
             try:
-                action_kbd = InlineKeyboardMarkup([
-                    [
-                        InlineKeyboardButton("✅ አለኝ (አናግረው)", callback_data=f"item_have_{req_id}_{user.id}"),
-                        InlineKeyboardButton("❌ የለኝም", callback_data=f"item_nohave_{req_id}")
-                    ]
-                ])
                 await context.bot.send_message(
                     chat_id=ADMIN_CHAT_ID,
                     text=f"🔔 **አዲስ {title}!** (#REQ-{req_id})\n\n👤 **ደበኛ:** {user.first_name} (@{user.username})\n📝 **መረጃ:** {desc}",
@@ -369,6 +381,30 @@ async def save_listing_request(update: Update, context: ContextTypes.DEFAULT_TYP
                 logging.error(f"Admin notify error: {e}")
     else:
         await update.message.reply_text("❌ ጥያቄውን ማስመዝገብ አልተቻለም።")
+    return ConversationHandler.END
+
+# ----- RESPONSE HANDLING FOR BROKERS/ADMIN -----
+async def handle_response_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    responder = update.effective_user
+    details = update.message.text
+    target_user_id = context.user_data.get('target_user_id')
+    req_id = context.user_data.get('target_req_id')
+    action_type = context.user_data.get('action_type', 'have')
+
+    if target_user_id:
+        try:
+            if action_type == 'have':
+                msg = f"🎉 **ከአቅራቢ/ደላላ የቀረበ አማራጭ!** (#REQ-{req_id})\n\n👤 **አቅራቢ:** {responder.first_name} (@{responder.username})\n📝 **መረጃ:**\n{details}"
+            else:
+                msg = f"🎉 **የሚሸጡትን ንብረት የሚፈልግ ደላላ/ገዢ ተገኝቷል!** (#REQ-{req_id})\n\n👤 **አቅራቢ/ደላላ:** {responder.first_name} (@{responder.username})\n📝 **ያለው የገዢ መረጃ/አስተያየት:**\n{details}"
+
+            await context.bot.send_message(chat_id=target_user_id, text=msg, parse_mode="Markdown")
+            await update.message.reply_text("✅ መረጃዎ ለደንበኛው በስኬት ተልኳል! አመሰግናለሁ።")
+        except Exception as e:
+            await update.message.reply_text("❌ መረጃውን ለደንበኛው መላክ አልተቻለም።")
+    else:
+        await update.message.reply_text("❌ የደንበኛ መረጃ አልተገኘም።")
+
     return ConversationHandler.END
 
 # ----- VENDOR REGISTRATION -----
@@ -457,7 +493,6 @@ async def vendor_doc_received(update: Update, context: ContextTypes.DEFAULT_TYPE
 # ==============================================================================
 # 6. ADMIN COMMANDS & CALLBACKS
 # ==============================================================================
-# ለአድሚኑ በስልክ ቁጥር በቀጥታ ደላላ መመዝገቢያ (/add_vendor 0911223344 አበበ)
 async def admin_add_vendor_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id != ADMIN_CHAT_ID:
@@ -522,13 +557,29 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("admin_reject_"):
         await query.edit_message_caption(caption=f"❌ **ምዝገባው ውድቅ ተደርጓል!**", parse_mode="Markdown")
         
-    # Item Have / No Have callbacks
+    # Buyer Request Reactions (ለገዢ፡ አለኝ / የለኝም)
     elif data.startswith("item_have_"):
         parts = data.split("_")
-        buyer_chat_id = parts[3]
-        await query.message.reply_text(f"👍 **ጥሩ! የደንበኛው የቴሌግራም መለያ፦** tg://user?id={buyer_chat_id}")
+        context.user_data['target_req_id'] = parts[2]
+        context.user_data['target_user_id'] = int(parts[3])
+        context.user_data['action_type'] = 'have'
+        await query.message.reply_text("✍️ **እባክዎን ያለዎትን የንብረት ዝርዝር፣ ዋጋ እና መረጃ አሁን ይጻፉ፦**")
+        return RESPONSE_DETAILS
+
     elif data.startswith("item_nohave_"):
-        await query.edit_message_text(text=f"{query.message.text}\n\n**(❌ የለኝም ተብሎ ተመልሷል)**")
+        await query.edit_message_text(text=f"{query.message.text}\n\n*(❌ የለኝም ብለው መልሰዋል)*")
+
+    # Seller Request Reactions (ለሻጭ፡ እፈልገዋለሁ / አልፈልገውም)
+    elif data.startswith("item_want_"):
+        parts = data.split("_")
+        context.user_data['target_req_id'] = parts[2]
+        context.user_data['target_user_id'] = int(parts[3])
+        context.user_data['action_type'] = 'want'
+        await query.message.reply_text("✍️ **እባክዎን ከዚህ ንብረት ጋር የሚጣጣም ያለዎትን የገዢ መረጃ ወይም ማብራሪያ አሁን ይጻፉ፦**")
+        return RESPONSE_DETAILS
+
+    elif data.startswith("item_nowant_"):
+        await query.edit_message_text(text=f"{query.message.text}\n\n*(❌ አልፈልገውም ብለው መልሰዋል)*")
 
 # ==============================================================================
 # 7. MAIN FUNCTION
@@ -539,15 +590,23 @@ def main():
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Commands & Global Handlers
+    # Global Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("add_vendor", admin_add_vendor_cmd))
     
-    # Message Handlers (አስቀድመው መመደብ አለባቸው)
     app.add_handler(MessageHandler(filters.Regex("^(👤 መገለጫዬ|መገለጫዬ)$"), show_profile))
     app.add_handler(MessageHandler(filters.Regex("^(📞 ድጋፍ|ድጋፍ)$"), show_help))
     app.add_handler(MessageHandler(filters.Regex("^(🏠 ዋና ገጽ|ዋና ገጽ)$"), start))
+
+    # Response Details Conversation (መረጃ ማስገቢያ)
+    response_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(callback_handler, pattern="^(item_have_|item_want_)")],
+        states={
+            RESPONSE_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_response_details)],
+        },
+        fallbacks=[CommandHandler("start", start)],
+    )
 
     # Buyer / Seller Conversation
     market_conv = ConversationHandler(
@@ -574,6 +633,7 @@ def main():
         fallbacks=[CommandHandler("start", start), MessageHandler(filters.Regex("^(🏠 ዋና ገጽ|ዋና ገጽ)$"), start)],
     )
 
+    app.add_handler(response_conv)
     app.add_handler(market_conv)
     app.add_handler(vendor_conv)
     app.add_handler(CallbackQueryHandler(callback_handler))
