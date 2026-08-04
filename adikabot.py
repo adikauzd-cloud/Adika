@@ -2,13 +2,13 @@ import logging
 import os
 import threading
 import time
+import re
 from functools import wraps
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any
 from dataclasses import dataclass
 from contextlib import contextmanager
 
 import psycopg2
-from psycopg2.extras import RealDictCursor
 from flask import Flask, jsonify
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -101,14 +101,23 @@ def get_db_connection():
         if config.DATABASE_URL:
             db_url = config.DATABASE_URL.replace("postgres://", "postgresql://", 1)
             conn = psycopg2.connect(db_url)
-            conn.autocommit = True
+            conn.autocommit = False
         else:
             import sqlite3
             conn = sqlite3.connect("adika_marketplace.db")
             conn.row_factory = sqlite3.Row
         
         yield conn
+        
+        if config.DATABASE_URL:
+            conn.commit()
+            
     except Exception as e:
+        if conn:
+            try:
+                conn.rollback()
+            except:
+                pass
         logger.error(f"Database connection error: {e}")
         raise
     finally:
@@ -158,11 +167,13 @@ def init_db():
                     description TEXT NOT NULL,
                     status TEXT DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_listings_status (status),
-                    INDEX idx_listings_category (main_category, sub_category)
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # Create indexes separately for PostgreSQL
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_category ON listings(main_category, sub_category)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_created ON listings(created_at DESC)")
         else:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS listings (
@@ -194,10 +205,11 @@ def init_db():
                     location TEXT NOT NULL,
                     is_active BOOLEAN DEFAULT TRUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    INDEX idx_brokers_chat_id (chat_id)
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_chat_id ON brokers(chat_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_location ON brokers(location)")
         else:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS brokers (
@@ -229,10 +241,13 @@ def init_db():
                     photo_id TEXT,
                     status TEXT DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (listing_id) REFERENCES listings(id),
-                    INDEX idx_responses_listing_id (listing_id)
+                    CONSTRAINT fk_responses_listing FOREIGN KEY (listing_id) 
+                        REFERENCES listings(id) ON DELETE CASCADE
                 )
             """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_responses_listing_id ON responses(listing_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_responses_responder ON responses(responder_chat_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_responses_status ON responses(status)")
         else:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS responses (
@@ -248,10 +263,41 @@ def init_db():
                     photo_id TEXT,
                     status TEXT DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (listing_id) REFERENCES listings(id)
+                    FOREIGN KEY (listing_id) REFERENCES listings(id) ON DELETE CASCADE
                 )
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_responses_listing_id ON responses(listing_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_responses_responder ON responses(responder_chat_id)")
+        
+        # Users table
+        if config.DATABASE_URL:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    chat_id BIGINT NOT NULL UNIQUE,
+                    username TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    is_broker BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_chat_id ON users(chat_id)")
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL UNIQUE,
+                    username TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    is_broker BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_users_chat_id ON users(chat_id)")
         
         if config.DATABASE_URL:
             conn.commit()
@@ -282,8 +328,6 @@ def add_listing(user_chat_id: int, user_name: str, req_type: str, main_category:
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description))
             req_id = cursor.lastrowid
-        
-        if not config.DATABASE_URL:
             conn.commit()
         return req_id
 
@@ -351,8 +395,6 @@ def update_listing_status(listing_id: int, status: str) -> bool:
         else:
             cursor.execute("UPDATE listings SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                           (status, listing_id))
-        
-        if not config.DATABASE_URL:
             conn.commit()
         return cursor.rowcount > 0
 
@@ -533,16 +575,15 @@ def format_listing(listing: Dict) -> str:
 
 def validate_phone(phone: str) -> bool:
     """Validate phone number format"""
-    import re
-    # Ethiopian phone number pattern
+    phone = phone.replace(' ', '').replace('-', '')
     pattern = r'^(09|07|01)\d{8}$|^\+251(09|07|01)\d{8}$'
-    return bool(re.match(pattern, phone.replace(' ', '').replace('-', '')))
+    return bool(re.match(pattern, phone))
 
 def validate_price(price: str) -> bool:
     """Validate price format"""
-    import re
-    pattern = r'^[\d,]+(\.[\d]{2})?$|^[\d]+(\.[\d]{2})?$'
-    return bool(re.match(pattern, price.replace(',', '')))
+    price = price.replace(',', '')
+    pattern = r'^[\d]+(\.[\d]{2})?$'
+    return bool(re.match(pattern, price))
 
 # ==============================================================================
 # 8. START & MAIN MENU
@@ -1219,10 +1260,19 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
     total_pages = max(1, (total + config.ITEMS_PER_PAGE - 1) // config.ITEMS_PER_PAGE)
     
     if not listings:
-        await update.message.reply_text(
-            "📭 ምንም ንቁ ጥያቄዎች የሉም።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
+        text = "📭 ምንም ንቁ ጥያቄዎች የሉም።"
+        if update.message:
+            await update.message.reply_text(
+                text,
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+        else:
+            query = update.callback_query
+            await query.answer()
+            await query.edit_message_text(
+                text,
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
         return
     
     text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1}/{total_pages})\n\n"
@@ -1588,6 +1638,7 @@ def main():
     try:
         # Initialize database
         init_db()
+        logger.info("✅ Database initialized successfully")
         
         # Start Flask server
         threading.Thread(target=run_flask, daemon=True).start()
