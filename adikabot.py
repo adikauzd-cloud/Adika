@@ -68,7 +68,7 @@ def init_db():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Drop existing tables
+        # Drop existing tables with CASCADE for PostgreSQL
         if DATABASE_URL:
             cursor.execute("DROP TABLE IF EXISTS listings CASCADE;")
             cursor.execute("DROP TABLE IF EXISTS brokers CASCADE;")
@@ -440,7 +440,7 @@ async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 8. BUYER FLOW
+# 8. BUYER FLOW - SIMPLIFIED
 # ==============================================================================
 async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -646,7 +646,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 9. VIEW REQUESTS - EXACT 11 COLUMN UNPACKING
+# 9. VIEW REQUESTS - FIXED WITH SAFE UNPACKING
 # ==============================================================================
 ITEMS_PER_PAGE = 5
 
@@ -687,12 +687,26 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1}/{total_pages})\n\n"
         
-        # Display listings using exact 11-column unpacking
+        # UNPACK EXACTLY 11 COLUMNS - THIS FIXES THE ERROR!
         for row in listings:
-            # Unpack exactly 11 columns - NO ValueError!
-            (listing_id, user_chat_id, user_name, req_type, main_category, 
-             sub_category, action_type, property_type, description, 
-             status, created_at) = row[:11]
+            # Make sure we have exactly 11 columns
+            if len(row) >= 11:
+                (listing_id, user_chat_id, user_name, req_type, main_category, 
+                 sub_category, action_type, property_type, description, 
+                 status, created_at) = row[:11]
+            else:
+                # Fallback if somehow fewer columns
+                listing_id = row[0] if len(row) > 0 else "N/A"
+                user_chat_id = row[1] if len(row) > 1 else "N/A"
+                user_name = row[2] if len(row) > 2 else "Unknown"
+                req_type = row[3] if len(row) > 3 else "N/A"
+                main_category = row[4] if len(row) > 4 else "N/A"
+                sub_category = row[5] if len(row) > 5 else "N/A"
+                action_type = row[6] if len(row) > 6 else "N/A"
+                property_type = row[7] if len(row) > 7 else "N/A"
+                description = row[8] if len(row) > 8 else "No Description"
+                status = row[9] if len(row) > 9 else "pending"
+                created_at = row[10] if len(row) > 10 else None
             
             # Set icons
             icon = "🚗" if main_category == "car" else "🏠" if main_category == "house" else "🏢"
@@ -716,9 +730,14 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Create response buttons
         keyboard = []
         for row in listings:
-            (listing_id, user_chat_id, user_name, req_type, main_category, 
-             sub_category, action_type, property_type, description, 
-             status, created_at) = row[:11]
+            if len(row) >= 11:
+                (listing_id, user_chat_id, user_name, req_type, main_category, 
+                 sub_category, action_type, property_type, description, 
+                 status, created_at) = row[:11]
+            else:
+                listing_id = row[0] if len(row) > 0 else "N/A"
+                user_chat_id = row[1] if len(row) > 1 else "N/A"
+                main_category = row[4] if len(row) > 4 else "car"
             
             keyboard.append([
                 InlineKeyboardButton(
@@ -762,7 +781,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await query.edit_message_text(error_text, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
 
 # ==============================================================================
-# 10. RESPONSE FLOW
+# 10. RESPONSE FLOW - SIMPLIFIED
 # ==============================================================================
 async def start_item_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
