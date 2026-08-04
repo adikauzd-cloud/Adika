@@ -70,15 +70,13 @@ def init_db():
         
         # Drop existing tables to ensure clean schema
         if DATABASE_URL:
-            cursor.execute("""
-                DROP TABLE IF EXISTS listings CASCADE;
-                DROP TABLE IF EXISTS brokers CASCADE;
-            """)
+            # PostgreSQL - with CASCADE to handle dependencies
+            cursor.execute("DROP TABLE IF EXISTS listings CASCADE;")
+            cursor.execute("DROP TABLE IF EXISTS brokers CASCADE;")
         else:
-            cursor.execute("""
-                DROP TABLE IF EXISTS listings;
-                DROP TABLE IF EXISTS brokers;
-            """)
+            # SQLite
+            cursor.execute("DROP TABLE IF EXISTS listings;")
+            cursor.execute("DROP TABLE IF EXISTS brokers;")
         
         # Listings table - exactly 11 columns
         if DATABASE_URL:
@@ -138,11 +136,24 @@ def init_db():
                 )
             """)
         
+        # Add indexes for better performance
+        if DATABASE_URL:
+            cursor.execute("CREATE INDEX idx_listings_status ON listings(status)")
+            cursor.execute("CREATE INDEX idx_listings_category ON listings(main_category, sub_category)")
+            cursor.execute("CREATE INDEX idx_listings_created ON listings(created_at DESC)")
+            cursor.execute("CREATE INDEX idx_brokers_chat_id ON brokers(chat_id)")
+        else:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_category ON listings(main_category, sub_category)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_chat_id ON brokers(chat_id)")
+        
         if DATABASE_URL:
             conn.commit()
-        logger.info("✅ Database initialized successfully")
+        logger.info("✅ Database initialized successfully with clean schema")
+        
     except Exception as e:
         logger.error(f"Database initialization error: {e}")
+        raise
     finally:
         if conn:
             conn.close()
@@ -708,7 +719,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 9. VIEW REQUESTS - COMPLETELY REWRITTEN
+# 9. VIEW REQUESTS
 # ==============================================================================
 ITEMS_PER_PAGE = 5
 
@@ -749,29 +760,24 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1}/{total_pages})\n\n"
         
-        # Display listings - using dictionary keys only
+        # Display listings using dictionary keys only
         for idx, listing in enumerate(listings, 1):
-            # Get values safely
             listing_id = listing.get('id', '')
             main_cat = listing.get('main_category', '')
             action_type = listing.get('action_type', '')
             description = listing.get('description', '')
             created_at = listing.get('created_at')
             
-            # Set icons
             icon = "🚗" if main_cat == "car" else "🏠" if main_cat == "house" else "🏢"
             action_icon = "🛍️" if action_type == "sell" else "🔑"
             
-            # Format description
             desc_text = description[:100] if description else ''
             if len(description) > 100:
                 desc_text += "..."
             
-            # Build text
             text += f"{icon} **#{listing_id}** {action_icon}\n"
             text += f"📝 {desc_text}\n"
             
-            # Format date if available
             if created_at and hasattr(created_at, 'strftime'):
                 text += f"📅 {created_at.strftime('%Y-%m-%d %H:%M')}\n"
             text += "────────────────────\n"
@@ -799,7 +805,6 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         nav_buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
         keyboard.append(nav_buttons)
         
-        # Send message
         if update.message:
             await update.message.reply_text(
                 text,
