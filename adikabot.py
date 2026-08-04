@@ -80,7 +80,7 @@ def init_db():
                 DROP TABLE IF EXISTS brokers;
             """)
         
-        # Listings table - 11 columns
+        # Listings table - exactly 11 columns
         if DATABASE_URL:
             cursor.execute("""
                 CREATE TABLE listings (
@@ -207,11 +207,11 @@ def get_listings_by_category(main_category=None, sub_category=None, action_type=
             cursor.execute(query, params)
         rows = cursor.fetchall()
         
-        # ALWAYS return as list of dictionaries
+        # Convert to list of dictionaries
         result = []
         for row in rows:
             if DATABASE_URL:
-                # PostgreSQL row as tuple
+                # PostgreSQL row as tuple - 11 columns
                 result.append({
                     'id': row[0],
                     'user_chat_id': row[1],
@@ -708,7 +708,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 9. VIEW REQUESTS - FIXED VERSION
+# 9. VIEW REQUESTS - COMPLETELY REWRITTEN
 # ==============================================================================
 ITEMS_PER_PAGE = 5
 
@@ -728,76 +728,102 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await show_requests_page(update, context)
 
 async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    page = context.user_data.get('view_page', 0)
-    offset = page * ITEMS_PER_PAGE
-    
-    # Get listings as list of dictionaries
-    listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
-    total = count_listings()
-    total_pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
-    
-    if not listings:
-        text = "📭 ምንም ንቁ ጥያቄዎች የሉም።"
+    try:
+        page = context.user_data.get('view_page', 0)
+        offset = page * ITEMS_PER_PAGE
+        
+        # Get listings as list of dictionaries
+        listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
+        total = count_listings()
+        total_pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
+        
+        if not listings:
+            text = "📭 ምንም ንቁ ጥያቄዎች የሉም።"
+            if update.message:
+                await update.message.reply_text(text, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+            else:
+                query = update.callback_query
+                await query.answer()
+                await query.edit_message_text(text, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+            return
+        
+        text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1}/{total_pages})\n\n"
+        
+        # Display listings - using dictionary keys only
+        for idx, listing in enumerate(listings, 1):
+            # Get values safely
+            listing_id = listing.get('id', '')
+            main_cat = listing.get('main_category', '')
+            action_type = listing.get('action_type', '')
+            description = listing.get('description', '')
+            created_at = listing.get('created_at')
+            
+            # Set icons
+            icon = "🚗" if main_cat == "car" else "🏠" if main_cat == "house" else "🏢"
+            action_icon = "🛍️" if action_type == "sell" else "🔑"
+            
+            # Format description
+            desc_text = description[:100] if description else ''
+            if len(description) > 100:
+                desc_text += "..."
+            
+            # Build text
+            text += f"{icon} **#{listing_id}** {action_icon}\n"
+            text += f"📝 {desc_text}\n"
+            
+            # Format date if available
+            if created_at and hasattr(created_at, 'strftime'):
+                text += f"📅 {created_at.strftime('%Y-%m-%d %H:%M')}\n"
+            text += "────────────────────\n"
+        
+        # Create response buttons
+        keyboard = []
+        for listing in listings:
+            listing_id = listing.get('id', '')
+            user_chat_id = listing.get('user_chat_id', '')
+            main_cat = listing.get('main_category', '')
+            
+            keyboard.append([
+                InlineKeyboardButton(
+                    f"✅ አለኝ - #{listing_id}",
+                    callback_data=f"item_resp_{listing_id}_{user_chat_id}_{main_cat}"
+                )
+            ])
+        
+        # Create pagination buttons
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️ ቀዳሚ", callback_data=f"page_{page-1}"))
+        if offset + ITEMS_PER_PAGE < total:
+            nav_buttons.append(InlineKeyboardButton("➡️ ቀጣይ", callback_data=f"page_{page+1}"))
+        nav_buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
+        keyboard.append(nav_buttons)
+        
+        # Send message
         if update.message:
-            await update.message.reply_text(text, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+            await update.message.reply_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
         else:
             query = update.callback_query
             await query.answer()
-            await query.edit_message_text(text, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
-        return
-    
-    text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1}/{total_pages})\n\n"
-    
-    # Display listings using dictionary keys
-    for listing in listings:
-        main_cat = listing.get('main_category', '')
-        icon = "🚗" if main_cat == "car" else "🏠" if main_cat == "house" else "🏢"
-        action_icon = "🛍️" if listing.get('action_type') == "sell" else "🔑"
-        
-        text += f"{icon} **#{listing.get('id', '')}** {action_icon}\n"
-        desc = listing.get('description', '')[:100]
-        if len(listing.get('description', '')) > 100:
-            desc += "..."
-        text += f"📝 {desc}\n"
-        
-        created_at = listing.get('created_at')
-        if created_at and hasattr(created_at, 'strftime'):
-            text += f"📅 {created_at.strftime('%Y-%m-%d %H:%M')}\n"
-        text += "────────────────────\n"
-    
-    # Response buttons
-    keyboard = []
-    for listing in listings:
-        keyboard.append([
-            InlineKeyboardButton(
-                f"✅ አለኝ - #{listing.get('id', '')}",
-                callback_data=f"item_resp_{listing.get('id', '')}_{listing.get('user_chat_id', '')}_{listing.get('main_category', '')}"
+            await query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
             )
-        ])
-    
-    # Pagination buttons
-    nav_buttons = []
-    if page > 0:
-        nav_buttons.append(InlineKeyboardButton("⬅️ ቀዳሚ", callback_data=f"page_{page-1}"))
-    if offset + ITEMS_PER_PAGE < total:
-        nav_buttons.append(InlineKeyboardButton("➡️ ቀጣይ", callback_data=f"page_{page+1}"))
-    nav_buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
-    keyboard.append(nav_buttons)
-    
-    if update.message:
-        await update.message.reply_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-    else:
-        query = update.callback_query
-        await query.answer()
-        await query.edit_message_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
+            
+    except Exception as e:
+        logger.error(f"Error in show_requests_page: {e}")
+        error_text = "❌ የሆነ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።"
+        if update.message:
+            await update.message.reply_text(error_text, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+        else:
+            query = update.callback_query
+            await query.answer()
+            await query.edit_message_text(error_text, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
 
 # ==============================================================================
 # 10. RESPONSE FLOW
@@ -1018,52 +1044,7 @@ async def resp_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 11. HELP & ERROR HANDLER
-# ==============================================================================
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = """
-❓ **እንዴት እንደሚጠቀሙ**
-
-🔍 **መግዛት ከፈለጉ:**
-• '🔍 መግዛት / መከራየት' ይምረጡ
-• ምድብ ይምረጡ (መኪና/ቤት/ንግድ)
-• ንኡስ ምድብ ይምረጡ
-• መረጃ ይሙሉ
-
-📢 **መሸጥ ከፈለጉ:**
-• '📢 መሸጥ / ማከራየት' ይምረጡ
-• የድርጊት አይነት ይምረጡ
-• ምድብ ይምረጡ
-• በቅደም ተከተል መረጃዎችን ይሙሉ
-• በመጨረሻ ማረጋገጫ ይስጡ
-
-📝 **እንደ አቅራቢ ለመመዝገብ:**
-• '📝 እንደ አቅራቢ መመዝገብ' ይምረጡ
-• መረጃ ይሙሉ
-• ጥያቄዎችን ማየት ይችላሉ
-
-📋 **የፈላጊዎች ዝርዝር:**
-• ለተመዘገቡ አቅራቢዎች ብቻ
-• ንቁ ጥያቄዎችን ያሳያል
-• በገጽ ይከፋፈላል
-"""
-    await update.message.reply_text(help_text, parse_mode="Markdown")
-
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Update {update} caused error: {context.error}", exc_info=True)
-    
-    if update and hasattr(update, 'effective_user'):
-        try:
-            await context.bot.send_message(
-                chat_id=update.effective_user.id,
-                text="❌ የሆነ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ ወይም እርዳታ ለማግኘት '📞 ድጋፍ' ይጫኑ።",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-            )
-        except Exception as e:
-            logger.error(f"Error sending error message: {e}")
-
-# ==============================================================================
-# 12. BROKER REGISTRATION (SIMPLIFIED)
+# 11. BROKER REGISTRATION
 # ==============================================================================
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -1139,6 +1120,51 @@ async def broker_reg_location(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     
     return ConversationHandler.END
+
+# ==============================================================================
+# 12. HELP & ERROR HANDLER
+# ==============================================================================
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = """
+❓ **እንዴት እንደሚጠቀሙ**
+
+🔍 **መግዛት ከፈለጉ:**
+• '🔍 መግዛት / መከራየት' ይምረጡ
+• ምድብ ይምረጡ (መኪና/ቤት/ንግድ)
+• ንኡስ ምድብ ይምረጡ
+• መረጃ ይሙሉ
+
+📢 **መሸጥ ከፈለጉ:**
+• '📢 መሸጥ / ማከራየት' ይምረጡ
+• የድርጊት አይነት ይምረጡ
+• ምድብ ይምረጡ
+• በቅደም ተከተል መረጃዎችን ይሙሉ
+• በመጨረሻ ማረጋገጫ ይስጡ
+
+📝 **እንደ አቅራቢ ለመመዝገብ:**
+• '📝 እንደ አቅራቢ መመዝገብ' ይምረጡ
+• መረጃ ይሙሉ
+• ጥያቄዎችን ማየት ይችላሉ
+
+📋 **የፈላጊዎች ዝርዝር:**
+• ለተመዘገቡ አቅራቢዎች ብቻ
+• ንቁ ጥያቄዎችን ያሳያል
+• በገጽ ይከፋፈላል
+"""
+    await update.message.reply_text(help_text, parse_mode="Markdown")
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Update {update} caused error: {context.error}", exc_info=True)
+    
+    if update and hasattr(update, 'effective_user'):
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_user.id,
+                text="❌ የሆነ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ ወይም እርዳታ ለማግኘት '📞 ድጋፍ' ይጫኑ።",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+        except Exception as e:
+            logger.error(f"Error sending error message: {e}")
 
 # ==============================================================================
 # 13. MAIN FUNCTION
