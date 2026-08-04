@@ -1,6 +1,8 @@
 import logging
 import os
 import threading
+import re
+from typing import Optional, List, Dict, Any
 import psycopg2
 from flask import Flask
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
@@ -153,6 +155,7 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category, 
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description))
             req_id = cursor.lastrowid
+            conn.commit()
         return req_id
     except Exception as e:
         logger.error(f"Add listing error: {e}")
@@ -281,6 +284,7 @@ def add_broker(chat_id, full_name, phone, location):
                 VALUES (?, ?, ?, ?)
             """, (chat_id, full_name, phone, location))
             broker_id = cursor.lastrowid
+            conn.commit()
         return broker_id
     except Exception as e:
         logger.error(f"Add broker error: {e}")
@@ -330,21 +334,74 @@ PROPERTY_TYPES = ["🏠 መኖሪያ", "🏢 የሥራ ቦታ"]
 # Buyer Flow States
 BUYER_MAIN, BUYER_ACTION, BUYER_CATEGORY, BUYER_SUB, BUYER_PROPERTY, BUYER_DETAILS, BUYER_PHONE = range(7)
 
-# Seller Flow States - ENHANCED
+# Seller Flow States
 SELLER_MAIN, SELLER_ACTION, SELLER_CATEGORY, SELLER_SUB, SELLER_PROPERTY, \
 SELLER_LOCATION, SELLER_DETAILS, SELLER_PRICE, SELLER_NEGO, \
-SELLER_PHOTO, SELLER_PHONE, SELLER_CONFIRM = range(7, 19)
+SELLER_PHOTO, SELLER_PHONE, SELLER_CONFIRM = range(7, 18)
 
 # Broker Registration States
-BROKER_NAME, BROKER_PHONE, BROKER_LOCATION = range(19, 22)
+BROKER_NAME, BROKER_PHONE, BROKER_LOCATION = range(18, 21)
 
 # Response Flow States
-RESP_MAIN, RESP_ROLE, RESP_PROPERTY, RESP_SUB, RESP_DETAILS, RESP_PRICE, RESP_NEGO, RESP_PHONE, RESP_PHOTO = range(22, 31)
+RESP_MAIN, RESP_ROLE, RESP_PROPERTY, RESP_SUB, RESP_DETAILS, RESP_PRICE, RESP_NEGO, RESP_PHONE, RESP_PHOTO = range(21, 30)
 
 # ==============================================================================
-# 5. START & MAIN MENU
+# 5. HELPER FUNCTIONS
+# ==============================================================================
+def validate_phone(phone: str) -> bool:
+    """Validate Ethiopian phone number"""
+    phone = phone.replace(' ', '').replace('-', '')
+    pattern = r'^(09|07|01)\d{8}$|^\+251(09|07|01)\d{8}$'
+    return bool(re.match(pattern, phone))
+
+def validate_price(price: str) -> bool:
+    """Validate price input"""
+    price = price.replace(',', '').replace(' ', '')
+    pattern = r'^[\d]+(\.[\d]{2})?$'
+    return bool(re.match(pattern, price))
+
+def validate_area(area: str) -> bool:
+    """Validate area input for land"""
+    area = area.replace(',', '').replace(' ', '')
+    pattern = r'^[\d]+$'
+    return bool(re.match(pattern, area))
+
+def format_listing_for_confirmation(data: Dict[str, Any], main_cat: str) -> str:
+    """Format listing data for confirmation"""
+    if main_cat == "car":
+        return (
+            "📋 **የመኪና ማስታወቂያ ማጠቃለያ**\n\n"
+            f"📍 ቦታ: {data.get('location', '')}\n"
+            f"🚗 ዝርዝር: {data.get('car_details', '')}\n"
+            f"💰 ዋጋ: {data.get('price', '')}\n"
+            f"🔄 ድርድር: {data.get('negotiable', '')}\n"
+            f"📞 ስልክ: {data.get('phone', '')}\n"
+            f"📸 ፎቶ: {'✅ ተላኳል' if data.get('photo_id') else '⏭️ ተዘልሏል'}\n\n"
+            "✅ መረጃው ትክክል ከሆነ 'አረጋግጥ' ይጫኑ።\n"
+            "❌ ለመሰረዝ '🏠 ዋና ገጽ' ይጫኑ።"
+        )
+    else:
+        property_subtype = data.get('property_subtype', '')
+        detail_label = "📐 ስፋት" if "መሬት" in property_subtype or "ቦታ" in property_subtype else "🛏️ መኝታ"
+        
+        return (
+            "📋 **የንብረት ማስታወቂያ ማጠቃለያ**\n\n"
+            f"📍 ቦታ: {data.get('location', '')}\n"
+            f"🏠 አይነት: {data.get('property_subtype', '')}\n"
+            f"{detail_label}: {data.get('property_details', '')}\n"
+            f"💰 ዋጋ: {data.get('price', '')}\n"
+            f"🔄 ድርድር: {data.get('negotiable', '')}\n"
+            f"📞 ስልክ: {data.get('phone', '')}\n"
+            f"📸 ፎቶ: {'✅ ተላኳል' if data.get('photo_id') else '⏭️ ተዘልሏል'}\n\n"
+            "✅ መረጃው ትክክል ከሆነ 'አረጋግጥ' ይጫኑ።\n"
+            "❌ ለመሰረዝ '🏠 ዋና ገጽ' ይጫኑ።"
+        )
+
+# ==============================================================================
+# 6. START & MAIN MENU
 # ==============================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
     welcome_text = (
         "👋 **እንኳን ወደ Adika Marketplace በደህና መጡ!**\n\n"
         "የሀገሪቱ ታላቁ የመኪና፣ የቤት እና የንብረት ገበያ ማዕከል።\n\n"
@@ -358,34 +415,45 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 6. CANCEL HANDLER
+# 7. CANCEL & HOME HANDLER - FIXED
 # ==============================================================================
 async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Go back to main menu - Fixed navigation"""
     context.user_data.clear()
+    
     welcome_text = (
-        "👋 **እንኳን ወደ Adika Marketplace በደህና መጡ!**\n\n"
-        "የሀገሪቱ ታላቁ የመኪና፣ የቤት እና የንብረት ገበያ ማዕከል።\n\n"
+        "👋 **ወደ ዋና ገጽ ተመልሰዋል!**\n\n"
         "እባክዎን ከታች ካሉት አማራጮች አንዱን ይምረጡ፦"
     )
+    
+    reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
     
     if update.message:
         await update.message.reply_text(
             welcome_text,
             parse_mode="Markdown",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=reply_markup
         )
-    else:
+    elif update.callback_query:
         query = update.callback_query
         await query.answer()
         await query.edit_message_text(
             welcome_text,
             parse_mode="Markdown",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=reply_markup
         )
+    else:
+        # Fallback for other update types
+        await update.effective_message.reply_text(
+            welcome_text,
+            parse_mode="Markdown",
+            reply_markup=reply_markup
+        )
+    
     return ConversationHandler.END
 
 # ==============================================================================
-# 7. BUYER FLOW
+# 8. BUYER FLOW
 # ==============================================================================
 async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -530,7 +598,8 @@ async def buyer_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['description'] = update.message.text
     await update.message.reply_text(
-        "📞 **እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**",
+        "📞 **እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**\n\n"
+        "💡 *ምሳሌ፦* 0912345678",
         parse_mode="Markdown",
         reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
     )
@@ -539,6 +608,16 @@ async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     phone = update.message.text
+    
+    if phone == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    if not validate_phone(phone):
+        await update.message.reply_text(
+            "❌ ስልክ ቁጥሩ ትክክል አይደለም! እባክዎ ትክክለኛ የኢትዮጵያ ስልክ ቁጥር ያስገቡ።",
+            parse_mode="Markdown"
+        )
+        return BUYER_PHONE
     
     main_cat = context.user_data.get('main_category', '')
     sub_cat = context.user_data.get('sub_category', '')
@@ -576,11 +655,15 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as e:
                 logger.error(f"Admin notify error: {e}")
+    else:
+        await update.message.reply_text(
+            "❌ ጥያቄዎ ሲመዘገብ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።"
+        )
     
     return ConversationHandler.END
 
 # ==============================================================================
-# 8. SELLER FLOW - ENHANCED
+# 9. SELLER FLOW - ENHANCED WITH FIXES
 # ==============================================================================
 async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -681,6 +764,8 @@ async def seller_car_location(update: Update, context: ContextTypes.DEFAULT_TYPE
     return SELLER_DETAILS
 
 async def seller_car_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
     context.user_data['car_details'] = update.message.text
     
     await update.message.reply_text(
@@ -692,6 +777,17 @@ async def seller_car_details(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return SELLER_PRICE
 
 async def seller_car_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    if not validate_price(update.message.text):
+        await update.message.reply_text(
+            "❌ ዋጋው ትክክል አይደለም! እባክዎ ቁጥር ብቻ ያስገቡ።\n"
+            "💡 *ምሳሌ፦* 2500000 ወይም 2,500,000",
+            parse_mode="Markdown"
+        )
+        return SELLER_PRICE
+    
     context.user_data['price'] = update.message.text
     
     keyboard = [
@@ -716,7 +812,8 @@ async def seller_car_nego(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await query.edit_message_text(
         "📸 **ደረጃ 5/6: የመኪናውን ፎቶ ያስገቡ፦**\n\n"
-        "💡 *ካለህ ፎቶ ላክ፣ ካልሆነ '⏭️ ዝለል' ን ተጫን*",
+        "📸 *ፎቶ ለመላክ ፎቶውን ይላኩ*\n"
+        "⏩ *ፎቶ ሳይላኩ ለመቀጠል '⏭️ ዝለል' ይጫኑ*",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("⏭️ ዝለል", callback_data="flow_sell_skip_photo")],
             [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
@@ -733,7 +830,8 @@ async def seller_car_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data['photo_id'] = None
             await query.edit_message_text(
                 "📞 **ደረጃ 6/6: እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**\n\n"
-                "💡 *ምሳሌ፦* 0912345678",
+                "💡 *ምሳሌ፦* 0912345678\n"
+                "👤 *ወይም የቴሌግራም አድራሻዎን ይላኩ*",
                 parse_mode="Markdown"
             )
             return SELLER_PHONE
@@ -746,7 +844,8 @@ async def seller_car_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await update.message.reply_text(
             "📞 **ደረጃ 6/6: እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**\n\n"
-            "💡 *ምሳሌ፦* 0912345678",
+            "💡 *ምሳሌ፦* 0912345678\n"
+            "👤 *ወይም የቴሌግራም አድራሻዎን ይላኩ*",
             parse_mode="Markdown",
             reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
         )
@@ -758,7 +857,7 @@ async def seller_car_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return SELLER_PHOTO
 
-# ===== PROPERTY SELLER FLOW =====
+# ===== PROPERTY SELLER FLOW - FIXED TEXT =====
 async def seller_property_type_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.data == "flow_home":
@@ -797,6 +896,8 @@ async def seller_property_htype_chosen(update: Update, context: ContextTypes.DEF
     return SELLER_LOCATION
 
 async def seller_property_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
     context.user_data['location'] = update.message.text
     
     property_subtype = context.user_data.get('property_subtype', '')
@@ -817,6 +918,8 @@ async def seller_property_location(update: Update, context: ContextTypes.DEFAULT
     return SELLER_DETAILS
 
 async def seller_property_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
     context.user_data['property_details'] = update.message.text
     
     await update.message.reply_text(
@@ -828,6 +931,17 @@ async def seller_property_details(update: Update, context: ContextTypes.DEFAULT_
     return SELLER_PRICE
 
 async def seller_property_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    if not validate_price(update.message.text):
+        await update.message.reply_text(
+            "❌ ዋጋው ትክክል አይደለም! እባክዎ ቁጥር ብቻ ያስገቡ።\n"
+            "💡 *ምሳሌ፦* 5000000 ወይም 5,000,000",
+            parse_mode="Markdown"
+        )
+        return SELLER_PRICE
+    
     context.user_data['price'] = update.message.text
     
     keyboard = [
@@ -852,7 +966,8 @@ async def seller_property_nego(update: Update, context: ContextTypes.DEFAULT_TYP
     
     await query.edit_message_text(
         "📸 **ደረጃ 5/6: የንብረቱን ፎቶ ያስገቡ፦**\n\n"
-        "💡 *ካለህ ፎቶ/ሳይት ፕላን ላክ፣ ካልሆነ '⏭️ ዝለል' ን ተጫን*",
+        "📸 *ፎቶ/ሳይት ፕላን ለመላክ ፎቶውን ይላኩ*\n"
+        "⏩ *ፎቶ ሳይላኩ ለመቀጠል '⏭️ ዝለል' ይጫኑ*",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton("⏭️ ዝለል", callback_data="flow_sell_skip_photo")],
             [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
@@ -869,7 +984,8 @@ async def seller_property_photo(update: Update, context: ContextTypes.DEFAULT_TY
             context.user_data['photo_id'] = None
             await query.edit_message_text(
                 "📞 **ደረጃ 6/6: እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**\n\n"
-                "💡 *ምሳሌ፦* 0912345678",
+                "💡 *ምሳሌ፦* 0912345678\n"
+                "👤 *ወይም የቴሌግራም አድራሻዎን ይላኩ*",
                 parse_mode="Markdown"
             )
             return SELLER_PHONE
@@ -882,7 +998,8 @@ async def seller_property_photo(update: Update, context: ContextTypes.DEFAULT_TY
         
         await update.message.reply_text(
             "📞 **ደረጃ 6/6: እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**\n\n"
-            "💡 *ምሳሌ፦* 0912345678",
+            "💡 *ምሳሌ፦* 0912345678\n"
+            "👤 *ወይም የቴሌግራም አድራሻዎን ይላኩ*",
             parse_mode="Markdown",
             reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
         )
@@ -896,41 +1013,53 @@ async def seller_property_photo(update: Update, context: ContextTypes.DEFAULT_TY
 
 # ===== SHARED SELLER FUNCTIONS =====
 async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['phone'] = update.message.text
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    # Check if user provided username or phone
+    phone_input = update.message.text.strip()
+    
+    # If it's a Telegram username (starts with @)
+    if phone_input.startswith('@'):
+        context.user_data['phone'] = phone_input
+    elif validate_phone(phone_input):
+        context.user_data['phone'] = phone_input
+    else:
+        await update.message.reply_text(
+            "❌ ስልክ ቁጥሩ ትክክል አይደለም! እባክዎ ትክክለኛ የኢትዮጵያ ስልክ ቁጥር ያስገቡ።\n"
+            "💡 *ምሳሌ፦* 0912345678 ወይም @username",
+            parse_mode="Markdown"
+        )
+        return SELLER_PHONE
     
     main_cat = context.user_data.get('main_category', '')
     
+    # Build confirmation message
     if main_cat == "car":
-        confirmation_text = (
-            "📋 **የመኪና ማስታወቂያ ማጠቃለያ**\n\n"
-            f"📍 ቦታ: {context.user_data.get('location', '')}\n"
-            f"🚗 ዝርዝር: {context.user_data.get('car_details', '')}\n"
-            f"💰 ዋጋ: {context.user_data.get('price', '')}\n"
-            f"🔄 ድርድር: {context.user_data.get('negotiable', '')}\n"
-            f"📞 ስልክ: {context.user_data.get('phone', '')}\n"
-            f"📸 ፎቶ: {'✅ ተላኳል' if context.user_data.get('photo_id') else '⏭️ ተዘልሏል'}\n\n"
-            "✅ መረጃው ትክክል ከሆነ 'አረጋግጥ' ይጫኑ።\n"
-            "❌ ለመሰረዝ '🏠 ዋና ገጽ' ይጫኑ።"
-        )
+        data = {
+            'location': context.user_data.get('location', ''),
+            'car_details': context.user_data.get('car_details', ''),
+            'price': context.user_data.get('price', ''),
+            'negotiable': context.user_data.get('negotiable', ''),
+            'phone': context.user_data.get('phone', ''),
+            'photo_id': context.user_data.get('photo_id')
+        }
     else:
-        property_subtype = context.user_data.get('property_subtype', '')
-        detail_label = "ስፋት" if "መሬት" in property_subtype or "ቦታ" in property_subtype else "መኝታ"
-        
-        confirmation_text = (
-            "📋 **የንብረት ማስታወቂያ ማጠቃለያ**\n\n"
-            f"📍 ቦታ: {context.user_data.get('location', '')}\n"
-            f"🏠 አይነት: {context.user_data.get('property_subtype', '')}\n"
-            f"📐 {detail_label}: {context.user_data.get('property_details', '')}\n"
-            f"💰 ዋጋ: {context.user_data.get('price', '')}\n"
-            f"🔄 ድርድር: {context.user_data.get('negotiable', '')}\n"
-            f"📞 ስልክ: {context.user_data.get('phone', '')}\n"
-            f"📸 ፎቶ: {'✅ ተላኳል' if context.user_data.get('photo_id') else '⏭️ ተዘልሏል'}\n\n"
-            "✅ መረጃው ትክክል ከሆነ 'አረጋግጥ' ይጫኑ።\n"
-            "❌ ለመሰረዝ '🏠 ዋና ገጽ' ይጫኑ።"
-        )
+        data = {
+            'location': context.user_data.get('location', ''),
+            'property_subtype': context.user_data.get('property_subtype', ''),
+            'property_details': context.user_data.get('property_details', ''),
+            'price': context.user_data.get('price', ''),
+            'negotiable': context.user_data.get('negotiable', ''),
+            'phone': context.user_data.get('phone', ''),
+            'photo_id': context.user_data.get('photo_id')
+        }
+    
+    confirmation_text = format_listing_for_confirmation(data, main_cat)
     
     keyboard = [
         [InlineKeyboardButton("✅ አረጋግጥ", callback_data="flow_sell_confirm_yes")],
+        [InlineKeyboardButton("✏️ አርም", callback_data="flow_sell_confirm_edit")],
         [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     
@@ -943,15 +1072,27 @@ async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def seller_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
+    await query.answer()
+    
     if query.data == "flow_home":
         return await go_home(update, context)
     
-    await query.answer()
+    if query.data == "flow_sell_confirm_edit":
+        # Go back to start of seller flow to edit
+        await query.edit_message_text(
+            "✏️ **መረጃዎችን ለማርም እንደገና ይጀምሩ።**\n\n"
+            "📢 '📢 መሸጥ / ማከራየት' ይምረጡ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
     
     if query.data == "flow_sell_confirm_yes":
         user = update.effective_user
         main_cat = context.user_data.get('main_category', '')
         
+        # Build description
         if main_cat == "car":
             desc = (
                 f"📍 {context.user_data.get('location', '')}\n"
@@ -961,16 +1102,16 @@ async def seller_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📞 {context.user_data.get('phone', '')}"
             )
         else:
-            property_subtype = context.user_data.get('property_subtype', '')
             desc = (
                 f"📍 {context.user_data.get('location', '')}\n"
-                f"🏠 {property_subtype}\n"
+                f"🏠 {context.user_data.get('property_subtype', '')}\n"
                 f"📐 {context.user_data.get('property_details', '')}\n"
                 f"💰 {context.user_data.get('price', '')}\n"
                 f"🔄 {context.user_data.get('negotiable', '')}\n"
                 f"📞 {context.user_data.get('phone', '')}"
             )
         
+        # Save to database
         req_id = add_listing(
             user.id,
             user.first_name,
@@ -988,54 +1129,60 @@ async def seller_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
             
             photo_id = context.user_data.get('photo_id')
+            success_message = f"✅ **ማስታወቂያ ተመዝግቧል!** (#REQ-{req_id})\n\n{desc}"
+            
+            # Send confirmation to user
             if photo_id:
                 await query.edit_message_text(
-                    f"✅ **ማስታወቂያ ተመዝግቧል!** (#REQ-{req_id})\n\n{desc}",
+                    success_message,
                     reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
                     parse_mode="Markdown"
                 )
-                
-                if ADMIN_CHAT_ID_INT:
-                    try:
+            else:
+                await query.edit_message_text(
+                    success_message,
+                    reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+                    parse_mode="Markdown"
+                )
+            
+            # Notify admin
+            if ADMIN_CHAT_ID_INT:
+                try:
+                    if photo_id:
                         await context.bot.send_photo(
                             chat_id=ADMIN_CHAT_ID_INT,
                             photo=photo_id,
-                            caption=f"🔔 አዲስ ማስታወቂያ!\n#{req_id}\n\n{desc}",
+                            caption=f"🔔 **አዲስ ማስታወቂያ!**\nID: #{req_id}\nUser: {user.first_name}\n\n{desc}",
                             reply_markup=action_kbd,
                             parse_mode="Markdown"
                         )
-                    except Exception as e:
-                        logger.error(f"Admin notify error: {e}")
-            else:
-                await query.edit_message_text(
-                    f"✅ **ማስታወቂያ ተመዝግቧል!** (#REQ-{req_id})\n\n{desc}",
-                    reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-                    parse_mode="Markdown"
-                )
-                
-                if ADMIN_CHAT_ID_INT:
-                    try:
-                        admin_msg = f"🔔 አዲስ ማስታወቂያ!\n#{req_id}\n\n{desc}"
+                    else:
+                        admin_msg = f"🔔 **አዲስ ማስታወቂያ!**\nID: #{req_id}\nUser: {user.first_name}\n\n{desc}"
                         await context.bot.send_message(
                             chat_id=ADMIN_CHAT_ID_INT,
                             text=admin_msg,
                             reply_markup=action_kbd,
                             parse_mode="Markdown"
                         )
-                    except Exception as e:
-                        logger.error(f"Admin notify error: {e}")
+                except Exception as e:
+                    logger.error(f"Admin notify error: {e}")
             
+            logger.info(f"New listing created: #{req_id} by user {user.id}")
+            
+            # Clear user data and end conversation
             context.user_data.clear()
             return ConversationHandler.END
         else:
             await query.edit_message_text(
                 "❌ ማስታወቂያ ሲመዘገብ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+                parse_mode="Markdown"
             )
+            context.user_data.clear()
             return ConversationHandler.END
 
 # ==============================================================================
-# 9. BROKER REGISTRATION
+# 10. BROKER REGISTRATION
 # ==============================================================================
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -1048,6 +1195,8 @@ async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return BROKER_NAME
 
 async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
     context.user_data['broker_name'] = update.message.text
     await update.message.reply_text(
         "2️⃣ የስልክ ቁጥርዎን ያስገቡ፦",
@@ -1057,6 +1206,16 @@ async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return BROKER_PHONE
 
 async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    if not validate_phone(update.message.text):
+        await update.message.reply_text(
+            "❌ ስልክ ቁጥሩ ትክክል አይደለም! እባክዎ ትክክለኛ የኢትዮጵያ ስልክ ቁጥር ያስገቡ።",
+            parse_mode="Markdown"
+        )
+        return BROKER_PHONE
+    
     context.user_data['broker_phone'] = update.message.text
     
     keyboard = []
@@ -1101,7 +1260,7 @@ async def broker_reg_location(update: Update, context: ContextTypes.DEFAULT_TYPE
     return ConversationHandler.END
 
 # ==============================================================================
-# 10. VIEW REQUESTS - WITH PAGINATION
+# 11. VIEW REQUESTS WITH PAGINATION
 # ==============================================================================
 ITEMS_PER_PAGE = 5
 
@@ -1126,6 +1285,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
     total = count_listings()
+    total_pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
     
     if not listings:
         text = "📭 ምንም ንቁ ጥያቄዎች የሉም።"
@@ -1143,80 +1303,38 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
         return
     
-    # Convert rows to dictionaries for safer access
-    listing_dicts = []
-    for row in listings:
-        if DATABASE_URL:
-            # PostgreSQL returns tuples
-            listing_dicts.append({
-                'id': row[0],
-                'user_chat_id': row[1],
-                'user_name': row[2],
-                'req_type': row[3],
-                'main_category': row[4],
-                'sub_category': row[5],
-                'action_type': row[6],
-                'property_type': row[7],
-                'description': row[8],
-                'status': row[9],
-                'created_at': row[10]
-            })
-        else:
-            # SQLite returns rows that can be accessed by index
-            listing_dicts.append({
-                'id': row[0],
-                'user_chat_id': row[1],
-                'user_name': row[2],
-                'req_type': row[3],
-                'main_category': row[4],
-                'sub_category': row[5],
-                'action_type': row[6],
-                'property_type': row[7],
-                'description': row[8],
-                'status': row[9],
-                'created_at': row[10]
-            })
+    text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1}/{total_pages})\n\n"
     
-    text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1})\n\n"
-    
-    for listing in listing_dicts:
-        icon = "🚗" if listing['main_category'] == "car" else "🏠"
-        action_icon = "🛍️" if listing.get('action_type') == "sell" else "🔑"
+    for listing in listings:
+        req_id, chat_id, name, req_type, main_cat, sub_cat, action_type, prop_type, desc, status, created = listing
+        icon = "🚗" if main_cat == "car" else "🏠" if main_cat == "house" else "🏢"
+        action_icon = "🛍️" if action_type == "sell" else "🔑"
         
-        text += f"{icon} **#{listing['id']}** {action_icon}\n"
-        desc = listing['description']
+        text += f"{icon} **#{req_id}** {action_icon}\n"
         text += f"📝 {desc[:100]}...\n" if len(desc) > 100 else f"📝 {desc}\n"
-        
-        created = listing['created_at']
         if created and hasattr(created, 'strftime'):
             text += f"📅 {created.strftime('%Y-%m-%d %H:%M')}\n"
-        else:
-            text += f"📅 {created}\n"
-        
-        text += f"🆔 {listing['user_chat_id']}\n"
         text += "────────────────────\n"
     
     # Response buttons
     keyboard = []
-    for listing in listing_dicts:
+    for listing in listings:
+        req_id, chat_id, name, req_type, main_cat, sub_cat, action_type, prop_type, desc, status, created = listing
         keyboard.append([
             InlineKeyboardButton(
-                f"✅ አለኝ - #{listing['id']}",
-                callback_data=f"item_resp_{listing['id']}_{listing['user_chat_id']}_{listing['main_category']}"
+                f"✅ አለኝ - #{req_id}",
+                callback_data=f"item_resp_{req_id}_{chat_id}_{main_cat}"
             )
         ])
     
-    # Pagination buttons
+    # Pagination
     nav_buttons = []
     if page > 0:
         nav_buttons.append(InlineKeyboardButton("⬅️ ቀዳሚ", callback_data=f"page_{page-1}"))
     if offset + ITEMS_PER_PAGE < total:
         nav_buttons.append(InlineKeyboardButton("➡️ ቀጣይ", callback_data=f"page_{page+1}"))
-    
-    if nav_buttons:
-        keyboard.append(nav_buttons)
-    
-    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+    nav_buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
+    keyboard.append(nav_buttons)
     
     if update.message:
         await update.message.reply_text(
@@ -1234,7 +1352,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
 # ==============================================================================
-# 11. RESPONSE FLOW
+# 12. RESPONSE FLOW
 # ==============================================================================
 async def start_item_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1326,6 +1444,8 @@ async def resp_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return RESP_DETAILS
 
 async def resp_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
     context.user_data['resp_details'] = update.message.text
     await update.message.reply_text(
         "💰 **ዋጋ ያስገቡ፦**",
@@ -1335,6 +1455,16 @@ async def resp_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return RESP_PRICE
 
 async def resp_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    if not validate_price(update.message.text):
+        await update.message.reply_text(
+            "❌ ዋጋው ትክክል አይደለም! እባክዎ ቁጥር ብቻ ያስገቡ።",
+            parse_mode="Markdown"
+        )
+        return RESP_PRICE
+    
     context.user_data['resp_price'] = update.message.text
     keyboard = [
         [InlineKeyboardButton("🔄 ድርድር አለው", callback_data="resp_nego_yes")],
@@ -1357,15 +1487,27 @@ async def resp_nego(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['resp_nego'] = "✅ ድርድር አለው" if query.data == "resp_nego_yes" else "❌ ድርድር የለውም"
     
     await query.edit_message_text(
-        "📞 **እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**",
+        "📞 **እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**\n\n"
+        "💡 *ምሳሌ፦* 0912345678",
         parse_mode="Markdown"
     )
     return RESP_PHONE
 
 async def resp_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    if not validate_phone(update.message.text):
+        await update.message.reply_text(
+            "❌ ስልክ ቁጥሩ ትክክል አይደለም! እባክዎ ትክክለኛ የኢትዮጵያ ስልክ ቁጥር ያስገቡ።",
+            parse_mode="Markdown"
+        )
+        return RESP_PHONE
+    
     context.user_data['resp_phone'] = update.message.text
     await update.message.reply_text(
-        "📸 **የንብረቱን ፎቶ ያስገቡ፦**",
+        "📸 **የንብረቱን ፎቶ ያስገቡ፦**\n\n"
+        "📸 *ፎቶ ለመላክ ፎቶውን ይላኩ*",
         parse_mode="Markdown",
         reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
     )
@@ -1378,7 +1520,10 @@ async def resp_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     photo_id = update.message.photo[-1].file_id if update.message.photo else None
     
     if not photo_id:
-        await update.message.reply_text("❌ እባክዎ ትክክለኛ ፎቶ ይላኩ!")
+        await update.message.reply_text(
+            "❌ እባክዎ ትክክለኛ ፎቶ ይላኩ!",
+            parse_mode="Markdown"
+        )
         return RESP_PHOTO
     
     role = context.user_data.get('resp_role', 'አቅራቢ')
@@ -1399,25 +1544,36 @@ async def resp_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👤 @{responder.username if responder.username else responder.first_name}"
     )
     
-    await context.bot.send_photo(
-        chat_id=target_user_id,
-        photo=photo_id,
-        caption=desc,
-        parse_mode="Markdown"
-    )
-    
-    update_listing_status(int(req_id), 'responded')
-    
-    await update.message.reply_text(
-        "✅ **መረጃዎች ለፈላጊው ተልከዋል!**\n\n"
-        "📌 ጥያቄው ከ'📋 የፈላጊዎች ዝርዝር' ተወግዷል።",
-        reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-    )
+    try:
+        await context.bot.send_photo(
+            chat_id=target_user_id,
+            photo=photo_id,
+            caption=desc,
+            parse_mode="Markdown"
+        )
+        
+        update_listing_status(int(req_id), 'responded')
+        
+        await update.message.reply_text(
+            "✅ **መረጃዎች ለፈላጊው ተልከዋል!**\n\n"
+            "📌 ጥያቄው ከ'📋 የፈላጊዎች ዝርዝር' ተወግዷል።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
+        )
+        
+        logger.info(f"Response sent to user {target_user_id} for listing #{req_id}")
+        
+    except Exception as e:
+        logger.error(f"Error sending response: {e}")
+        await update.message.reply_text(
+            "❌ ምላሽ ሲላክ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
     
     return ConversationHandler.END
 
 # ==============================================================================
-# 12. HELP
+# 13. HELP
 # ==============================================================================
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
@@ -1445,11 +1601,30 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • ለተመዘገቡ አቅራቢዎች ብቻ
 • ንቁ ጥያቄዎችን ያሳያል
 • በገጽ ይከፋፈላል
+
+📞 **ለእርዳታ:**
+• ለችግር ከተጋፈጡ '📞 ድጋፍ' ይምረጡ
 """
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
 # ==============================================================================
-# 13. MAIN FUNCTION
+# 14. ERROR HANDLER
+# ==============================================================================
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f"Update {update} caused error: {context.error}", exc_info=True)
+    
+    if update and hasattr(update, 'effective_user'):
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_user.id,
+                text="❌ የሆነ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ ወይም እርዳታ ለማግኘት '📞 ድጋፍ' ይጫኑ።",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+        except Exception as e:
+            logger.error(f"Error sending error message: {e}")
+
+# ==============================================================================
+# 15. MAIN FUNCTION
 # ==============================================================================
 def main():
     init_db()
@@ -1458,6 +1633,7 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
 
     cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
     cancel_message_handler = MessageHandler(cancel_filter, go_home)
@@ -1494,18 +1670,18 @@ def main():
             ],
             SELLER_PROPERTY: [CallbackQueryHandler(seller_property_type_chosen, pattern="^flow_sell_prop_"), cancel_message_handler],
             SELLER_LOCATION: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex("^🏠 ዋና ገጽ$"), seller_car_location),
-                MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex("^🏠 ዋና ገጽ$"), seller_property_location),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, seller_car_location),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, seller_property_location),
                 cancel_message_handler
             ],
             SELLER_DETAILS: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex("^🏠 ዋና ገጽ$"), seller_car_details),
-                MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex("^🏠 ዋና ገጽ$"), seller_property_details),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, seller_car_details),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, seller_property_details),
                 cancel_message_handler
             ],
             SELLER_PRICE: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex("^🏠 ዋና ገጽ$"), seller_car_price),
-                MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex("^🏠 ዋና ገጽ$"), seller_property_price),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, seller_car_price),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, seller_property_price),
                 cancel_message_handler
             ],
             SELLER_NEGO: [
@@ -1520,7 +1696,7 @@ def main():
                 MessageHandler(filters.PHOTO, seller_property_photo),
                 cancel_message_handler
             ],
-            SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND & ~filters.Regex("^🏠 ዋና ገጽ$"), seller_phone), cancel_message_handler],
+            SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_phone), cancel_message_handler],
             SELLER_CONFIRM: [CallbackQueryHandler(seller_confirm, pattern="^flow_sell_confirm_"), cancel_message_handler],
         },
         fallbacks=[CommandHandler("start", start), cancel_message_handler],
@@ -1571,9 +1747,6 @@ def main():
     app.add_handler(response_conv)
 
     # ===== ERROR HANDLER =====
-    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-        logger.error(f"Update {update} caused error: {context.error}", exc_info=True)
-
     app.add_error_handler(error_handler)
 
     logger.info("🚀 Adika Marketplace Bot ተጀምሯል...")
