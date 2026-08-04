@@ -333,13 +333,13 @@ BUYER_MAIN, BUYER_ACTION, BUYER_CATEGORY, BUYER_SUB, BUYER_PROPERTY, BUYER_DETAI
 # Seller Flow States - ENHANCED
 SELLER_MAIN, SELLER_ACTION, SELLER_CATEGORY, SELLER_SUB, SELLER_PROPERTY, \
 SELLER_LOCATION, SELLER_DETAILS, SELLER_PRICE, SELLER_NEGO, \
-SELLER_PHOTO, SELLER_PHONE, SELLER_CONFIRM = range(7, 18)
+SELLER_PHOTO, SELLER_PHONE, SELLER_CONFIRM = range(7, 19)
 
 # Broker Registration States
-BROKER_NAME, BROKER_PHONE, BROKER_LOCATION = range(18, 21)
+BROKER_NAME, BROKER_PHONE, BROKER_LOCATION = range(19, 22)
 
 # Response Flow States
-RESP_MAIN, RESP_ROLE, RESP_PROPERTY, RESP_SUB, RESP_DETAILS, RESP_PRICE, RESP_NEGO, RESP_PHONE, RESP_PHOTO = range(21, 30)
+RESP_MAIN, RESP_ROLE, RESP_PROPERTY, RESP_SUB, RESP_DETAILS, RESP_PRICE, RESP_NEGO, RESP_PHONE, RESP_PHOTO = range(22, 31)
 
 # ==============================================================================
 # 5. START & MAIN MENU
@@ -799,7 +799,6 @@ async def seller_property_htype_chosen(update: Update, context: ContextTypes.DEF
 async def seller_property_location(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['location'] = update.message.text
     
-    # Check if it's land or house
     property_subtype = context.user_data.get('property_subtype', '')
     if "መሬት" in property_subtype or "ቦታ" in property_subtype:
         await update.message.reply_text(
@@ -899,7 +898,6 @@ async def seller_property_photo(update: Update, context: ContextTypes.DEFAULT_TY
 async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['phone'] = update.message.text
     
-    # Show confirmation
     main_cat = context.user_data.get('main_category', '')
     
     if main_cat == "car":
@@ -1130,37 +1128,95 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
     total = count_listings()
     
     if not listings:
-        await update.message.reply_text(
-            "📭 ምንም ንቁ ጥያቄዎች የሉም።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
+        text = "📭 ምንም ንቁ ጥያቄዎች የሉም።"
+        if update.message:
+            await update.message.reply_text(
+                text,
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+        else:
+            query = update.callback_query
+            await query.answer()
+            await query.edit_message_text(
+                text,
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
         return
+    
+    # Convert rows to dictionaries for safer access
+    listing_dicts = []
+    for row in listings:
+        if DATABASE_URL:
+            # PostgreSQL returns tuples
+            listing_dicts.append({
+                'id': row[0],
+                'user_chat_id': row[1],
+                'user_name': row[2],
+                'req_type': row[3],
+                'main_category': row[4],
+                'sub_category': row[5],
+                'action_type': row[6],
+                'property_type': row[7],
+                'description': row[8],
+                'status': row[9],
+                'created_at': row[10]
+            })
+        else:
+            # SQLite returns rows that can be accessed by index
+            listing_dicts.append({
+                'id': row[0],
+                'user_chat_id': row[1],
+                'user_name': row[2],
+                'req_type': row[3],
+                'main_category': row[4],
+                'sub_category': row[5],
+                'action_type': row[6],
+                'property_type': row[7],
+                'description': row[8],
+                'status': row[9],
+                'created_at': row[10]
+            })
     
     text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1})\n\n"
     
-    for idx, listing in enumerate(listings, 1):
-        req_id, chat_id, name, req_type, main_cat, sub_cat, action_type, prop_type, desc, status, created = listing
-        icon = "🚗" if main_cat == "car" else "🏠"
-        action_icon = "🛍️" if action_type == "sell" else "🔑"
+    for listing in listing_dicts:
+        icon = "🚗" if listing['main_category'] == "car" else "🏠"
+        action_icon = "🛍️" if listing.get('action_type') == "sell" else "🔑"
         
-        text += f"{icon} **#{req_id}** {action_icon}\n"
+        text += f"{icon} **#{listing['id']}** {action_icon}\n"
+        desc = listing['description']
         text += f"📝 {desc[:100]}...\n" if len(desc) > 100 else f"📝 {desc}\n"
-        text += f"📅 {created.strftime('%Y-%m-%d') if hasattr(created, 'strftime') else created}\n"
-        text += f"🆔 {chat_id}\n"
         
-        keyboard = [[InlineKeyboardButton(f"✅ አለኝ - #{req_id}", callback_data=f"item_resp_{req_id}_{chat_id}_{main_cat}")]]
+        created = listing['created_at']
+        if created and hasattr(created, 'strftime'):
+            text += f"📅 {created.strftime('%Y-%m-%d %H:%M')}\n"
+        else:
+            text += f"📅 {created}\n"
+        
+        text += f"🆔 {listing['user_chat_id']}\n"
         text += "────────────────────\n"
     
+    # Response buttons
+    keyboard = []
+    for listing in listing_dicts:
+        keyboard.append([
+            InlineKeyboardButton(
+                f"✅ አለኝ - #{listing['id']}",
+                callback_data=f"item_resp_{listing['id']}_{listing['user_chat_id']}_{listing['main_category']}"
+            )
+        ])
+    
+    # Pagination buttons
     nav_buttons = []
     if page > 0:
         nav_buttons.append(InlineKeyboardButton("⬅️ ቀዳሚ", callback_data=f"page_{page-1}"))
     if offset + ITEMS_PER_PAGE < total:
         nav_buttons.append(InlineKeyboardButton("➡️ ቀጣይ", callback_data=f"page_{page+1}"))
-    nav_buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
     
-    keyboard = [[InlineKeyboardButton("📋 ሙሉ ዝርዝር አሳይ", callback_data=f"detail_view_{listings[0][0]}")]]
     if nav_buttons:
         keyboard.append(nav_buttons)
+    
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
     
     if update.message:
         await update.message.reply_text(
