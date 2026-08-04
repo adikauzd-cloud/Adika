@@ -70,15 +70,13 @@ def init_db():
         
         # Drop existing tables to ensure clean schema
         if DATABASE_URL:
-            # PostgreSQL - with CASCADE to handle dependencies
             cursor.execute("DROP TABLE IF EXISTS listings CASCADE;")
             cursor.execute("DROP TABLE IF EXISTS brokers CASCADE;")
         else:
-            # SQLite
             cursor.execute("DROP TABLE IF EXISTS listings;")
             cursor.execute("DROP TABLE IF EXISTS brokers;")
         
-        # Listings table - exactly 11 columns
+        # Listings table
         if DATABASE_URL:
             cursor.execute("""
                 CREATE TABLE listings (
@@ -138,10 +136,9 @@ def init_db():
         
         # Add indexes for better performance
         if DATABASE_URL:
-            cursor.execute("CREATE INDEX idx_listings_status ON listings(status)")
-            cursor.execute("CREATE INDEX idx_listings_category ON listings(main_category, sub_category)")
-            cursor.execute("CREATE INDEX idx_listings_created ON listings(created_at DESC)")
-            cursor.execute("CREATE INDEX idx_brokers_chat_id ON brokers(chat_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_category ON listings(main_category, sub_category)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_chat_id ON brokers(chat_id)")
         else:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_category ON listings(main_category, sub_category)")
@@ -149,7 +146,7 @@ def init_db():
         
         if DATABASE_URL:
             conn.commit()
-        logger.info("✅ Database initialized successfully with clean schema")
+        logger.info("✅ Database initialized successfully")
         
     except Exception as e:
         logger.error(f"Database initialization error: {e}")
@@ -217,29 +214,7 @@ def get_listings_by_category(main_category=None, sub_category=None, action_type=
         else:
             cursor.execute(query, params)
         rows = cursor.fetchall()
-        
-        # Convert to list of dictionaries
-        result = []
-        for row in rows:
-            if DATABASE_URL:
-                # PostgreSQL row as tuple - 11 columns
-                result.append({
-                    'id': row[0],
-                    'user_chat_id': row[1],
-                    'user_name': row[2],
-                    'req_type': row[3],
-                    'main_category': row[4],
-                    'sub_category': row[5] if len(row) > 5 else None,
-                    'action_type': row[6] if len(row) > 6 else None,
-                    'property_type': row[7] if len(row) > 7 else None,
-                    'description': row[8] if len(row) > 8 else '',
-                    'status': row[9] if len(row) > 9 else 'pending',
-                    'created_at': row[10] if len(row) > 10 else None
-                })
-            else:
-                # SQLite row
-                result.append(dict(row))
-        return result
+        return rows  # Return raw rows as tuples
     except Exception as e:
         logger.error(f"Get listings error: {e}")
         return []
@@ -258,24 +233,7 @@ def get_listing(req_id):
         else:
             cursor.execute("SELECT * FROM listings WHERE id = ?", (req_id,))
         row = cursor.fetchone()
-        if row:
-            if DATABASE_URL:
-                return {
-                    'id': row[0],
-                    'user_chat_id': row[1],
-                    'user_name': row[2],
-                    'req_type': row[3],
-                    'main_category': row[4],
-                    'sub_category': row[5] if len(row) > 5 else None,
-                    'action_type': row[6] if len(row) > 6 else None,
-                    'property_type': row[7] if len(row) > 7 else None,
-                    'description': row[8] if len(row) > 8 else '',
-                    'status': row[9] if len(row) > 9 else 'pending',
-                    'created_at': row[10] if len(row) > 10 else None
-                }
-            else:
-                return dict(row)
-        return None
+        return row
     except Exception as e:
         logger.error(f"Get listing error: {e}")
         return None
@@ -380,19 +338,7 @@ def get_broker(chat_id):
         else:
             cursor.execute("SELECT * FROM brokers WHERE chat_id = ?", (chat_id,))
         row = cursor.fetchone()
-        if row:
-            if DATABASE_URL:
-                return {
-                    'id': row[0],
-                    'chat_id': row[1],
-                    'full_name': row[2],
-                    'phone': row[3],
-                    'location': row[4],
-                    'created_at': row[5] if len(row) > 5 else None
-                }
-            else:
-                return dict(row)
-        return None
+        return row
     except Exception as e:
         logger.error(f"Get broker error: {e}")
         return None
@@ -719,7 +665,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 9. VIEW REQUESTS
+# 9. VIEW REQUESTS - USING INDEX-BASED SAFE ACCESS
 # ==============================================================================
 ITEMS_PER_PAGE = 5
 
@@ -743,7 +689,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         page = context.user_data.get('view_page', 0)
         offset = page * ITEMS_PER_PAGE
         
-        # Get listings as list of dictionaries
+        # Get listings as raw tuples
         listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
         total = count_listings()
         total_pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
@@ -760,34 +706,46 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1}/{total_pages})\n\n"
         
-        # Display listings using dictionary keys only
-        for idx, listing in enumerate(listings, 1):
-            listing_id = listing.get('id', '')
-            main_cat = listing.get('main_category', '')
-            action_type = listing.get('action_type', '')
-            description = listing.get('description', '')
-            created_at = listing.get('created_at')
+        # Display listings using safe index access
+        for item in listings:
+            # Safe access using index with fallback values
+            listing_id = item[0] if len(item) > 0 else "N/A"
+            user_chat_id = item[1] if len(item) > 1 else "N/A"
+            user_name = item[2] if len(item) > 2 else "Unknown"
+            req_type = item[3] if len(item) > 3 else "N/A"
+            main_cat = item[4] if len(item) > 4 else "N/A"
+            sub_cat = item[5] if len(item) > 5 else "N/A"
+            action_type = item[6] if len(item) > 6 else "N/A"
+            property_type = item[7] if len(item) > 7 else "N/A"
+            description = item[8] if len(item) > 8 else "No Description"
+            status = item[9] if len(item) > 9 else "pending"
+            created_at = item[10] if len(item) > 10 else None
             
+            # Set icons
             icon = "🚗" if main_cat == "car" else "🏠" if main_cat == "house" else "🏢"
             action_icon = "🛍️" if action_type == "sell" else "🔑"
             
+            # Format description
             desc_text = description[:100] if description else ''
             if len(description) > 100:
                 desc_text += "..."
             
+            # Build text
             text += f"{icon} **#{listing_id}** {action_icon}\n"
+            text += f"👤 {user_name}\n"
             text += f"📝 {desc_text}\n"
             
+            # Format date if available
             if created_at and hasattr(created_at, 'strftime'):
                 text += f"📅 {created_at.strftime('%Y-%m-%d %H:%M')}\n"
             text += "────────────────────\n"
         
         # Create response buttons
         keyboard = []
-        for listing in listings:
-            listing_id = listing.get('id', '')
-            user_chat_id = listing.get('user_chat_id', '')
-            main_cat = listing.get('main_category', '')
+        for item in listings:
+            listing_id = item[0] if len(item) > 0 else "N/A"
+            user_chat_id = item[1] if len(item) > 1 else "N/A"
+            main_cat = item[4] if len(item) > 4 else "car"
             
             keyboard.append([
                 InlineKeyboardButton(
