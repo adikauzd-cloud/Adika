@@ -47,7 +47,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
-# 2. DATABASE
+# 2. DATABASE - UPDATED WITH 11 COLUMNS
 # ==============================================================================
 def get_db_connection():
     if DATABASE_URL:
@@ -76,7 +76,7 @@ def init_db():
             cursor.execute("DROP TABLE IF EXISTS listings;")
             cursor.execute("DROP TABLE IF EXISTS brokers;")
         
-        # Listings table
+        # Listings table - EXACTLY 11 COLUMNS
         if DATABASE_URL:
             cursor.execute("""
                 CREATE TABLE listings (
@@ -146,7 +146,7 @@ def init_db():
         
         if DATABASE_URL:
             conn.commit()
-        logger.info("✅ Database initialized successfully")
+        logger.info("✅ Database initialized successfully with 11 columns")
         
     except Exception as e:
         logger.error(f"Database initialization error: {e}")
@@ -155,8 +155,10 @@ def init_db():
         if conn:
             conn.close()
 
-# ========== LISTING FUNCTIONS ==========
-def add_listing(user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description):
+# ========== LISTING FUNCTIONS - UPDATED ==========
+def add_listing(user_chat_id, user_name, req_type, main_category, sub_category, 
+                action_type, property_type, description):
+    """Add a new listing with exactly 8 fields (id auto-generated)"""
     conn = None
     try:
         conn = get_db_connection()
@@ -164,16 +166,22 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category, 
         p = get_placeholder()
         if DATABASE_URL:
             cursor.execute(f"""
-                INSERT INTO listings (user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description)
+                INSERT INTO listings 
+                (user_chat_id, user_name, req_type, main_category, sub_category, 
+                 action_type, property_type, description)
                 VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}) RETURNING id
-            """, (user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description))
+            """, (user_chat_id, user_name, req_type, main_category, sub_category, 
+                  action_type, property_type, description))
             req_id = cursor.fetchone()[0]
             conn.commit()
         else:
-            cursor.execute(f"""
-                INSERT INTO listings (user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description)
+            cursor.execute("""
+                INSERT INTO listings 
+                (user_chat_id, user_name, req_type, main_category, sub_category, 
+                 action_type, property_type, description)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description))
+            """, (user_chat_id, user_name, req_type, main_category, sub_category, 
+                  action_type, property_type, description))
             req_id = cursor.lastrowid
             conn.commit()
         return req_id
@@ -184,7 +192,9 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category, 
         if conn:
             conn.close()
 
-def get_listings_by_category(main_category=None, sub_category=None, action_type=None, property_type=None, limit=10, offset=0):
+def get_listings_by_category(main_category=None, sub_category=None, action_type=None, 
+                             property_type=None, limit=10, offset=0):
+    """Get listings with filters - returns tuples with 11 columns"""
     conn = None
     try:
         conn = get_db_connection()
@@ -214,7 +224,7 @@ def get_listings_by_category(main_category=None, sub_category=None, action_type=
         else:
             cursor.execute(query, params)
         rows = cursor.fetchall()
-        return rows  # Return raw rows as tuples
+        return rows  # Return raw tuples - 11 columns
     except Exception as e:
         logger.error(f"Get listings error: {e}")
         return []
@@ -223,6 +233,7 @@ def get_listings_by_category(main_category=None, sub_category=None, action_type=
             conn.close()
 
 def get_listing(req_id):
+    """Get a single listing by ID - returns tuple with 11 columns"""
     conn = None
     try:
         conn = get_db_connection()
@@ -233,7 +244,7 @@ def get_listing(req_id):
         else:
             cursor.execute("SELECT * FROM listings WHERE id = ?", (req_id,))
         row = cursor.fetchone()
-        return row
+        return row  # Returns tuple with 11 columns
     except Exception as e:
         logger.error(f"Get listing error: {e}")
         return None
@@ -391,35 +402,14 @@ def validate_price(price: str) -> bool:
     pattern = r'^[\d]+(\.[\d]{2})?$'
     return bool(re.match(pattern, price))
 
-def format_listing_for_confirmation(data: Dict[str, Any], main_cat: str) -> str:
-    if main_cat == "car":
-        return (
-            "📋 **የመኪና ማስታወቂያ ማጠቃለያ**\n\n"
-            f"📍 ቦታ: {data.get('location', '')}\n"
-            f"🚗 ዝርዝር: {data.get('car_details', '')}\n"
-            f"💰 ዋጋ: {data.get('price', '')}\n"
-            f"🔄 ድርድር: {data.get('negotiable', '')}\n"
-            f"📞 ስልክ: {data.get('phone', '')}\n"
-            f"📸 ፎቶ: {'✅ ተላኳል' if data.get('photo_id') else '⏭️ ተዘልሏል'}\n\n"
-            "✅ መረጃው ትክክል ከሆነ 'አረጋግጥ' ይጫኑ።\n"
-            "❌ ለመሰረዝ '🏠 ዋና ገጽ' ይጫኑ።"
-        )
-    else:
-        property_subtype = data.get('property_subtype', '')
-        detail_label = "📐 ስፋት" if "መሬት" in property_subtype or "ቦታ" in property_subtype else "🛏️ መኝታ"
-        
-        return (
-            "📋 **የንብረት ማስታወቂያ ማጠቃለያ**\n\n"
-            f"📍 ቦታ: {data.get('location', '')}\n"
-            f"🏠 አይነት: {data.get('property_subtype', '')}\n"
-            f"{detail_label}: {data.get('property_details', '')}\n"
-            f"💰 ዋጋ: {data.get('price', '')}\n"
-            f"🔄 ድርድር: {data.get('negotiable', '')}\n"
-            f"📞 ስልክ: {data.get('phone', '')}\n"
-            f"📸 ፎቶ: {'✅ ተላኳል' if data.get('photo_id') else '⏭️ ተዘልሏል'}\n\n"
-            "✅ መረጃው ትክክል ከሆነ 'አረጋግጥ' ይጫኑ።\n"
-            "❌ ለመሰረዝ '🏠 ዋና ገጽ' ይጫኑ።"
-        )
+def safe_get_tuple_value(tuple_data, index, default=""):
+    """Safely get value from tuple with fallback"""
+    try:
+        if tuple_data and len(tuple_data) > index:
+            return tuple_data[index]
+        return default
+    except:
+        return default
 
 # ==============================================================================
 # 6. START & MAIN MENU
@@ -665,7 +655,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 9. VIEW REQUESTS - USING INDEX-BASED SAFE ACCESS
+# 9. VIEW REQUESTS - SAFE TUPLE ACCESS
 # ==============================================================================
 ITEMS_PER_PAGE = 5
 
@@ -689,7 +679,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         page = context.user_data.get('view_page', 0)
         offset = page * ITEMS_PER_PAGE
         
-        # Get listings as raw tuples
+        # Get listings as raw tuples - 11 columns
         listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
         total = count_listings()
         total_pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
@@ -706,20 +696,18 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1}/{total_pages})\n\n"
         
-        # Display listings using safe index access
+        # Display listings using safe tuple access - 11 columns
         for item in listings:
-            # Safe access using index with fallback values
-            listing_id = item[0] if len(item) > 0 else "N/A"
-            user_chat_id = item[1] if len(item) > 1 else "N/A"
-            user_name = item[2] if len(item) > 2 else "Unknown"
-            req_type = item[3] if len(item) > 3 else "N/A"
-            main_cat = item[4] if len(item) > 4 else "N/A"
-            sub_cat = item[5] if len(item) > 5 else "N/A"
-            action_type = item[6] if len(item) > 6 else "N/A"
-            property_type = item[7] if len(item) > 7 else "N/A"
-            description = item[8] if len(item) > 8 else "No Description"
-            status = item[9] if len(item) > 9 else "pending"
-            created_at = item[10] if len(item) > 10 else None
+            # Column indices: 0=id, 1=user_chat_id, 2=user_name, 3=req_type, 
+            # 4=main_category, 5=sub_category, 6=action_type, 7=property_type,
+            # 8=description, 9=status, 10=created_at
+            
+            listing_id = safe_get_tuple_value(item, 0, "N/A")
+            user_name = safe_get_tuple_value(item, 2, "Unknown")
+            main_cat = safe_get_tuple_value(item, 4, "N/A")
+            action_type = safe_get_tuple_value(item, 6, "N/A")
+            description = safe_get_tuple_value(item, 8, "No Description")
+            created_at = safe_get_tuple_value(item, 10, None)
             
             # Set icons
             icon = "🚗" if main_cat == "car" else "🏠" if main_cat == "house" else "🏢"
@@ -743,9 +731,9 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Create response buttons
         keyboard = []
         for item in listings:
-            listing_id = item[0] if len(item) > 0 else "N/A"
-            user_chat_id = item[1] if len(item) > 1 else "N/A"
-            main_cat = item[4] if len(item) > 4 else "car"
+            listing_id = safe_get_tuple_value(item, 0, "N/A")
+            user_chat_id = safe_get_tuple_value(item, 1, "N/A")
+            main_cat = safe_get_tuple_value(item, 4, "car")
             
             keyboard.append([
                 InlineKeyboardButton(
