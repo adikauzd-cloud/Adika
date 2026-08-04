@@ -75,7 +75,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ==============================================================================
-# 2. DATABASE - 12 COLUMNS
+# 2. DATABASE - 10 COLUMNS
 # ==============================================================================
 def get_db_connection():
     max_retries = 5
@@ -108,7 +108,7 @@ def init_db():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Drop existing tables to ensure clean schema
+        # Drop existing tables
         if DATABASE_URL:
             cursor.execute("DROP TABLE IF EXISTS listings CASCADE;")
             cursor.execute("DROP TABLE IF EXISTS brokers CASCADE;")
@@ -116,10 +116,10 @@ def init_db():
             cursor.execute("DROP TABLE IF EXISTS listings;")
             cursor.execute("DROP TABLE IF EXISTS brokers;")
         
-        # Listings table - 12 COLUMNS
+        # Listings table - 10 COLUMNS
         # 0=id, 1=user_chat_id, 2=user_name, 3=req_type, 
-        # 4=main_category, 5=sub_category, 6=action_type, 7=property_type,
-        # 8=description, 9=price, 10=status, 11=created_at
+        # 4=main_category, 5=sub_category, 6=action_type, 
+        # 7=property_type, 8=description, 9=created_at
         if DATABASE_URL:
             cursor.execute("""
                 CREATE TABLE listings (
@@ -132,8 +132,6 @@ def init_db():
                     action_type TEXT,
                     property_type TEXT,
                     description TEXT NOT NULL,
-                    price TEXT,
-                    status TEXT DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -149,8 +147,6 @@ def init_db():
                     action_type TEXT,
                     property_type TEXT,
                     description TEXT NOT NULL,
-                    price TEXT,
-                    status TEXT DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
@@ -181,17 +177,15 @@ def init_db():
         
         # Indexes
         if DATABASE_URL:
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_category ON listings(main_category, sub_category)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_chat_id ON brokers(chat_id)")
         else:
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_category ON listings(main_category, sub_category)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_chat_id ON brokers(chat_id)")
         
         if DATABASE_URL:
             conn.commit()
-        logger.info("✅ Database initialized successfully with 12 columns")
+        logger.info("✅ Database initialized successfully with 10 columns")
         
     except Exception as e:
         logger.error(f"Database initialization error: {e}")
@@ -202,7 +196,7 @@ def init_db():
 
 # ========== LISTING FUNCTIONS ==========
 def add_listing(user_chat_id, user_name, req_type, main_category, sub_category, 
-                action_type, property_type, description, price=None):
+                action_type, property_type, description):
     conn = None
     try:
         conn = get_db_connection()
@@ -212,20 +206,20 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
             cursor.execute(f"""
                 INSERT INTO listings 
                 (user_chat_id, user_name, req_type, main_category, sub_category, 
-                 action_type, property_type, description, price)
-                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}) RETURNING id
+                 action_type, property_type, description)
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}) RETURNING id
             """, (user_chat_id, user_name, req_type, main_category, sub_category, 
-                  action_type, property_type, description, price))
+                  action_type, property_type, description))
             req_id = cursor.fetchone()[0]
             conn.commit()
         else:
             cursor.execute("""
                 INSERT INTO listings 
                 (user_chat_id, user_name, req_type, main_category, sub_category, 
-                 action_type, property_type, description, price)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 action_type, property_type, description)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (user_chat_id, user_name, req_type, main_category, sub_category, 
-                  action_type, property_type, description, price))
+                  action_type, property_type, description))
             req_id = cursor.lastrowid
             conn.commit()
         return req_id
@@ -243,21 +237,26 @@ def get_listings_by_category(main_category=None, sub_category=None, action_type=
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
-        query = "SELECT * FROM listings WHERE status = 'pending'"
+        query = "SELECT * FROM listings"
         params = []
         
+        # Build WHERE clause
+        where_conditions = []
         if main_category:
-            query += f" AND main_category = {p}"
+            where_conditions.append(f"main_category = {p}")
             params.append(main_category)
         if sub_category:
-            query += f" AND sub_category = {p}"
+            where_conditions.append(f"sub_category = {p}")
             params.append(sub_category)
         if action_type:
-            query += f" AND action_type = {p}"
+            where_conditions.append(f"action_type = {p}")
             params.append(action_type)
         if property_type:
-            query += f" AND property_type = {p}"
+            where_conditions.append(f"property_type = {p}")
             params.append(property_type)
+        
+        if where_conditions:
+            query += " WHERE " + " AND ".join(where_conditions)
         
         query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
         params.extend([limit, offset])
@@ -294,23 +293,24 @@ def get_listing(req_id):
         if conn:
             conn.close()
 
-def update_listing_status(req_id, status):
+def update_listing_status(req_id):
+    """Delete listing after response (soft delete)"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
         if DATABASE_URL:
-            cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
+            cursor.execute(f"DELETE FROM listings WHERE id = {p}", (req_id,))
         else:
-            cursor.execute("UPDATE listings SET status = ? WHERE id = ?", (status, req_id))
+            cursor.execute("DELETE FROM listings WHERE id = ?", (req_id,))
         if DATABASE_URL:
             conn.commit()
         else:
             conn.commit()
         return True
     except Exception as e:
-        logger.error(f"Update listing error: {e}")
+        logger.error(f"Delete listing error: {e}")
         return False
     finally:
         if conn:
@@ -322,21 +322,25 @@ def count_listings(main_category=None, sub_category=None, action_type=None, prop
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
-        query = "SELECT COUNT(*) FROM listings WHERE status = 'pending'"
+        query = "SELECT COUNT(*) FROM listings"
         params = []
         
+        where_conditions = []
         if main_category:
-            query += f" AND main_category = {p}"
+            where_conditions.append(f"main_category = {p}")
             params.append(main_category)
         if sub_category:
-            query += f" AND sub_category = {p}"
+            where_conditions.append(f"sub_category = {p}")
             params.append(sub_category)
         if action_type:
-            query += f" AND action_type = {p}"
+            where_conditions.append(f"action_type = {p}")
             params.append(action_type)
         if property_type:
-            query += f" AND property_type = {p}"
+            where_conditions.append(f"property_type = {p}")
             params.append(property_type)
+        
+        if where_conditions:
+            query += " WHERE " + " AND ".join(where_conditions)
         
         if DATABASE_URL:
             cursor.execute(query.replace("?", p), params)
@@ -443,6 +447,15 @@ def validate_price(price: str) -> bool:
     price = price.replace(',', '').replace(' ', '')
     pattern = r'^[\d]+(\.[\d]{2})?$'
     return bool(re.match(pattern, price))
+
+def safe_get_value(row, index, default=""):
+    """Safely get value from tuple with fallback"""
+    try:
+        if row and len(row) > index:
+            return row[index]
+        return default
+    except:
+        return default
 
 # ==============================================================================
 # 6. START & MAIN MENU
@@ -688,7 +701,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 9. VIEW REQUESTS
+# 9. VIEW REQUESTS - 10 COLUMN UNPACKING
 # ==============================================================================
 ITEMS_PER_PAGE = 5
 
@@ -728,26 +741,23 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1}/{total_pages})\n\n"
         
-        # UNPACK 12 COLUMNS
+        # UNPACK 10 COLUMNS
+        # 0=id, 1=user_chat_id, 2=user_name, 3=req_type, 
+        # 4=main_category, 5=sub_category, 6=action_type, 
+        # 7=property_type, 8=description, 9=created_at
+        
         for row in listings:
-            if len(row) >= 12:
-                (listing_id, user_chat_id, user_name, req_type, main_category, 
-                 sub_category, action_type, property_type, description, 
-                 price, status, created_at) = row[:12]
-            else:
-                # Fallback
-                listing_id = row[0] if len(row) > 0 else "N/A"
-                user_chat_id = row[1] if len(row) > 1 else "N/A"
-                user_name = row[2] if len(row) > 2 else "Unknown"
-                req_type = row[3] if len(row) > 3 else "N/A"
-                main_category = row[4] if len(row) > 4 else "N/A"
-                sub_category = row[5] if len(row) > 5 else "N/A"
-                action_type = row[6] if len(row) > 6 else "N/A"
-                property_type = row[7] if len(row) > 7 else "N/A"
-                description = row[8] if len(row) > 8 else "No Description"
-                price = row[9] if len(row) > 9 else "N/A"
-                status = row[10] if len(row) > 10 else "pending"
-                created_at = row[11] if len(row) > 11 else None
+            # Safe unpacking with fallback
+            listing_id = safe_get_value(row, 0, "N/A")
+            user_chat_id = safe_get_value(row, 1, "N/A")
+            user_name = safe_get_value(row, 2, "Unknown")
+            req_type = safe_get_value(row, 3, "N/A")
+            main_category = safe_get_value(row, 4, "N/A")
+            sub_category = safe_get_value(row, 5, "N/A")
+            action_type = safe_get_value(row, 6, "N/A")
+            property_type = safe_get_value(row, 7, "N/A")
+            description = safe_get_value(row, 8, "No Description")
+            created_at = safe_get_value(row, 9, None)
             
             icon = "🚗" if main_category == "car" else "🏠" if main_category == "house" else "🏢"
             action_icon = "🛍️" if action_type == "sell" else "🔑"
@@ -759,8 +769,6 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             text += f"{icon} **#{listing_id}** {action_icon}\n"
             text += f"👤 {user_name}\n"
             text += f"📝 {desc_text}\n"
-            if price and price != "N/A":
-                text += f"💰 {price}\n"
             
             if created_at and hasattr(created_at, 'strftime'):
                 text += f"📅 {created_at.strftime('%Y-%m-%d %H:%M')}\n"
@@ -769,14 +777,9 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # Response buttons
         keyboard = []
         for row in listings:
-            if len(row) >= 12:
-                (listing_id, user_chat_id, user_name, req_type, main_category, 
-                 sub_category, action_type, property_type, description, 
-                 price, status, created_at) = row[:12]
-            else:
-                listing_id = row[0] if len(row) > 0 else "N/A"
-                user_chat_id = row[1] if len(row) > 1 else "N/A"
-                main_category = row[4] if len(row) > 4 else "car"
+            listing_id = safe_get_value(row, 0, "N/A")
+            user_chat_id = safe_get_value(row, 1, "N/A")
+            main_category = safe_get_value(row, 4, "car")
             
             keyboard.append([
                 InlineKeyboardButton(
@@ -1191,7 +1194,7 @@ async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     main_cat = context.user_data.get('main_category', '')
     
-    # Build description with price
+    # Build description with all details
     if main_cat == "car":
         desc = (
             f"📍 {context.user_data.get('location', '')}\n"
@@ -1210,71 +1213,127 @@ async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📞 {context.user_data.get('phone', '')}"
         )
     
-    # Save to database with price
-    req_id = add_listing(
-        update.effective_user.id,
-        update.effective_user.first_name,
-        'SELL',
-        context.user_data.get('main_category', ''),
-        context.user_data.get('sub_category', ''),
-        context.user_data.get('action_type', ''),
-        context.user_data.get('property_type', ''),
-        desc,
-        context.user_data.get('price', '')
+    # Show confirmation
+    confirmation_text = (
+        "📋 **ማስታወቂያ ማጠቃለያ**\n\n"
+        f"{desc}\n\n"
+        "✅ መረጃው ትክክል ከሆነ 'አረጋግጥ' ይጫኑ።\n"
+        "❌ ለመሰረዝ '🏠 ዋና ገጽ' ይጫኑ።"
     )
     
-    if req_id:
-        action_kbd = InlineKeyboardMarkup([
-            [InlineKeyboardButton("✅ እፈልገዋለሁ", callback_data=f"item_resp_{req_id}_{update.effective_user.id}_{context.user_data.get('main_category', '')}")]
-        ])
+    keyboard = [
+        [InlineKeyboardButton("✅ አረጋግጥ", callback_data="flow_sell_confirm_yes")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ]
+    
+    await update.message.reply_text(
+        confirmation_text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return SELLER_CONFIRM
+
+async def seller_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "flow_home":
+        return await go_home(update, context)
+    
+    if query.data == "flow_sell_confirm_yes":
+        user = update.effective_user
+        main_cat = context.user_data.get('main_category', '')
         
-        photo_id = context.user_data.get('photo_id')
-        success_message = f"✅ **ማስታወቂያ ተመዝግቧል!** (#REQ-{req_id})\n\n{desc}"
-        
-        if photo_id:
-            await update.message.reply_photo(
-                photo=photo_id,
-                caption=success_message,
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-                parse_mode="Markdown"
+        # Build description
+        if main_cat == "car":
+            desc = (
+                f"📍 {context.user_data.get('location', '')}\n"
+                f"🚗 {context.user_data.get('car_details', '')}\n"
+                f"💰 {context.user_data.get('price', '')}\n"
+                f"🔄 {context.user_data.get('negotiable', '')}\n"
+                f"📞 {context.user_data.get('phone', '')}"
             )
         else:
-            await update.message.reply_text(
-                success_message,
+            desc = (
+                f"📍 {context.user_data.get('location', '')}\n"
+                f"🏠 {context.user_data.get('property_subtype', '')}\n"
+                f"📐 {context.user_data.get('property_details', '')}\n"
+                f"💰 {context.user_data.get('price', '')}\n"
+                f"🔄 {context.user_data.get('negotiable', '')}\n"
+                f"📞 {context.user_data.get('phone', '')}"
+            )
+        
+        # Save to database
+        req_id = add_listing(
+            user.id,
+            user.first_name,
+            'SELL',
+            main_cat,
+            context.user_data.get('sub_category', ''),
+            context.user_data.get('action_type', ''),
+            context.user_data.get('property_type', ''),
+            desc
+        )
+        
+        if req_id:
+            action_kbd = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ እፈልገዋለሁ", callback_data=f"item_resp_{req_id}_{user.id}_{main_cat}")]
+            ])
+            
+            photo_id = context.user_data.get('photo_id')
+            success_message = f"✅ **ማስታወቂያ ተመዝግቧል!** (#REQ-{req_id})\n\n{desc}"
+            
+            if photo_id:
+                await query.edit_message_text(
+                    success_message,
+                    reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+                    parse_mode="Markdown"
+                )
+                # Send photo separately
+                await context.bot.send_photo(
+                    chat_id=user.id,
+                    photo=photo_id,
+                    caption="📸 የንብረቱ ፎቶ"
+                )
+            else:
+                await query.edit_message_text(
+                    success_message,
+                    reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+                    parse_mode="Markdown"
+                )
+            
+            # Notify admin
+            if ADMIN_CHAT_ID_INT:
+                try:
+                    if photo_id:
+                        await context.bot.send_photo(
+                            chat_id=ADMIN_CHAT_ID_INT,
+                            photo=photo_id,
+                            caption=f"🔔 **አዲስ ማስታወቂያ!**\nID: #{req_id}\nUser: {user.first_name}\n\n{desc}",
+                            reply_markup=action_kbd,
+                            parse_mode="Markdown"
+                        )
+                    else:
+                        admin_msg = f"🔔 **አዲስ ማስታወቂያ!**\nID: #{req_id}\nUser: {user.first_name}\n\n{desc}"
+                        await context.bot.send_message(
+                            chat_id=ADMIN_CHAT_ID_INT,
+                            text=admin_msg,
+                            reply_markup=action_kbd,
+                            parse_mode="Markdown"
+                        )
+                except Exception as e:
+                    logger.error(f"Admin notify error: {e}")
+            
+            context.user_data.clear()
+            return ConversationHandler.END
+        else:
+            await query.edit_message_text(
+                "❌ ማስታወቂያ ሲመዘገብ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።",
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
                 parse_mode="Markdown"
             )
-        
-        if ADMIN_CHAT_ID_INT:
-            try:
-                if photo_id:
-                    await context.bot.send_photo(
-                        chat_id=ADMIN_CHAT_ID_INT,
-                        photo=photo_id,
-                        caption=f"🔔 **አዲስ ማስታወቂያ!**\nID: #{req_id}\nUser: {update.effective_user.first_name}\n\n{desc}",
-                        reply_markup=action_kbd,
-                        parse_mode="Markdown"
-                    )
-                else:
-                    admin_msg = f"🔔 **አዲስ ማስታወቂያ!**\nID: #{req_id}\nUser: {update.effective_user.first_name}\n\n{desc}"
-                    await context.bot.send_message(
-                        chat_id=ADMIN_CHAT_ID_INT,
-                        text=admin_msg,
-                        reply_markup=action_kbd,
-                        parse_mode="Markdown"
-                    )
-            except Exception as e:
-                logger.error(f"Admin notify error: {e}")
-        
-        context.user_data.clear()
-        return ConversationHandler.END
-    else:
-        await update.message.reply_text(
-            "❌ ማስታወቂያ ሲመዘገብ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-        context.user_data.clear()
-        return ConversationHandler.END
+            context.user_data.clear()
+            return ConversationHandler.END
 
 # ==============================================================================
 # 11. RESPONSE FLOW
@@ -1474,7 +1533,8 @@ async def resp_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         
-        update_listing_status(int(req_id), 'responded')
+        # Delete listing after response
+        update_listing_status(int(req_id))
         
         await update.message.reply_text(
             "✅ **መረጃዎች ለፈላጊው ተልከዋል!**\n\n"
@@ -1696,6 +1756,7 @@ def main():
                     cancel_message_handler
                 ],
                 SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_phone), cancel_message_handler],
+                SELLER_CONFIRM: [CallbackQueryHandler(seller_confirm, pattern="^flow_sell_confirm_"), cancel_message_handler],
             },
             fallbacks=[CommandHandler("start", start), cancel_message_handler],
             allow_reentry=True,
