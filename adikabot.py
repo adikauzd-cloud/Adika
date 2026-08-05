@@ -87,11 +87,32 @@ PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ
 # 3. CONVERSATION STATES
 # ==============================================================================
 (
-    BUYER_MAIN, BUYER_ACTION, BUYER_CATEGORY, BUYER_SUB, BUYER_PROPERTY, BUYER_DETAILS, BUYER_PHONE,
-    BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_SUBCITY, BROKER_NID_PHOTO,
-    SELLER_MAIN, SELLER_ACTION, SELLER_CATEGORY, SELLER_SUB, SELLER_PROPERTY, SELLER_DETAILS, SELLER_PRICE, SELLER_PHONE, SELLER_PHOTO,
-    BROKER_OFFER_TEXT, BROKER_OFFER_PHONE, BROKER_OFFER_PHONE_NUMBER
-) = range(24)
+    BUYER_MAIN, 
+    BUYER_ACTION, 
+    BUYER_CATEGORY, 
+    BUYER_SUB, 
+    BUYER_PROPERTY, 
+    BUYER_DETAILS, 
+    BUYER_PHONE,
+    BUYER_PHONE_NUMBER,
+    BROKER_ROLE, 
+    BROKER_NAME, 
+    BROKER_PHONE, 
+    BROKER_SUBCITY, 
+    BROKER_NID_PHOTO,
+    SELLER_MAIN, 
+    SELLER_ACTION, 
+    SELLER_CATEGORY, 
+    SELLER_SUB, 
+    SELLER_PROPERTY, 
+    SELLER_DETAILS, 
+    SELLER_PRICE, 
+    SELLER_PHONE, 
+    SELLER_PHOTO,
+    BROKER_OFFER_TEXT, 
+    BROKER_OFFER_PHOTO, 
+    BROKER_OFFER_PHONE_NUMBER
+) = range(25)
 
 # ==============================================================================
 # 4. DATABASE UTILITIES
@@ -314,11 +335,9 @@ def validate_price(price: str) -> bool:
     return price.isdigit() and int(price) > 0
 
 def validate_budget(budget: str) -> bool:
-    # በጀት በቁጥር ወይም በ"ከ... እስከ..." ቅርጽ ሊሆን ይችላል
     budget = budget.replace(',', '').replace(' ', '')
     if budget.isdigit() and int(budget) > 0:
         return True
-    # ከ... እስከ... ቅርጽ ለማረጋገጥ
     pattern = r'^ከ\d+እስከ\d+$|^ከ\d+$|^\d+እስከ\d+$|^\d+$'
     return bool(re.match(pattern, budget.replace(' ', '')))
 
@@ -549,7 +568,6 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     username = user.username or ""
     
-    # ✅ በጀት ማስገቢያ
     budget = update.message.text
     if budget == "🏠 ዋና ገጽ":
         return await go_home(update, context)
@@ -567,7 +585,6 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     context.user_data['budget'] = budget
     
-    # ✅ የስልክ ቁጥር ወይም Username ማስገቢያ
     await update.message.reply_text(
         "📞 **እርስዎን የሚያገኙበትን መረጃ ያስገቡ፦**\n\n"
         "📲 የስልክ ቁጥርዎን መላክ ወይም የቴሌግራም Usernameዎን (@username) ማስገባት ይችላሉ።\n\n"
@@ -577,7 +594,6 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return BUYER_PHONE_NUMBER
 
-# ✅ አዲስ የተጨመረ - የስልክ/Username መቀበያ
 async def buyer_phone_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     username = user.username or ""
@@ -585,13 +601,11 @@ async def buyer_phone_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
-    # Handle contact sharing
     if update.message.contact:
         phone = update.message.contact.phone_number
         contact_info = f"📞 {phone}"
     else:
         text = update.message.text.strip()
-        # Check if it's a username or phone number
         if text.startswith('@'):
             contact_info = f"👤 {text}"
         elif validate_phone(text):
@@ -693,7 +707,6 @@ async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return BROKER_OFFER_PHOTO
 
 async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # ✅ ደላላው ስልክ ቁጥሩን እንዲያስገባ
     photo_id = None
     if update.message.photo:
         photo_id = update.message.photo[-1].file_id
@@ -725,7 +738,6 @@ async def broker_offer_phone_number(update: Update, context: ContextTypes.DEFAUL
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
-    # Handle contact sharing
     if update.message.contact:
         broker_phone = update.message.contact.phone_number
     else:
