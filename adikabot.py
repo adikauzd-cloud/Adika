@@ -82,14 +82,35 @@ HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየ�
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
 
 # ==============================================================================
-# 3. CONVERSATION STATES
+# 3. CONVERSATION STATES - በትክክል 25 states
 # ==============================================================================
 (
-    BUYER_MAIN, BUYER_ACTION, BUYER_CATEGORY, BUYER_SUB, BUYER_PROPERTY, BUYER_DETAILS, BUYER_BUDGET, BUYER_PHONE,
-    BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_SUBCITY, BROKER_NID_PHOTO,
-    SELLER_MAIN, SELLER_ACTION, SELLER_CATEGORY, SELLER_SUB, SELLER_PROPERTY, SELLER_DETAILS, SELLER_PRICE, SELLER_PHONE, SELLER_PHOTO,
-    BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO, BROKER_OFFER_PHONE_NUMBER
-) = range(24)
+    BUYER_MAIN, 
+    BUYER_ACTION, 
+    BUYER_CATEGORY, 
+    BUYER_SUB, 
+    BUYER_PROPERTY, 
+    BUYER_DETAILS, 
+    BUYER_BUDGET,      # ✅ አዲስ ተጨምሯል
+    BUYER_PHONE,       # ✅ ይህ አሁን የስልክ/Username መቀበያ ነው
+    BROKER_ROLE, 
+    BROKER_NAME, 
+    BROKER_PHONE, 
+    BROKER_SUBCITY, 
+    BROKER_NID_PHOTO,
+    SELLER_MAIN, 
+    SELLER_ACTION, 
+    SELLER_CATEGORY, 
+    SELLER_SUB, 
+    SELLER_PROPERTY, 
+    SELLER_DETAILS, 
+    SELLER_PRICE, 
+    SELLER_PHONE, 
+    SELLER_PHOTO,
+    BROKER_OFFER_TEXT, 
+    BROKER_OFFER_PHOTO, 
+    BROKER_OFFER_PHONE_NUMBER
+) = range(25)  # ✅ 25 states
 
 # ==============================================================================
 # 4. DATABASE UTILITIES
@@ -310,15 +331,11 @@ def validate_price(price: str) -> bool:
     return price.isdigit() and int(price) > 0
 
 def validate_budget(budget: str) -> bool:
-    """Validate budget input - accepts numbers, ranges, or simple values"""
     budget = budget.replace(',', '').strip()
-    # Empty or just spaces
     if not budget:
         return False
-    # Check if it's a valid number
     if budget.replace(' ', '').isdigit() and int(budget.replace(' ', '')) > 0:
         return True
-    # Check for "ከ... እስከ..." format
     budget_clean = budget.replace(' ', '')
     if 'ከ' in budget_clean and 'እስከ' in budget_clean:
         parts = budget_clean.split('እስከ')
@@ -327,18 +344,16 @@ def validate_budget(budget: str) -> bool:
             to_part = parts[1].replace(',', '')
             if from_part.isdigit() and to_part.isdigit() and int(from_part) < int(to_part):
                 return True
-    # Check for "ከ..." or "እስከ..."
     if budget_clean.startswith('ከ') and budget_clean.replace('ከ', '').replace(',', '').isdigit():
         return True
     if budget_clean.startswith('እስከ') and budget_clean.replace('እስከ', '').replace(',', '').isdigit():
         return True
-    # Check if it's a simple range with - or ~
     if '-' in budget or '~' in budget or '–' in budget:
         parts = re.split(r'[-~–]', budget.replace(',', '').replace(' ', ''))
         if len(parts) == 2:
             if parts[0].isdigit() and parts[1].isdigit():
                 return True
-    return False
+    return True
 
 async def send_batched_messages(context, chat_ids: List[int], text: str, reply_markup=None, delay: float = 0.5):
     semaphore = asyncio.Semaphore(5)
@@ -568,19 +583,6 @@ async def buyer_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if budget == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
-    # ✅ Validate budget - accept any reasonable input
-    if not validate_budget(budget):
-        await update.message.reply_text(
-            "❌ እባክዎ ትክክለኛ የበጀት ግምት ያስገቡ።\n\n"
-            "💡 *ምሳሌዎች፦*\n"
-            "• `2,500,000`\n"
-            "• `ከ2,000,000 እስከ 3,000,000`\n"
-            "• `ከ2,000,000`\n"
-            "• `2,000,000 - 3,000,000`",
-            parse_mode="Markdown"
-        )
-        return BUYER_BUDGET
-    
     context.user_data['budget'] = budget
     
     await update.message.reply_text(
@@ -599,13 +601,11 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
-    # Handle contact sharing
     if update.message.contact:
         phone = update.message.contact.phone_number
         contact_info = f"📞 {phone}"
     else:
         text = update.message.text.strip()
-        # Check if it's a username or phone number
         if text.startswith('@'):
             contact_info = f"👤 {text}"
         elif validate_phone(text):
@@ -1185,7 +1185,6 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
                 f"👤 **የአቅራቢው ዝርዝር**\n\n"
                 f"🆔 ID: {broker.get('id')}\n"
                 f"👤 ስም: {broker.get('full_name')}\n"
-                f"👤 Username: @{broker.get('username')}" if broker.get('username') else ""
                 f"🎭 ሚና: {broker.get('role_type')}\n"
                 f"📞 ስልክ: {broker.get('phone')}\n"
                 f"📍 ክፍለ ከተማ: {broker.get('sub_city')}\n"
