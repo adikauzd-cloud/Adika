@@ -8,7 +8,7 @@ from typing import Optional, List, Dict, Any
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask
-from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -59,18 +59,6 @@ MAIN_KEYBOARD = [
     ["📝 እንደ አቅራቢ/ደላላ መመዝገብ", "📋 የፈላጊዎች ዝርዝር"],
     ["📞 ድጋፍ", "🏠 ዋና ገጽ"]
 ]
-
-# Keyboard with Share Contact button
-SHARE_CONTACT_KEYBOARD = ReplyKeyboardMarkup(
-    [[KeyboardButton("📲 ስልክ ቁጥር አጋራ", request_contact=True), "🏠 ዋና ገጽ"]],
-    resize_keyboard=True,
-    one_time_keyboard=True
-)
-
-CANCEL_KEYBOARD = ReplyKeyboardMarkup(
-    [["🏠 ዋና ገጽ"]],
-    resize_keyboard=True
-)
 
 # ✅ 11 ክፍለ ከተሞች
 SUB_CITIES = [
@@ -133,7 +121,6 @@ def init_db():
                     id SERIAL PRIMARY KEY,
                     user_chat_id BIGINT NOT NULL,
                     user_name TEXT,
-                    username TEXT,
                     req_type TEXT NOT NULL,
                     main_category TEXT NOT NULL,
                     sub_category TEXT,
@@ -148,7 +135,6 @@ def init_db():
                     chat_id BIGINT NOT NULL UNIQUE,
                     full_name TEXT NOT NULL,
                     phone TEXT NOT NULL,
-                    username TEXT,
                     role_type TEXT NOT NULL,
                     national_id_photo TEXT,
                     sub_city TEXT NOT NULL,
@@ -164,7 +150,6 @@ def init_db():
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_chat_id INTEGER NOT NULL,
                     user_name TEXT,
-                    username TEXT,
                     req_type TEXT NOT NULL,
                     main_category TEXT NOT NULL,
                     sub_category TEXT,
@@ -179,7 +164,6 @@ def init_db():
                     chat_id INTEGER NOT NULL UNIQUE,
                     full_name TEXT NOT NULL,
                     phone TEXT NOT NULL,
-                    username TEXT,
                     role_type TEXT NOT NULL,
                     national_id_photo TEXT,
                     sub_city TEXT NOT NULL,
@@ -191,14 +175,14 @@ def init_db():
     logger.info("✅ Database initialized successfully")
 
 # ========== LISTING DB OPERATIONS ==========
-def add_listing(user_chat_id, user_name, username, req_type, main_category, sub_category, action_type, property_type, description):
+def add_listing(user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description):
     with get_db_cursor() as (cursor, conn):
         p = get_placeholder()
         query = f"""
-            INSERT INTO listings (user_chat_id, user_name, username, req_type, main_category, sub_category, action_type, property_type, description)
-            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+            INSERT INTO listings (user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description)
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
         """
-        params = (user_chat_id, user_name, username, req_type, main_category, sub_category, action_type, property_type, description)
+        params = (user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description)
         
         if DATABASE_URL:
             cursor.execute(query + " RETURNING id", params)
@@ -237,7 +221,7 @@ def get_listing(req_id):
         return dict(row) if row else None
 
 # ========== BROKER DB OPERATIONS ==========
-def add_broker(chat_id, full_name, phone, username, role_type, national_id_photo, sub_city):
+def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city):
     with get_db_cursor() as (cursor, conn):
         p = get_placeholder()
         
@@ -249,38 +233,38 @@ def add_broker(chat_id, full_name, phone, username, role_type, national_id_photo
             if DATABASE_URL:
                 query = f"""
                     UPDATE brokers 
-                    SET full_name = {p}, phone = {p}, username = {p}, role_type = {p}, 
+                    SET full_name = {p}, phone = {p}, role_type = {p}, 
                         national_id_photo = {p}, sub_city = {p}, status = 'pending'
                     WHERE chat_id = {p}
                     RETURNING id
                 """
-                cursor.execute(query, (full_name, phone, username, role_type, national_id_photo, sub_city, chat_id))
+                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
                 return cursor.fetchone()[0]
             else:
                 query = """
                     UPDATE brokers 
-                    SET full_name = ?, phone = ?, username = ?, role_type = ?, 
+                    SET full_name = ?, phone = ?, role_type = ?, 
                         national_id_photo = ?, sub_city = ?, status = 'pending'
                     WHERE chat_id = ?
                 """
-                cursor.execute(query, (full_name, phone, username, role_type, national_id_photo, sub_city, chat_id))
+                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
                 conn.commit()
                 return existing[0]
         else:
             if DATABASE_URL:
                 query = f"""
-                    INSERT INTO brokers (chat_id, full_name, phone, username, role_type, national_id_photo, sub_city, status)
-                    VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending')
+                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                    VALUES ({p}, {p}, {p}, {p}, {p}, {p}, 'pending')
                     RETURNING id
                 """
-                cursor.execute(query, (chat_id, full_name, phone, username, role_type, national_id_photo, sub_city))
+                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
                 return cursor.fetchone()[0]
             else:
                 query = """
-                    INSERT INTO brokers (chat_id, full_name, phone, username, role_type, national_id_photo, sub_city, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending')
                 """
-                cursor.execute(query, (chat_id, full_name, phone, username, role_type, national_id_photo, sub_city))
+                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
                 conn.commit()
                 return cursor.lastrowid
 
@@ -318,7 +302,10 @@ def validate_price(price: str) -> bool:
     return price.isdigit() and int(price) > 0
 
 async def send_batched_messages(context, chat_ids: List[int], text: str, reply_markup=None, delay: float = 0.5):
-    """Send messages to multiple users with batching to avoid rate limits."""
+    """
+    Send messages to multiple users with batching to avoid rate limits.
+    Uses asyncio.gather with semaphore for controlled concurrency.
+    """
     semaphore = asyncio.Semaphore(5)  # Max 5 concurrent messages
     
     async def send_single(chat_id):
@@ -372,7 +359,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Universal go home handler - always returns ConversationHandler.END"""
     context.user_data.clear()
     welcome_text = "👋 **ወደ ዋና ገጽ ተመልሰዋል!**\n\nእባክዎን አማራጭ ይምረጡ፦"
     reply_markup = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
@@ -392,7 +378,7 @@ async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
             reply_markup=reply_markup
         )
-    return ConversationHandler.END  # ✅ Always returns END
+    return ConversationHandler.END
 
 # ==============================================================================
 # 7. BUYER FLOW (ፈላጊ)
@@ -530,18 +516,19 @@ async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await go_home(update, context)
     context.user_data['description'] = update.message.text
     await update.message.reply_text(
-        "📞 **እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**\n\n"
-        "💡 ለቀላል ግቤት '📲 ስልክ ቁጥር አጋራ' ባተን መጠቀም ይችላሉ።",
+        "📞 **እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**\n\n💡 ለቀላል ግቤት '📞 Share Contact' ባተን መጠቀም ይችላሉ።",
         parse_mode="Markdown",
-        reply_markup=SHARE_CONTACT_KEYBOARD
+        reply_markup=ReplyKeyboardMarkup(
+            [["📞 Share Contact", "🏠 ዋና ገጽ"]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
     )
     return BUYER_PHONE
 
 async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    username = user.username or ""
     
-    # ✅ Handle contact sharing
     if update.message.contact:
         phone = update.message.contact.phone_number
     else:
@@ -552,8 +539,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not validate_phone(phone):
         await update.message.reply_text(
-            "❌ ስልክ ቁጥሩ ትክክል አይደለም! እባክዎ እንደገና ያስገቡ።",
-            reply_markup=SHARE_CONTACT_KEYBOARD
+            "❌ ስልክ ቁጥሩ ትክክል አይደለም! እባክዎ እንደገና ያስገቡ።"
         )
         return BUYER_PHONE
     
@@ -564,7 +550,6 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     description = context.user_data.get('description', '')
     
     category_title = "🚗 አዲስ የመኪና ጥያቄ" if main_cat == "car" else "🏠 አዲስ የቤት/ቦታ ጥያቄ"
-    user_name = f"{user.first_name} {user.last_name or ''}".strip()
     
     full_desc = (
         f"📌 **{category_title}**\n"
@@ -574,7 +559,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📞 ስልክ: {phone}"
     )
     
-    req_id = add_listing(user.id, user_name, username, 'BUY', main_cat, sub_cat, action_type, prop_subtype, full_desc)
+    req_id = add_listing(user.id, user.first_name, 'BUY', main_cat, sub_cat, action_type, prop_subtype, full_desc)
     
     if req_id:
         await update.message.reply_text(
@@ -625,8 +610,7 @@ async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_T
     await query.message.reply_text(
         f"✅ **ጥያቄ #{req_id}**\n\n"
         f"✍️ **ያለዎትን ንብረት ዝርዝር መረጃ እና ዋጋ ያስገቡ፦**\n"
-        f"(ለምሳሌ፦ ቶዮታ ቪትዝ 2021፣ 30,000 KM የሄደ፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...)",
-        reply_markup=CANCEL_KEYBOARD
+        f"(ለምሳሌ፦ ቶዮታ ቪትዝ 2021፣ 30,000 KM የሄደ፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...)"
     )
     return BROKER_OFFER_TEXT
 
@@ -636,8 +620,7 @@ async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     context.user_data['offer_text'] = update.message.text
     await update.message.reply_text(
-        "📸 **የንብረቱን ፎቶ ይላኩ፦**\n(ፎቶ ከሌልዎት 'ፎቶ የለውም' ብለው ይጻፉ)",
-        reply_markup=CANCEL_KEYBOARD
+        "📸 **የንብረቱን ፎቶ ይላኩ፦**\n(ፎቶ ከሌልዎት 'ፎቶ የለውም' ብለው ይጻፉ)"
     )
     return BROKER_OFFER_PHOTO
 
@@ -646,16 +629,12 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
     req_id = context.user_data.get('target_req_id')
     offer_text = context.user_data.get('offer_text')
     broker_name = update.effective_user.first_name
-    broker_username = update.effective_user.username or ""
     
     update_listing_status(int(req_id), 'responded')
     
-    # ✅ Username added to message
-    username_text = f"👤 @{broker_username}" if broker_username else f"👤 {broker_name}"
-    
     message_to_buyer = (
         f"🎉 **ለጥያቄዎ (#REQ-{req_id}) አዲስ የቀረበ አማራጭ አለ!**\n\n"
-        f"{username_text}\n"
+        f"👤 **ደላላ/አቅራቢ፦** {broker_name}\n"
         f"📝 **የንብረቱ ዝርዝር፦**\n{offer_text}\n\n"
         f"💡 *ከፈለጉ ደውለው መገበያየት ይችላሉ!*"
     )
@@ -796,10 +775,7 @@ async def seller_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     context.user_data['description'] = update.message.text
-    await update.message.reply_text(
-        "💰 **የሚሸጡበትን/ሚያከራዩበትን ዋጋ ያስገቡ፦**",
-        reply_markup=CANCEL_KEYBOARD
-    )
+    await update.message.reply_text("💰 **የሚሸጡበትን/ሚያከራዩበትን ዋጋ ያስገቡ፦**", reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True))
     return SELLER_PRICE
 
 async def seller_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -811,27 +787,16 @@ async def seller_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return SELLER_PRICE
     
     context.user_data['price'] = update.message.text
-    await update.message.reply_text(
-        "📞 **የስልክ ቁጥርዎን ያስገቡ፦**\n\n💡 ለቀላል ግቤት '📲 ስልክ ቁጥር አጋራ' ባተን መጠቀም ይችላሉ።",
-        reply_markup=SHARE_CONTACT_KEYBOARD
-    )
+    await update.message.reply_text("📞 **የስልክ ቁጥርዎን ያስገቡ፦**")
     return SELLER_PHONE
 
 async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
-    # ✅ Handle contact sharing
-    if update.message.contact:
-        phone = update.message.contact.phone_number
-    else:
-        phone = update.message.text
-    
+    phone = update.message.text
     if not validate_phone(phone):
-        await update.message.reply_text(
-            "❌ ትክክለኛ የስልክ ቁጥር ያስገቡ።",
-            reply_markup=SHARE_CONTACT_KEYBOARD
-        )
+        await update.message.reply_text("❌ ትክክለኛ የስልክ ቁጥር ያስገቡ።")
         return SELLER_PHONE
     
     context.user_data['phone'] = phone
@@ -840,7 +805,6 @@ async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    username = user.username or ""
     photo_id = update.message.photo[-1].file_id if update.message.photo else None
     
     if not photo_id:
@@ -852,8 +816,6 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if property_subtype:
         description = f"🏠 {property_subtype}\n{description}"
     
-    user_name = f"{user.first_name} {user.last_name or ''}".strip()
-    
     desc = (
         f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ!**\n"
         f"🔄 አይነት: {context.user_data.get('action_type')}\n"
@@ -862,13 +824,13 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📞 ስልክ: {context.user_data.get('phone')}"
     )
     
-    add_listing(user.id, user_name, username, 'SELL', context.user_data.get('main_category'), '', context.user_data.get('action_type'), context.user_data.get('property_type', ''), desc)
+    add_listing(user.id, user.first_name, 'SELL', context.user_data.get('main_category'), '', context.user_data.get('action_type'), context.user_data.get('property_type', ''), desc)
     
     await update.message.reply_text("✅ **የማስታወቂያ ጥያቄዎ በስኬት ተመዝግቧል!**", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
     return ConversationHandler.END
 
 # ==============================================================================
-# 10. BROKER REGISTRATION
+# 10. BROKER REGISTRATION (የተሻሻለ)
 # ==============================================================================
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -911,17 +873,14 @@ async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     context.user_data['broker_name'] = update.message.text
-    await update.message.reply_text(
-        "2️⃣ የስልክ ቁጥርዎን ያስገቡ፦\n\n💡 ለቀላል ግቤት '📲 ስልክ ቁጥር አጋራ' ባተን መጠቀም ይችላሉ።",
-        reply_markup=SHARE_CONTACT_KEYBOARD
-    )
+    await update.message.reply_text("2️⃣ የስልክ ቁጥርዎን ያስገቡ፦")
     return BROKER_PHONE
 
 async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
-    # ✅ Handle contact sharing
+    # Handle contact sharing
     if update.message.contact:
         phone = update.message.contact.phone_number
     else:
@@ -930,8 +889,12 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not validate_phone(phone):
         await update.message.reply_text(
             "❌ ትክክለኛ የስልክ ቁጥር ያስገቡ።\n\n"
-            "💡 ለቀላል ግቤት '📲 ስልክ ቁጥር አጋራ' ባተን መጠቀም ይችላሉ።",
-            reply_markup=SHARE_CONTACT_KEYBOARD
+            "💡 ለቀላል ግቤት '📞 Share Contact' ባተን መጠቀም ይችላሉ።",
+            reply_markup=ReplyKeyboardMarkup(
+                [["📞 Share Contact", "🏠 ዋና ገጽ"]],
+                resize_keyboard=True,
+                one_time_keyboard=True
+            )
         )
         return BROKER_PHONE
     
@@ -962,7 +925,6 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         return await go_home(update, context)
 
     user = update.effective_user
-    username = user.username or ""
     
     # Check if it's a photo (either as photo or document)
     photo_id = None
@@ -991,13 +953,13 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         f"🎭 ሚና: {role}\n"
         f"📞 ስልክ: {phone}\n"
         f"📍 ክፍለ ከተማ: {sub_city}\n"
-        f"🆔 Telegram ID: `{user.id}`\n"
-        f"👤 Username: @{username}" if username else "",
+        f"🆔 Telegram ID: `{user.id}`\n\n"
+        f"⏳ እባክዎ ይጠብቁ፣ እያስመዘገብን ነው...",
         parse_mode="Markdown"
     )
     
-    # ✅ Save to database with username
-    broker_id = add_broker(user.id, name, phone, username, role, photo_id, sub_city)
+    # Save to database
+    broker_id = add_broker(user.id, name, phone, role, photo_id, sub_city)
     
     if broker_id:
         await update.message.reply_text(
@@ -1007,7 +969,7 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
-        # ✅ Send to admin for approval with username
+        # Send to admin for approval
         if ADMIN_CHAT_ID_INT:
             admin_msg = (
                 f"🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**\n\n"
@@ -1015,8 +977,7 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
                 f"🎭 ሚና: {role}\n"
                 f"📞 ስልክ: {phone}\n"
                 f"📍 ክፍለ ከተማ: {sub_city}\n"
-                f"🆔 Telegram ID: `{user.id}`\n"
-                f"👤 Username: @{username}" if username else ""
+                f"🆔 Telegram ID: `{user.id}`"
             )
             admin_kbd = InlineKeyboardMarkup([
                 [
@@ -1103,7 +1064,6 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
                 f"👤 **የአቅራቢው ዝርዝር**\n\n"
                 f"🆔 ID: {broker.get('id')}\n"
                 f"👤 ስም: {broker.get('full_name')}\n"
-                f"👤 Username: @{broker.get('username')}" if broker.get('username') else ""
                 f"🎭 ሚና: {broker.get('role_type')}\n"
                 f"📞 ስልክ: {broker.get('phone')}\n"
                 f"📍 ክፍለ ከተማ: {broker.get('sub_city')}\n"
@@ -1164,11 +1124,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         for listing in listings:
             listing_id = listing.get('id', '')
             description = listing.get('description', '')
-            username = listing.get('username', '')
-            if username:
-                text += f"━━━━━━━━━━━━━━━━━━━━\n📌 **#{listing_id}** @{username}\n{description}\n"
-            else:
-                text += f"━━━━━━━━━━━━━━━━━━━━\n📌 **#{listing_id}**\n{description}\n"
+            text += f"━━━━━━━━━━━━━━━━━━━━\n📌 **#{listing_id}**\n{description}\n"
         
         keyboard = []
         for listing in listings:
@@ -1226,10 +1182,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🏠 **ዋና ገጽ:**
 • ቀደም ሲል የነበረውን መልእክት ያጽዳል
 • አዲስ ሜኑ ያመጣል
-
-📲 **ስልክ ቁጥር:**
-• '📲 ስልክ ቁጥር አጋራ' ባተን በመጠቀም በቀላሉ ማጋራት ይችላሉ
-• ወይም በጽሁፍ መጻፍ ይችላሉ
 """
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
@@ -1244,7 +1196,6 @@ def main():
     
     app.add_handler(CommandHandler("start", start))
 
-    # ✅ Universal cancel filter for all states
     cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
     cancel_message_handler = MessageHandler(cancel_filter, go_home)
 
@@ -1274,7 +1225,7 @@ def main():
             SELLER_PROPERTY: [CallbackQueryHandler(seller_property_chosen, pattern="^flow_sell_prop_"), cancel_message_handler],
             SELLER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_details), cancel_message_handler],
             SELLER_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_price), cancel_message_handler],
-            SELLER_PHONE: [MessageHandler((filters.TEXT | filters.CONTACT) & ~filters.COMMAND, seller_phone), cancel_message_handler],
+            SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_phone), cancel_message_handler],
             SELLER_PHOTO: [MessageHandler(filters.PHOTO, seller_photo), cancel_message_handler],
         },
         fallbacks=[CommandHandler("start", start), cancel_message_handler],
