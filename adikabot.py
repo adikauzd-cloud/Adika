@@ -56,7 +56,6 @@ MAIN_KEYBOARD = [
     ["📞 ድጋፍ", "🏠 ዋና ገጽ"]
 ]
 
-# 11 አዲስ አበባ ክፍለ ከተሞች
 SUB_CITIES = [
     "ቦሌ", "የካ", "አራዳ", "ልደታ", 
     "ቂርቆስ", "አዲስ ከተማ", "ንፋስ ስልክ ላፍቶ", 
@@ -91,7 +90,6 @@ def init_db():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Table Reset for schema updates
         if DATABASE_URL:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS listings (
@@ -241,6 +239,21 @@ def add_broker(chat_id, full_name, phone, role_type, national_id, sub_city):
         if conn:
             conn.close()
 
+def get_approved_brokers():
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor) if DATABASE_URL else conn.cursor()
+        cursor.execute("SELECT chat_id FROM brokers WHERE status = 'approved'")
+        rows = cursor.fetchall()
+        return [dict(row)['chat_id'] for row in rows]
+    except Exception as e:
+        logger.error(f"Get approved brokers error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
 def update_broker_status(chat_id, status):
     conn = None
     try:
@@ -279,7 +292,7 @@ def get_broker(chat_id):
 # ==============================================================================
 BUYER_MAIN, BUYER_ACTION, BUYER_CATEGORY, BUYER_SUB, BUYER_PROPERTY, BUYER_DETAILS, BUYER_PHONE = range(7)
 BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_NID, BROKER_SUBCITY = range(7, 12)
-RESP_MAIN, RESP_ROLE, RESP_PROPERTY, RESP_SUB, RESP_DETAILS, RESP_PRICE, RESP_NEGO, RESP_PHONE, RESP_PHOTO = range(12, 21)
+SELLER_MAIN, SELLER_ACTION, SELLER_CATEGORY, SELLER_SUB, SELLER_PROPERTY, SELLER_DETAILS, SELLER_PRICE, SELLER_PHONE, SELLER_PHOTO = range(12, 21)
 
 # ==============================================================================
 # 5. HELPER FUNCTIONS
@@ -292,6 +305,14 @@ def validate_phone(phone: str) -> bool:
 def validate_price(price: str) -> bool:
     price = price.replace(',', '').replace(' ', '')
     return price.isdigit()
+
+async def notify_brokers(context: ContextTypes.DEFAULT_TYPE, message_text: str):
+    approved_brokers = get_approved_brokers()
+    for b_id in approved_brokers:
+        try:
+            await context.bot.send_message(chat_id=b_id, text=message_text, parse_mode="Markdown")
+        except Exception as e:
+            logger.error(f"Failed to send notification to broker {b_id}: {e}")
 
 # ==============================================================================
 # 6. START & CANCEL HANDLERS
@@ -439,7 +460,7 @@ async def buyer_property_chosen(update: Update, context: ContextTypes.DEFAULT_TY
     keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
     
     await query.edit_message_text(
-        "🏠 **የቤቱ አይነት ይምረጡ (ቪላ፣ አፓርታማ...)፦**",
+        "🏠 **የቤቱ አይነት ይምረጡ፦**",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -488,9 +509,11 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     prop_subtype = context.user_data.get('property_subtype', '')
     description = context.user_data.get('description', '')
     
+    category_title = "🚗 አዲስ የመኪና ጥያቄ" if main_cat == "car" else "🏠 አዲስ የቤት/ቦታ ጥያቄ"
+    
     full_desc = (
-        f"📌 **አዲስ ጥያቄ (ቤት/ንብረት ፈላጊ)**\n"
-        f"🏠 የቤቱ አይነት: {prop_subtype if prop_subtype else main_cat}\n"
+        f"📌 **{category_title}**\n"
+        f"🔹 አይነት: {prop_subtype if prop_subtype else sub_cat}\n"
         f"🔄 ፍላጎት: {action_type}\n"
         f"📝 ዝርዝር: {description}\n"
         f"📞 ስልክ: {phone}"
@@ -504,10 +527,120 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📌 ጥያቄዎ በ'📋 የፈላጊዎች ዝርዝር' ውስጥ ለአቅራቢዎችና ደላሎች ይታያል።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
+        
+        # 🔔 Send Real-Time Notification to Approved Brokers
+        notification_text = f"🔔 **{category_title}! (#REQ-{req_id})**\n\n{full_desc}\n\n👉 ለመመለስ '📋 የፈላጊዎች ዝርዝር' ይመልከቱ።"
+        await notify_brokers(context, notification_text)
+
     return ConversationHandler.END
 
 # ==============================================================================
-# 8. BROKER REGISTRATION (የአቅራቢ / ደላላ ምዝገባ)
+# 8. SELLER FLOW (መሸጥ / ማከራየት)
+# ==============================================================================
+async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    context.user_data['req_type'] = 'SELL'
+    
+    keyboard = [
+        [InlineKeyboardButton("🚗 መኪና", callback_data="flow_sell_cat_car")],
+        [InlineKeyboardButton("🏠 ቤት / ቦታ", callback_data="flow_sell_cat_house")],
+        [InlineKeyboardButton("🏢 የሥራ ቦታ / ንግድ", callback_data="flow_sell_cat_commercial")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ]
+    await update.message.reply_text(
+        "📢 **የሚሸጡትን ወይም የሚያከራዩትን ምድብ ይምረጡ፦**",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return SELLER_MAIN
+
+async def seller_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.data == "flow_home":
+        return await go_home(update, context)
+    
+    await query.answer()
+    cat = query.data.replace("flow_sell_cat_", "")
+    context.user_data['main_category'] = cat
+    
+    keyboard = [
+        [InlineKeyboardButton("🛍️ መሸጥ", callback_data="flow_sell_action_sell")],
+        [InlineKeyboardButton("🔑 ማከራየት", callback_data="flow_sell_action_rent")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ]
+    await query.edit_message_text(
+        "❓ **የድርጊት አይነት ይምረጡ፦**",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return SELLER_ACTION
+
+async def seller_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.data == "flow_home":
+        return await go_home(update, context)
+    
+    await query.answer()
+    action = query.data.replace("flow_sell_action_", "")
+    context.user_data['action_type'] = "መሸጥ" if action == "sell" else "ማከራየት"
+    
+    await query.edit_message_text("✍️ **የንብረቱን ዝርዝር መረጃ ያስገቡ (አካባቢ፣ ሁኔታ፣ ወዘተ)፦**")
+    return SELLER_DETAILS
+
+async def seller_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    context.user_data['description'] = update.message.text
+    await update.message.reply_text("💰 **የሚሸጡበትን/ሚያከራዩበትን ዋጋ ያስገቡ፦**", reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True))
+    return SELLER_PRICE
+
+async def seller_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    if not validate_price(update.message.text):
+        await update.message.reply_text("❌ እባክዎ ቁጥር ብቻ ያስገቡ።")
+        return SELLER_PRICE
+    
+    context.user_data['price'] = update.message.text
+    await update.message.reply_text("📞 **የስልክ ቁጥርዎን ያስገቡ፦**")
+    return SELLER_PHONE
+
+async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    if not validate_phone(update.message.text):
+        await update.message.reply_text("❌ ትክክለኛ የስልክ ቁጥር ያስገቡ።")
+        return SELLER_PHONE
+    
+    context.user_data['phone'] = update.message.text
+    await update.message.reply_text("📸 **የንብረቱን ፎቶ ይላኩ፦**")
+    return SELLER_PHOTO
+
+async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    photo_id = update.message.photo[-1].file_id if update.message.photo else None
+    
+    if not photo_id:
+        await update.message.reply_text("❌ እባክዎ ፎቶ ይላኩ!")
+        return SELLER_PHOTO
+    
+    desc = (
+        f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ!**\n"
+        f"🔄 አይነት: {context.user_data.get('action_type')}\n"
+        f"📝 ዝርዝር: {context.user_data.get('description')}\n"
+        f"💰 ዋጋ: {context.user_data.get('price')} ብር\n"
+        f"📞 ስልክ: {context.user_data.get('phone')}"
+    )
+    
+    req_id = add_listing(user.id, user.first_name, 'SELL', context.user_data.get('main_category'), '', context.user_data.get('action_type'), '', desc)
+    
+    await update.message.reply_text("✅ **የማስታወቂያ ጥያቄዎ በስኬት ተመዝግቧል!**", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+    return ConversationHandler.END
+
+# ==============================================================================
+# 9. BROKER REGISTRATION (የአቅራቢ / ደላላ ምዝገባ)
 # ==============================================================================
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -588,7 +721,6 @@ async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "መረጃዎ ለአድሚን ተልኳል። አድሚን ካረጋገጠልዎ (Approve ካደረገ) በኋላ ማስታወቂያ ይደርስዎታል!"
         )
         
-        # Send Approval Request to Admin
         if ADMIN_CHAT_ID_INT != 0:
             admin_msg = (
                 f"🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**\n\n"
@@ -620,7 +752,7 @@ async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 # ==============================================================================
-# 9. ADMIN APPROVAL HANDLER
+# 10. ADMIN APPROVAL HANDLER
 # ==============================================================================
 async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -654,7 +786,7 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
             logger.error(f"Could not notify rejected user: {e}")
 
 # ==============================================================================
-# 10. VIEW REQUESTS (ለተፈቀደላቸው ደላሎች ብቻ)
+# 11. VIEW REQUESTS (ለተፈቀደላቸው ደላሎች ብቻ)
 # ==============================================================================
 ITEMS_PER_PAGE = 5
 
@@ -731,7 +863,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         logger.error(f"Error in show_requests_page: {e}")
 
 # ==============================================================================
-# 11. MAIN ENGINE
+# 12. MAIN ENGINE
 # ==============================================================================
 def main():
     init_db()
@@ -759,6 +891,20 @@ def main():
         allow_reentry=True,
     )
 
+    seller_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📢 መሸጥ / ማከራየት$"), seller_start)],
+        states={
+            SELLER_MAIN: [CallbackQueryHandler(seller_category_chosen, pattern="^flow_sell_cat_"), cancel_message_handler],
+            SELLER_ACTION: [CallbackQueryHandler(seller_action_chosen, pattern="^flow_sell_action_"), cancel_message_handler],
+            SELLER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_details), cancel_message_handler],
+            SELLER_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_price), cancel_message_handler],
+            SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_phone), cancel_message_handler],
+            SELLER_PHOTO: [MessageHandler(filters.PHOTO, seller_photo), cancel_message_handler],
+        },
+        fallbacks=[CommandHandler("start", start), cancel_message_handler],
+        allow_reentry=True,
+    )
+
     broker_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)],
         states={
@@ -779,6 +925,7 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
 
     app.add_handler(buyer_conv)
+    app.add_handler(seller_conv)
     app.add_handler(broker_conv)
 
     logger.info("🚀 Adika Marketplace Bot ተጀምሯል...")
