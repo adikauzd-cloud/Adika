@@ -111,7 +111,7 @@ def init_db():
                     full_name TEXT NOT NULL,
                     phone TEXT NOT NULL,
                     role_type TEXT NOT NULL,
-                    national_id TEXT NOT NULL,
+                    national_id_photo TEXT NOT NULL,
                     sub_city TEXT NOT NULL,
                     status TEXT DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -135,10 +135,10 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS brokers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     chat_id INTEGER NOT NULL UNIQUE,
-                    full_name INTEGER NOT NULL,
+                    full_name TEXT NOT NULL,
                     phone TEXT NOT NULL,
                     role_type TEXT NOT NULL,
-                    national_id TEXT NOT NULL,
+                    national_id_photo TEXT NOT NULL,
                     sub_city TEXT NOT NULL,
                     status TEXT DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -214,14 +214,14 @@ def count_listings():
             conn.close()
 
 # ========== BROKER DB OPERATIONS ==========
-def add_broker(chat_id, full_name, phone, role_type, national_id, sub_city):
+def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city):
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
-        query = f"INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id, sub_city, status) VALUES ({p}, {p}, {p}, {p}, {p}, {p}, 'pending')"
-        params = (chat_id, full_name, phone, role_type, national_id, sub_city)
+        query = f"INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status) VALUES ({p}, {p}, {p}, {p}, {p}, {p}, 'pending')"
+        params = (chat_id, full_name, phone, role_type, national_id_photo, sub_city)
         
         if DATABASE_URL:
             cursor.execute(query + " RETURNING id", params)
@@ -290,7 +290,7 @@ def get_broker(chat_id):
 # 4. CONVERSATION STATES
 # ==============================================================================
 BUYER_MAIN, BUYER_ACTION, BUYER_CATEGORY, BUYER_SUB, BUYER_PROPERTY, BUYER_DETAILS, BUYER_PHONE = range(7)
-BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_NID, BROKER_SUBCITY = range(7, 12)
+BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_SUBCITY, BROKER_NID_PHOTO = range(7, 12)
 SELLER_MAIN, SELLER_ACTION, SELLER_CATEGORY, SELLER_SUB, SELLER_PROPERTY, SELLER_DETAILS, SELLER_PRICE, SELLER_PHONE, SELLER_PHOTO = range(12, 21)
 BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO = range(21, 23)
 
@@ -530,11 +530,10 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if req_id:
         await update.message.reply_text(
             f"✅ **ጥያቄዎ በጥሩ ሁኔታ ተመዝግቧል!** (#REQ-{req_id})\n\n"
-            f"📌 ጥያቄዎ ለደላሎች የተላከ ሲሆን፣ ንብረቱ ያላቸው ደላሎች አማራጮችን ሲልኩልዎ እዚሁ ቴሌግራም ላይ ይደርስዎታል።",
+            f"📌 ጥያቄዎ ለተረጋገጡ ደላሎች የተላከ ሲሆን፣ ንብረቱ ያላቸው ደላሎች አማራጮችን ሲልኩልዎ እዚሁ ቴሌግራም ላይ ይደርስዎታል።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
-        # 🔔 Send Real-Time Notification to Approved Brokers
         notification_text = (
             f"🔔 **{category_title}! (#REQ-{req_id})**\n\n"
             f"{full_desc}\n\n"
@@ -555,7 +554,7 @@ async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_T
     broker = get_broker(user_id)
     
     if not broker or broker.get('status') != 'approved':
-        await query.message.reply_text("⛔ ይህን ማድረግ የሚችሉት የተረጋገጡ ደላሎች/አቅራቢዎች ብቻ ናቸው!")
+        await query.message.reply_text("⛔ ይህን ማድረግ የሚችሉት በአድሚን የተረጋገጡ ደላሎች/አቅራቢዎች ብቻ ናቸው!")
         return ConversationHandler.END
         
     parts = query.data.split('_')
@@ -721,20 +720,21 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📞 ስልክ: {context.user_data.get('phone')}"
     )
     
-    req_id = add_listing(user.id, user.first_name, 'SELL', context.user_data.get('main_category'), '', context.user_data.get('action_type'), '', desc)
+    add_listing(user.id, user.first_name, 'SELL', context.user_data.get('main_category'), '', context.user_data.get('action_type'), '', desc)
     
     await update.message.reply_text("✅ **የማስታወቂያ ጥያቄዎ በስኬት ተመዝግቧል!**", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
     return ConversationHandler.END
 
 # ==============================================================================
-# 10. BROKER REGISTRATION (የአቅራቢ / ደላላ ምዝገባ)
+# 10. BROKER REGISTRATION WITH PHOTO UPLOAD & ADMIN APPROVAL
 # ==============================================================================
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     
     keyboard = [
         [InlineKeyboardButton("👨‍💼 ደላላ", callback_data="role_broker")],
-        [InlineKeyboardButton("👤 አቅራቢ / ባለቤት", callback_data="role_owner")],
+        [InlineKeyboardButton("🚢 አስመጪ / አቅራቢ", callback_data="role_importer")],
+        [InlineKeyboardButton("👤 ባለቤት / አቅራቢ", callback_data="role_owner")],
         [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     await update.message.reply_text(
@@ -750,7 +750,12 @@ async def broker_role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await go_home(update, context)
     
     await query.answer()
-    role = "ደላላ" if query.data == "role_broker" else "አቅራቢ/ባለቤት"
+    role_map = {
+        "role_broker": "ደላላ",
+        "role_importer": "አስመጪ/አቅራቢ",
+        "role_owner": "ባለቤት/አቅራቢ"
+    }
+    role = role_map.get(query.data, "አቅራቢ")
     context.user_data['broker_role'] = role
     
     await query.edit_message_text(f"👤 **ምዝገባ፦ {role}**\n\n1️⃣ ሙሉ ስምዎን ያስገቡ፦")
@@ -772,18 +777,10 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return BROKER_PHONE
     
     context.user_data['broker_phone'] = update.message.text
-    await update.message.reply_text("3️⃣ የፋይዳ (National ID) ወይም የነዋሪነት መታወቂያ ቁጥርዎን ያስገቡ፦")
-    return BROKER_NID
-
-async def broker_reg_nid(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "🏠 ዋና ገጽ":
-        return await go_home(update, context)
-    
-    context.user_data['broker_nid'] = update.message.text
     
     keyboard = [[InlineKeyboardButton(sc, callback_data=f"broker_sc_{sc}")] for sc in SUB_CITIES]
     keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
-    await update.message.reply_text("4️⃣ የሚሰሩበትን ክፍለ ከተማ ይምረጡ፦", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text("3️⃣ የሚሰሩበትን ክፍለ ከተማ ይምረጡ፦", reply_markup=InlineKeyboardMarkup(keyboard))
     return BROKER_SUBCITY
 
 async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -793,28 +790,40 @@ async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     await query.answer()
     sub_city = query.data.replace("broker_sc_", "")
+    context.user_data['broker_subcity'] = sub_city
+    
+    await query.edit_message_text("4️⃣ **የነዋሪነት ወይም የፋይዳ (National ID) መታወቂያ ፎቶ ያንሱና ይላኩ፦**")
+    return BROKER_NID_PHOTO
+
+async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
+    if not update.message.photo:
+        await update.message.reply_text("❌ እባክዎ የመታወቂያዎን ፎቶ ግልጽ አድርገው ይላኩ!")
+        return BROKER_NID_PHOTO
+        
+    photo_id = update.message.photo[-1].file_id
     role = context.user_data.get('broker_role')
     name = context.user_data.get('broker_name')
     phone = context.user_data.get('broker_phone')
-    nid = context.user_data.get('broker_nid')
+    sub_city = context.user_data.get('broker_subcity')
     
-    broker_id = add_broker(user.id, name, phone, role, nid, sub_city)
+    broker_id = add_broker(user.id, name, phone, role, photo_id, sub_city)
     
     if broker_id:
-        await query.edit_message_text(
+        await update.message.reply_text(
             "⏳ **ምዝገባዎ ተጠናቋል!**\n\n"
-            "መረጃዎ ለአድሚን ተልኳል። አድሚን ካረጋገጠልዎ (Approve ካደረገ) በኋላ ማስታወቂያ ይደርስዎታል!"
+            "የመታወቂያ ፎቶዎ እና መረጃዎ ለአድሚን ተልኳል። አድሚኑ መረጃውን አረጋግጦ ሲያፀድቀው (Approve ሲያደርገው) ማስታወቂያ ይደርስዎታል!",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
+        # 🚨 Send photo and details to Admin for Approval
         if ADMIN_CHAT_ID_INT != 0:
             admin_msg = (
                 f"🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**\n\n"
                 f"👤 ስም: {name}\n"
                 f"🎭 ሚና: {role}\n"
                 f"📞 ስልክ: {phone}\n"
-                f"🆔 መታወቂያ/ፋይዳ: {nid}\n"
                 f"📍 ክፍለ ከተማ: {sub_city}\n"
                 f"🆔 Telegram ID: `{user.id}`"
             )
@@ -825,16 +834,17 @@ async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 ]
             ]
             try:
-                await context.bot.send_message(
+                await context.bot.send_photo(
                     chat_id=ADMIN_CHAT_ID_INT,
-                    text=admin_msg,
+                    photo=photo_id,
+                    caption=admin_msg,
                     parse_mode="Markdown",
                     reply_markup=InlineKeyboardMarkup(admin_kbd)
                 )
             except Exception as e:
                 logger.error(f"Failed to send admin approval message: {e}")
     else:
-        await query.edit_message_text("❌ አስቀድመው ተመዝግበዋል ወይም ስህተት ተከስቷል።")
+        await update.message.reply_text("❌ አስቀድመው ተመዝግበዋል ወይም ስህተት ተከስቷል።", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
     
     return ConversationHandler.END
 
@@ -849,12 +859,16 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
     if data.startswith("admin_appr_"):
         target_id = int(data.replace("admin_appr_", ""))
         update_broker_status(target_id, 'approved')
-        await query.edit_message_text(f"✅ ተጠቃሚ ID `{target_id}` በስኬት ጸድቋል (Approved)!", parse_mode="Markdown")
+        
+        await query.edit_message_caption(
+            caption=query.message.caption + "\n\n✅ **ሁኔታ፦ በስኬት ጸድቋል (Approved)**",
+            parse_mode="Markdown"
+        )
         
         try:
             await context.bot.send_message(
                 chat_id=target_id,
-                text="🎉 **እንኳን ደስ አለዎት!** ምዝገባዎ በአድሚን ጸድቋል። አሁን ጥያቄዎች ሲመጡ ኖቲፊኬሽን ይደርስዎታል!"
+                text="🎉 **እንኳን ደስ አለዎት!** የምዝገባ ጥያቄዎ በአድሚን ጸድቋል። አሁን አዲስ ጥያቄዎች ሲመጡ ኖቲፊኬሽን ይደርስዎታል!"
             )
         except Exception as e:
             logger.error(f"Could not notify approved user: {e}")
@@ -862,7 +876,11 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
     elif data.startswith("admin_reje_"):
         target_id = int(data.replace("admin_reje_", ""))
         update_broker_status(target_id, 'rejected')
-        await query.edit_message_text(f"❌ ተጠቃሚ ID `{target_id}` ጥያቄው ተሰርዟል (Rejected)!", parse_mode="Markdown")
+        
+        await query.edit_message_caption(
+            caption=query.message.caption + "\n\n❌ **ሁኔታ፦ ተሰርዟል (Rejected)**",
+            parse_mode="Markdown"
+        )
 
 # ==============================================================================
 # 12. VIEW REQUESTS (ለተፈቀደላቸው ደላሎች ብቻ)
@@ -883,7 +901,7 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if broker.get('status') != 'approved':
         await update.message.reply_text(
-            "⏳ **ምዝገባዎ ገና በአድሚን አልጸደቀም!**\n\nምዝገባዎ ሲረጋገጥ ማስታወቂያ ይደርስዎታል።",
+            "⏳ **ምዝገባዎ ገና በአድሚን አልጸደቀም!**\n\nምዝገባዎ በአድሚን ሲረጋገጥ ማስታወቂያ ይደርስዎታል።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return
@@ -989,8 +1007,8 @@ def main():
             BROKER_ROLE: [CallbackQueryHandler(broker_role_chosen, pattern="^role_"), cancel_message_handler],
             BROKER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name), cancel_message_handler],
             BROKER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone), cancel_message_handler],
-            BROKER_NID: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_nid), cancel_message_handler],
             BROKER_SUBCITY: [CallbackQueryHandler(broker_reg_subcity, pattern="^broker_sc_"), cancel_message_handler],
+            BROKER_NID_PHOTO: [MessageHandler(filters.PHOTO, broker_reg_nid_photo), cancel_message_handler],
         },
         fallbacks=[CommandHandler("start", start), cancel_message_handler],
         allow_reentry=True,
