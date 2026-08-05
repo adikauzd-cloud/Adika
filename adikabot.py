@@ -60,7 +60,6 @@ MAIN_KEYBOARD = [
     ["📞 ድጋፍ", "🏠 ዋና ገጽ"]
 ]
 
-# ✅ Share Contact ባተን
 SHARE_CONTACT_KEYBOARD = ReplyKeyboardMarkup(
     [[KeyboardButton("📲 ስልክ ቁጥር አጋራ", request_contact=True), "🏠 ዋና ገጽ"]],
     resize_keyboard=True,
@@ -72,7 +71,6 @@ CANCEL_KEYBOARD = ReplyKeyboardMarkup(
     resize_keyboard=True
 )
 
-# ✅ 11 ክፍለ ከተሞች
 SUB_CITIES = [
     "ቦሌ", "የካ", "አራዳ", "ልደታ", 
     "ቂርቆስ", "አዲስ ከተማ", "ንፋስ ስልክ ላፍቶ", 
@@ -87,32 +85,11 @@ PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ
 # 3. CONVERSATION STATES
 # ==============================================================================
 (
-    BUYER_MAIN, 
-    BUYER_ACTION, 
-    BUYER_CATEGORY, 
-    BUYER_SUB, 
-    BUYER_PROPERTY, 
-    BUYER_DETAILS, 
-    BUYER_PHONE,
-    BUYER_PHONE_NUMBER,
-    BROKER_ROLE, 
-    BROKER_NAME, 
-    BROKER_PHONE, 
-    BROKER_SUBCITY, 
-    BROKER_NID_PHOTO,
-    SELLER_MAIN, 
-    SELLER_ACTION, 
-    SELLER_CATEGORY, 
-    SELLER_SUB, 
-    SELLER_PROPERTY, 
-    SELLER_DETAILS, 
-    SELLER_PRICE, 
-    SELLER_PHONE, 
-    SELLER_PHOTO,
-    BROKER_OFFER_TEXT, 
-    BROKER_OFFER_PHOTO, 
-    BROKER_OFFER_PHONE_NUMBER
-) = range(25)
+    BUYER_MAIN, BUYER_ACTION, BUYER_CATEGORY, BUYER_SUB, BUYER_PROPERTY, BUYER_DETAILS, BUYER_BUDGET, BUYER_PHONE,
+    BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_SUBCITY, BROKER_NID_PHOTO,
+    SELLER_MAIN, SELLER_ACTION, SELLER_CATEGORY, SELLER_SUB, SELLER_PROPERTY, SELLER_DETAILS, SELLER_PRICE, SELLER_PHONE, SELLER_PHOTO,
+    BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO, BROKER_OFFER_PHONE_NUMBER
+) = range(24)
 
 # ==============================================================================
 # 4. DATABASE UTILITIES
@@ -209,7 +186,6 @@ def init_db():
             conn.commit()
     logger.info("✅ Database initialized successfully")
 
-# ========== LISTING DB OPERATIONS ==========
 def add_listing(user_chat_id, user_name, username, req_type, main_category, sub_category, action_type, property_type, budget_range, description):
     with get_db_cursor() as (cursor, conn):
         p = get_placeholder()
@@ -255,7 +231,6 @@ def get_listing(req_id):
         row = cursor.fetchone()
         return dict(row) if row else None
 
-# ========== BROKER DB OPERATIONS ==========
 def add_broker(chat_id, full_name, phone, username, role_type, national_id_photo, sub_city):
     with get_db_cursor() as (cursor, conn):
         p = get_placeholder()
@@ -335,11 +310,35 @@ def validate_price(price: str) -> bool:
     return price.isdigit() and int(price) > 0
 
 def validate_budget(budget: str) -> bool:
-    budget = budget.replace(',', '').replace(' ', '')
-    if budget.isdigit() and int(budget) > 0:
+    """Validate budget input - accepts numbers, ranges, or simple values"""
+    budget = budget.replace(',', '').strip()
+    # Empty or just spaces
+    if not budget:
+        return False
+    # Check if it's a valid number
+    if budget.replace(' ', '').isdigit() and int(budget.replace(' ', '')) > 0:
         return True
-    pattern = r'^ከ\d+እስከ\d+$|^ከ\d+$|^\d+እስከ\d+$|^\d+$'
-    return bool(re.match(pattern, budget.replace(' ', '')))
+    # Check for "ከ... እስከ..." format
+    budget_clean = budget.replace(' ', '')
+    if 'ከ' in budget_clean and 'እስከ' in budget_clean:
+        parts = budget_clean.split('እስከ')
+        if len(parts) == 2:
+            from_part = parts[0].replace('ከ', '').replace(',', '')
+            to_part = parts[1].replace(',', '')
+            if from_part.isdigit() and to_part.isdigit() and int(from_part) < int(to_part):
+                return True
+    # Check for "ከ..." or "እስከ..."
+    if budget_clean.startswith('ከ') and budget_clean.replace('ከ', '').replace(',', '').isdigit():
+        return True
+    if budget_clean.startswith('እስከ') and budget_clean.replace('እስከ', '').replace(',', '').isdigit():
+        return True
+    # Check if it's a simple range with - or ~
+    if '-' in budget or '~' in budget or '–' in budget:
+        parts = re.split(r'[-~–]', budget.replace(',', '').replace(' ', ''))
+        if len(parts) == 2:
+            if parts[0].isdigit() and parts[1].isdigit():
+                return True
+    return False
 
 async def send_batched_messages(context, chat_ids: List[int], text: str, reply_markup=None, delay: float = 0.5):
     semaphore = asyncio.Semaphore(5)
@@ -562,26 +561,25 @@ async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=CANCEL_KEYBOARD
     )
-    return BUYER_PHONE
+    return BUYER_BUDGET
 
-async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    username = user.username or ""
-    
+async def buyer_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
     budget = update.message.text
     if budget == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
+    # ✅ Validate budget - accept any reasonable input
     if not validate_budget(budget):
         await update.message.reply_text(
             "❌ እባክዎ ትክክለኛ የበጀት ግምት ያስገቡ።\n\n"
             "💡 *ምሳሌዎች፦*\n"
             "• `2,500,000`\n"
             "• `ከ2,000,000 እስከ 3,000,000`\n"
-            "• `ከ2,000,000`",
+            "• `ከ2,000,000`\n"
+            "• `2,000,000 - 3,000,000`",
             parse_mode="Markdown"
         )
-        return BUYER_PHONE
+        return BUYER_BUDGET
     
     context.user_data['budget'] = budget
     
@@ -592,20 +590,22 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown",
         reply_markup=SHARE_CONTACT_KEYBOARD
     )
-    return BUYER_PHONE_NUMBER
+    return BUYER_PHONE
 
-async def buyer_phone_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     username = user.username or ""
     
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
+    # Handle contact sharing
     if update.message.contact:
         phone = update.message.contact.phone_number
         contact_info = f"📞 {phone}"
     else:
         text = update.message.text.strip()
+        # Check if it's a username or phone number
         if text.startswith('@'):
             contact_info = f"👤 {text}"
         elif validate_phone(text):
@@ -619,7 +619,7 @@ async def buyer_phone_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 parse_mode="Markdown",
                 reply_markup=SHARE_CONTACT_KEYBOARD
             )
-            return BUYER_PHONE_NUMBER
+            return BUYER_PHONE
     
     main_cat = context.user_data.get('main_category', '')
     sub_cat = context.user_data.get('sub_category', '')
@@ -659,7 +659,7 @@ async def buyer_phone_number(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 # ==============================================================================
-# 8. BROKER RESPONSE FLOW (ደላላው "አለኝ" ሲል)
+# 8. BROKER RESPONSE FLOW
 # ==============================================================================
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -788,7 +788,7 @@ async def broker_offer_phone_number(update: Update, context: ContextTypes.DEFAUL
     return ConversationHandler.END
 
 # ==============================================================================
-# 9. SELLER FLOW (መሸጥ / ማከራየት)
+# 9. SELLER FLOW
 # ==============================================================================
 async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -1340,8 +1340,8 @@ def main():
             BUYER_SUB: [CallbackQueryHandler(buyer_sub_chosen, pattern="^flow_buy_sub_"), CallbackQueryHandler(buyer_htype_chosen, pattern="^flow_buy_htype_"), cancel_message_handler],
             BUYER_PROPERTY: [CallbackQueryHandler(buyer_property_chosen, pattern="^flow_buy_prop_"), cancel_message_handler],
             BUYER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_details), cancel_message_handler],
-            BUYER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_phone), cancel_message_handler],
-            BUYER_PHONE_NUMBER: [MessageHandler((filters.TEXT | filters.CONTACT) & ~filters.COMMAND, buyer_phone_number), cancel_message_handler],
+            BUYER_BUDGET: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_budget), cancel_message_handler],
+            BUYER_PHONE: [MessageHandler((filters.TEXT | filters.CONTACT) & ~filters.COMMAND, buyer_phone), cancel_message_handler],
         },
         fallbacks=[CommandHandler("start", start), cancel_message_handler],
         allow_reentry=True,
