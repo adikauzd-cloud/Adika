@@ -82,7 +82,7 @@ HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየ�
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
 
 # ==============================================================================
-# 3. CONVERSATION STATES - በትክክል 25 states
+# 3. CONVERSATION STATES
 # ==============================================================================
 (
     BUYER_MAIN, 
@@ -91,8 +91,8 @@ PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ
     BUYER_SUB, 
     BUYER_PROPERTY, 
     BUYER_DETAILS, 
-    BUYER_BUDGET,      # ✅ አዲስ ተጨምሯል
-    BUYER_PHONE,       # ✅ ይህ አሁን የስልክ/Username መቀበያ ነው
+    BUYER_BUDGET,      
+    BUYER_PHONE,       
     BROKER_ROLE, 
     BROKER_NAME, 
     BROKER_PHONE, 
@@ -110,7 +110,7 @@ PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ
     BROKER_OFFER_TEXT, 
     BROKER_OFFER_PHOTO, 
     BROKER_OFFER_PHONE_NUMBER
-) = range(25)  # ✅ 25 states
+) = range(25)
 
 # ==============================================================================
 # 4. DATABASE UTILITIES
@@ -336,24 +336,7 @@ def validate_budget(budget: str) -> bool:
         return False
     if budget.replace(' ', '').isdigit() and int(budget.replace(' ', '')) > 0:
         return True
-    budget_clean = budget.replace(' ', '')
-    if 'ከ' in budget_clean and 'እስከ' in budget_clean:
-        parts = budget_clean.split('እስከ')
-        if len(parts) == 2:
-            from_part = parts[0].replace('ከ', '').replace(',', '')
-            to_part = parts[1].replace(',', '')
-            if from_part.isdigit() and to_part.isdigit() and int(from_part) < int(to_part):
-                return True
-    if budget_clean.startswith('ከ') and budget_clean.replace('ከ', '').replace(',', '').isdigit():
-        return True
-    if budget_clean.startswith('እስከ') and budget_clean.replace('እስከ', '').replace(',', '').isdigit():
-        return True
-    if '-' in budget or '~' in budget or '–' in budget:
-        parts = re.split(r'[-~–]', budget.replace(',', '').replace(' ', ''))
-        if len(parts) == 2:
-            if parts[0].isdigit() and parts[1].isdigit():
-                return True
-    return True
+    return True  # Accept any reasonable input
 
 async def send_batched_messages(context, chat_ids: List[int], text: str, reply_markup=None, delay: float = 0.5):
     semaphore = asyncio.Semaphore(5)
@@ -788,7 +771,7 @@ async def broker_offer_phone_number(update: Update, context: ContextTypes.DEFAUL
     return ConversationHandler.END
 
 # ==============================================================================
-# 9. SELLER FLOW
+# 9. SELLER FLOW (ሻጭ)
 # ==============================================================================
 async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -840,7 +823,8 @@ async def seller_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
     if context.user_data.get('main_category') == "car":
         await query.edit_message_text(
             "🚗 **የመኪናውን ዝርዝር መረጃ ያስገቡ፦**\n\n"
-            "💡 *ምሳሌ፦* ቶዮታ ቪትዝ 2020፣ አውቶማቲክ፣ 45,000 KM የሄደ"
+            "💡 *ምሳሌ፦* ቶዮታ ቪትዝ 2020፣ አውቶማቲክ፣ 45,000 KM የሄደ",
+            parse_mode="Markdown"
         )
         return SELLER_DETAILS
     else:
@@ -894,7 +878,9 @@ async def seller_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await go_home(update, context)
     context.user_data['description'] = update.message.text
     await update.message.reply_text(
-        "💰 **የሚሸጡበትን/ሚያከራዩበትን ዋጋ ያስገቡ፦**",
+        "💰 **የሚሸጡበትን/ሚያከራዩበትን ዋጋ ያስገቡ፦**\n\n"
+        "💡 *ምሳሌ፦* 2,500,000",
+        parse_mode="Markdown",
         reply_markup=CANCEL_KEYBOARD
     )
     return SELLER_PRICE
@@ -904,7 +890,11 @@ async def seller_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await go_home(update, context)
     
     if not validate_price(update.message.text):
-        await update.message.reply_text("❌ እባክዎ ትክክለኛ ቁጥር ያስገቡ።")
+        await update.message.reply_text(
+            "❌ እባክዎ ትክክለኛ ቁጥር ያስገቡ።\n\n"
+            "💡 ለምሳሌ፦ `2500000` ወይም `2,500,000`",
+            parse_mode="Markdown"
+        )
         return SELLER_PRICE
     
     context.user_data['price'] = update.message.text
@@ -926,30 +916,39 @@ async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not validate_phone(phone):
         await update.message.reply_text(
-            "❌ ትክክለኛ የስልክ ቁጥር ያስገቡ።",
+            "❌ ትክክለኛ የስልክ ቁጥር ያስገቡ።\n\n"
+            "💡 ለምሳሌ፦ `0911223344`",
             reply_markup=SHARE_CONTACT_KEYBOARD
         )
         return SELLER_PHONE
     
     context.user_data['phone'] = phone
-    await update.message.reply_text("📸 **የንብረቱን ፎቶ ይላኩ፦**")
+    await update.message.reply_text(
+        "📸 **የንብረቱን ፎቶ ይላኩ፦**\n\n"
+        "💡 *አንድ ፎቶ ብቻ ይላኩ*",
+        reply_markup=CANCEL_KEYBOARD
+    )
     return SELLER_PHOTO
 
 async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     username = user.username or ""
-    photo_id = update.message.photo[-1].file_id if update.message.photo else None
+    user_name = f"{user.first_name} {user.last_name or ''}".strip()
     
-    if not photo_id:
-        await update.message.reply_text("❌ እባክዎ ፎቶ ይላኩ!")
+    # Handle photo
+    if not update.message.photo:
+        await update.message.reply_text(
+            "❌ እባክዎ ፎቶ ይላኩ!",
+            reply_markup=CANCEL_KEYBOARD
+        )
         return SELLER_PHOTO
+    
+    photo_id = update.message.photo[-1].file_id
     
     property_subtype = context.user_data.get('property_subtype', '')
     description = context.user_data.get('description', '')
     if property_subtype:
         description = f"🏠 {property_subtype}\n{description}"
-    
-    user_name = f"{user.first_name} {user.last_name or ''}".strip()
     
     desc = (
         f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ!**\n"
@@ -959,9 +958,31 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📞 ስልክ: {context.user_data.get('phone')}"
     )
     
-    add_listing(user.id, user_name, username, 'SELL', context.user_data.get('main_category'), '', context.user_data.get('action_type'), context.user_data.get('property_type', ''), '', desc)
+    req_id = add_listing(
+        user.id, 
+        user_name, 
+        username, 
+        'SELL', 
+        context.user_data.get('main_category', ''), 
+        context.user_data.get('sub_category', ''), 
+        context.user_data.get('action_type', ''), 
+        context.user_data.get('property_type', ''), 
+        '', 
+        desc
+    )
     
-    await update.message.reply_text("✅ **የማስታወቂያ ጥያቄዎ በስኬት ተመዝግቧል!**", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+    if req_id:
+        await update.message.reply_text(
+            "✅ **የማስታወቂያ ጥያቄዎ በስኬት ተመዝግቧል!** 🎉\n\n"
+            f"📌 ማስታወቂያዎ ለደላሎች ተልኳል።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+    else:
+        await update.message.reply_text(
+            "❌ ማስታወቂያውን ማስመዝገብ አልተቻለም። እባክዎ እንደገና ይሞክሩ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+    
     return ConversationHandler.END
 
 # ==============================================================================
@@ -1097,8 +1118,7 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
                 f"🎭 ሚና: {role}\n"
                 f"📞 ስልክ: {phone}\n"
                 f"📍 ክፍለ ከተማ: {sub_city}\n"
-                f"🆔 Telegram ID: `{user.id}`\n"
-                f"👤 Username: @{username}" if username else ""
+                f"🆔 Telegram ID: `{user.id}`"
             )
             admin_kbd = InlineKeyboardMarkup([
                 [
@@ -1292,7 +1312,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📢 **መሸጥ ከፈለጉ:**
 • '📢 መሸጥ / ማከራየት' ይምረጡ
 • ምድብ ይምረጡ
-• መረጃ ይሙሉ
+• ዝርዝር መረጃ ያስገቡ
+• ዋጋ ያስገቡ
+• ስልክ ያስገቡ
+• ፎቶ ይላኩ
 
 📝 **እንደ አቅራቢ ለመመዝገብ:**
 • '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይምረጡ
