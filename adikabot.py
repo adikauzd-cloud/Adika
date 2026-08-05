@@ -67,7 +67,7 @@ HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየ�
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
 
 # ==============================================================================
-# 3. DATABASE UTILITIES
+# 3. DATABASE UTILITIES & AUTO-MIGRATION
 # ==============================================================================
 def get_db_connection():
     if DATABASE_URL:
@@ -91,6 +91,7 @@ def init_db():
         cursor = conn.cursor()
         
         if DATABASE_URL:
+            # Table መፍጠር
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS listings (
                     id SERIAL PRIMARY KEY,
@@ -111,11 +112,28 @@ def init_db():
                     full_name TEXT NOT NULL,
                     phone TEXT NOT NULL,
                     role_type TEXT NOT NULL,
-                    national_id_photo TEXT NOT NULL,
-                    sub_city TEXT NOT NULL,
+                    national_id_photo TEXT,
+                    sub_city TEXT,
                     status TEXT DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+            """)
+            
+            # ቀደም ሲል ለተፈጠረ Table የሚጎድሉ Columns ካሉ በራስ-ሰር ማስተካከያ (Auto-migration)
+            cursor.execute("""
+                DO $$ 
+                BEGIN 
+                    BEGIN
+                        ALTER TABLE brokers ADD COLUMN national_id_photo TEXT;
+                    EXCEPTION
+                        WHEN duplicate_column THEN NULL;
+                    END;
+                    BEGIN
+                        ALTER TABLE brokers ADD COLUMN sub_city TEXT;
+                    EXCEPTION
+                        WHEN duplicate_column THEN NULL;
+                    END;
+                END $$;
             """)
         else:
             cursor.execute("""
@@ -138,13 +156,22 @@ def init_db():
                     full_name TEXT NOT NULL,
                     phone TEXT NOT NULL,
                     role_type TEXT NOT NULL,
-                    national_id_photo TEXT NOT NULL,
-                    sub_city TEXT NOT NULL,
+                    national_id_photo TEXT,
+                    sub_city TEXT,
                     status TEXT DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-        logger.info("✅ Database initialized successfully")
+            try:
+                cursor.execute("ALTER TABLE brokers ADD COLUMN national_id_photo TEXT;")
+            except Exception:
+                pass
+            try:
+                cursor.execute("ALTER TABLE brokers ADD COLUMN sub_city TEXT;")
+            except Exception:
+                pass
+
+        logger.info("✅ Database initialized and migrated successfully")
     except Exception as e:
         logger.error(f"Database initialization error: {e}")
     finally:
@@ -221,7 +248,6 @@ def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city
         cursor = conn.cursor()
         p = get_placeholder()
         
-        # Upsert support if user tries to register again
         if DATABASE_URL:
             query = f"""
                 INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
@@ -248,7 +274,7 @@ def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city
             
         return broker_id
     except Exception as e:
-        logger.error(f"Add broker error: {e}")
+        logger.error(f"Add broker DB error: {e}")
         return None
     finally:
         if conn:
@@ -562,7 +588,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 8. BROKER RESPONSE FLOW (ደላላው "አለኝ" ሲል የሚሞላበት)
+# 8. BROKER RESPONSE FLOW
 # ==============================================================================
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -744,7 +770,7 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 10. BROKER REGISTRATION WITH PHOTO UPLOAD & ADMIN APPROVAL (FIXED)
+# 10. BROKER REGISTRATION WITH PHOTO UPLOAD & ADMIN APPROVAL
 # ==============================================================================
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -838,7 +864,7 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
-        # 🚨 Send photo and details to Admin for Approval
+        # Send photo and details to Admin for Approval
         if ADMIN_CHAT_ID_INT != 0:
             admin_msg = (
                 f"🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**\n\n"
@@ -904,7 +930,7 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
         )
 
 # ==============================================================================
-# 12. VIEW REQUESTS (ለተፈቀደላቸው ደላሎች ብቻ)
+# 12. VIEW REQUESTS
 # ==============================================================================
 ITEMS_PER_PAGE = 5
 
