@@ -29,7 +29,6 @@ from telegram.ext import (
     ConversationHandler,
     filters,
 )
-from pydantic import BaseModel, validator, ValidationError
 
 # ==============================================================================
 # 0. LOCK FILE MECHANISM
@@ -237,7 +236,7 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 # ==============================================================================
-# 6. INPUT VALIDATION
+# 6. INPUT VALIDATION (Without pydantic)
 # ==============================================================================
 def validate_phone(phone: str) -> bool:
     phone = phone.replace(' ', '').replace('-', '')
@@ -253,41 +252,37 @@ def sanitize_input(text: str) -> str:
         return ""
     return re.sub(r'[<>"\'%;]', '', text.strip())
 
-class ListingRequest(BaseModel):
-    user_chat_id: int
-    user_name: str
-    req_type: str
-    main_category: str
-    sub_category: str
-    action_type: str
-    property_type: str
-    description: str
+def validate_listing_data(data: Dict) -> Optional[str]:
+    """Validate listing data without pydantic"""
+    required_fields = ['user_chat_id', 'user_name', 'req_type', 'main_category', 
+                      'sub_category', 'action_type', 'property_type', 'description']
     
-    @validator('description')
-    def validate_description(cls, v):
-        if len(v.strip()) < 5:
-            raise ValueError('Description must be at least 5 characters')
-        return sanitize_input(v)
+    for field in required_fields:
+        if field not in data or not data[field]:
+            return f"Missing required field: {field}"
+    
+    if len(data['description'].strip()) < 5:
+        return "Description must be at least 5 characters"
+    
+    data['description'] = sanitize_input(data['description'])
+    return None
 
-class BrokerRegistration(BaseModel):
-    chat_id: int
-    full_name: str
-    phone: str
-    role_type: str
-    sub_city: str
-    national_id_photo: str
+def validate_broker_data(data: Dict) -> Optional[str]:
+    """Validate broker data without pydantic"""
+    required_fields = ['chat_id', 'full_name', 'phone', 'role_type', 'sub_city', 'national_id_photo']
     
-    @validator('phone')
-    def validate_phone_field(cls, v):
-        if not validate_phone(v):
-            raise ValueError('Invalid phone number format')
-        return v
+    for field in required_fields:
+        if field not in data or not data[field]:
+            return f"Missing required field: {field}"
     
-    @validator('full_name')
-    def validate_name(cls, v):
-        if len(v.strip()) < 2:
-            raise ValueError('Name must be at least 2 characters')
-        return sanitize_input(v)
+    if len(data['full_name'].strip()) < 2:
+        return "Name must be at least 2 characters"
+    
+    if not validate_phone(data['phone']):
+        return "Invalid phone number format"
+    
+    data['full_name'] = sanitize_input(data['full_name'])
+    return None
 
 # ==============================================================================
 # 7. CONSTANTS
@@ -397,10 +392,10 @@ def init_db():
 class ListingRepository:
     @staticmethod
     def create(listing_data: Dict) -> Optional[int]:
-        try:
-            validated = ListingRequest(**listing_data)
-        except ValidationError as e:
-            logger.error(f"Validation error: {e.errors()}")
+        # Validate data
+        error = validate_listing_data(listing_data)
+        if error:
+            logger.error(f"Validation error: {error}")
             return None
         
         with get_db_connection() as conn:
@@ -414,10 +409,10 @@ class ListingRepository:
                     VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
                 """
                 params = (
-                    validated.user_chat_id, validated.user_name,
-                    validated.req_type, validated.main_category,
-                    validated.sub_category, validated.action_type,
-                    validated.property_type, validated.description
+                    listing_data['user_chat_id'], listing_data['user_name'],
+                    listing_data['req_type'], listing_data['main_category'],
+                    listing_data['sub_category'], listing_data['action_type'],
+                    listing_data['property_type'], listing_data['description']
                 )
                 
                 if Config.DATABASE_URL:
@@ -480,10 +475,10 @@ class ListingRepository:
 class BrokerRepository:
     @staticmethod
     def create_or_update(broker_data: Dict) -> Optional[int]:
-        try:
-            validated = BrokerRegistration(**broker_data)
-        except ValidationError as e:
-            logger.error(f"Validation error: {e.errors()}")
+        # Validate data
+        error = validate_broker_data(broker_data)
+        if error:
+            logger.error(f"Validation error: {error}")
             return None
         
         with get_db_connection() as conn:
@@ -491,7 +486,7 @@ class BrokerRepository:
                 cursor = conn.cursor()
                 p = get_placeholder()
                 
-                cursor.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (validated.chat_id,))
+                cursor.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (broker_data['chat_id'],))
                 existing = cursor.fetchone()
                 
                 if existing:
@@ -504,9 +499,9 @@ class BrokerRepository:
                             RETURNING id
                         """
                         cursor.execute(query, (
-                            validated.full_name, validated.phone,
-                            validated.role_type, validated.national_id_photo,
-                            validated.sub_city, validated.chat_id
+                            broker_data['full_name'], broker_data['phone'],
+                            broker_data['role_type'], broker_data['national_id_photo'],
+                            broker_data['sub_city'], broker_data['chat_id']
                         ))
                         return cursor.fetchone()[0]
                     else:
@@ -517,9 +512,9 @@ class BrokerRepository:
                             WHERE chat_id = ?
                         """
                         cursor.execute(query, (
-                            validated.full_name, validated.phone,
-                            validated.role_type, validated.national_id_photo,
-                            validated.sub_city, validated.chat_id
+                            broker_data['full_name'], broker_data['phone'],
+                            broker_data['role_type'], broker_data['national_id_photo'],
+                            broker_data['sub_city'], broker_data['chat_id']
                         ))
                         return existing[0]
                 else:
@@ -531,9 +526,9 @@ class BrokerRepository:
                             RETURNING id
                         """
                         cursor.execute(query, (
-                            validated.chat_id, validated.full_name,
-                            validated.phone, validated.role_type,
-                            validated.national_id_photo, validated.sub_city
+                            broker_data['chat_id'], broker_data['full_name'],
+                            broker_data['phone'], broker_data['role_type'],
+                            broker_data['national_id_photo'], broker_data['sub_city']
                         ))
                         return cursor.fetchone()[0]
                     else:
@@ -543,9 +538,9 @@ class BrokerRepository:
                             VALUES (?, ?, ?, ?, ?, ?, 'pending')
                         """
                         cursor.execute(query, (
-                            validated.chat_id, validated.full_name,
-                            validated.phone, validated.role_type,
-                            validated.national_id_photo, validated.sub_city
+                            broker_data['chat_id'], broker_data['full_name'],
+                            broker_data['phone'], broker_data['role_type'],
+                            broker_data['national_id_photo'], broker_data['sub_city']
                         ))
                         return cursor.lastrowid
     
@@ -684,10 +679,14 @@ async def safe_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     max_retries = 3
     for attempt in range(max_retries):
         try:
-            if update.callback_query:
+            if update and hasattr(update, 'callback_query') and update.callback_query:
                 await update.callback_query.message.reply_text(text, **kwargs)
-            else:
+            elif update and hasattr(update, 'message') and update.message:
                 await update.message.reply_text(text, **kwargs)
+            else:
+                chat_id = update.effective_user.id if update else None
+                if chat_id:
+                    await context.bot.send_message(chat_id=chat_id, text=text, **kwargs)
             return True
         except Exception as e:
             logger.warning(f"Failed to send message (attempt {attempt+1}): {e}")
