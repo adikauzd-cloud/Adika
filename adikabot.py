@@ -236,7 +236,7 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 # ==============================================================================
-# 6. INPUT VALIDATION (Without pydantic)
+# 6. INPUT VALIDATION
 # ==============================================================================
 def validate_phone(phone: str) -> bool:
     phone = phone.replace(' ', '').replace('-', '')
@@ -253,7 +253,6 @@ def sanitize_input(text: str) -> str:
     return re.sub(r'[<>"\'%;]', '', text.strip())
 
 def validate_listing_data(data: Dict) -> Optional[str]:
-    """Validate listing data without pydantic"""
     required_fields = ['user_chat_id', 'user_name', 'req_type', 'main_category', 
                       'sub_category', 'action_type', 'property_type', 'description']
     
@@ -268,7 +267,6 @@ def validate_listing_data(data: Dict) -> Optional[str]:
     return None
 
 def validate_broker_data(data: Dict) -> Optional[str]:
-    """Validate broker data without pydantic"""
     required_fields = ['chat_id', 'full_name', 'phone', 'role_type', 'sub_city', 'national_id_photo']
     
     for field in required_fields:
@@ -392,7 +390,6 @@ def init_db():
 class ListingRepository:
     @staticmethod
     def create(listing_data: Dict) -> Optional[int]:
-        # Validate data
         error = validate_listing_data(listing_data)
         if error:
             logger.error(f"Validation error: {error}")
@@ -417,7 +414,8 @@ class ListingRepository:
                 
                 if Config.DATABASE_URL:
                     cursor.execute(query + " RETURNING id", params)
-                    return cursor.fetchone()[0]
+                    res = cursor.fetchone()
+                    return res['id'] if res else None
                 else:
                     cursor.execute(query, params)
                     return cursor.lastrowid
@@ -454,7 +452,8 @@ class ListingRepository:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM listings WHERE status = 'pending'")
-            count = cursor.fetchone()[0]
+            res = cursor.fetchone()
+            count = res['count'] if Config.DATABASE_URL else res[0]
             cache.set(cache_key, count)
             return count
     
@@ -475,7 +474,6 @@ class ListingRepository:
 class BrokerRepository:
     @staticmethod
     def create_or_update(broker_data: Dict) -> Optional[int]:
-        # Validate data
         error = validate_broker_data(broker_data)
         if error:
             logger.error(f"Validation error: {error}")
@@ -490,6 +488,7 @@ class BrokerRepository:
                 existing = cursor.fetchone()
                 
                 if existing:
+                    existing_id = existing['id'] if Config.DATABASE_URL else existing[0]
                     if Config.DATABASE_URL:
                         query = f"""
                             UPDATE brokers 
@@ -503,7 +502,8 @@ class BrokerRepository:
                             broker_data['role_type'], broker_data['national_id_photo'],
                             broker_data['sub_city'], broker_data['chat_id']
                         ))
-                        return cursor.fetchone()[0]
+                        res = cursor.fetchone()
+                        return res['id'] if res else None
                     else:
                         query = """
                             UPDATE brokers 
@@ -516,7 +516,7 @@ class BrokerRepository:
                             broker_data['role_type'], broker_data['national_id_photo'],
                             broker_data['sub_city'], broker_data['chat_id']
                         ))
-                        return existing[0]
+                        return existing_id
                 else:
                     if Config.DATABASE_URL:
                         query = f"""
@@ -530,7 +530,8 @@ class BrokerRepository:
                             broker_data['phone'], broker_data['role_type'],
                             broker_data['national_id_photo'], broker_data['sub_city']
                         ))
-                        return cursor.fetchone()[0]
+                        res = cursor.fetchone()
+                        return res['id'] if res else None
                     else:
                         query = """
                             INSERT INTO brokers 
@@ -1630,7 +1631,6 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 20. MAIN APPLICATION
 # ==============================================================================
 def main():
-    # Acquire lock
     if not acquire_lock():
         print("❌ Another instance is running!")
         print(f"   Lock file: {LOCK_FILE}")
@@ -1638,24 +1638,19 @@ def main():
         sys.exit(1)
     
     try:
-        # Initialize
         init_db()
         init_connection_pool()
         
-        # Start Flask
         threading.Thread(target=run_flask, daemon=True).start()
         logger.info(f"Flask server started on port {Config.PORT}")
         
-        # Create application
         app = Application.builder().token(Config.BOT_TOKEN).build()
         
-        # Add handlers
         app.add_handler(CommandHandler("start", start))
         
         cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
         cancel_message_handler = MessageHandler(cancel_filter, go_home)
         
-        # Buyer conversation
         buyer_conv = ConversationHandler(
             entry_points=[MessageHandler(filters.Regex("^🔍 መግዛት / መከራየት$"), buyer_start)],
             states={
@@ -1670,7 +1665,6 @@ def main():
             allow_reentry=True,
         )
         
-        # Seller conversation
         seller_conv = ConversationHandler(
             entry_points=[MessageHandler(filters.Regex("^📢 መሸጥ / ማከራየት$"), seller_start)],
             states={
@@ -1687,7 +1681,6 @@ def main():
             allow_reentry=True,
         )
         
-        # Broker registration conversation
         broker_conv = ConversationHandler(
             entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)],
             states={
@@ -1701,7 +1694,6 @@ def main():
             allow_reentry=True,
         )
         
-        # Broker response conversation
         broker_response_conv = ConversationHandler(
             entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
             states={
@@ -1712,7 +1704,6 @@ def main():
             allow_reentry=True,
         )
         
-        # Register handlers
         app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
         app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
         app.add_handler(MessageHandler(cancel_filter, go_home))
@@ -1726,15 +1717,9 @@ def main():
         app.add_handler(broker_response_conv)
         
         logger.info("🚀 Adika Marketplace Bot started successfully!")
-        logger.info(f"Environment: {Config.ENVIRONMENT}")
-        logger.info(f"Database: {'PostgreSQL' if Config.DATABASE_URL else 'SQLite'}")
-        logger.info(f"PID: {os.getpid()}")
         
         print(f"✅ Bot started (PID: {os.getpid()})")
-        print(f"🌐 Web: http://localhost:{Config.PORT}")
-        print(f"📁 Lock: {LOCK_FILE}")
         
-        # Start polling
         app.run_polling()
         
     except Exception as e:
