@@ -1,8 +1,10 @@
 
 import asyncio
+import html
 import logging
 import os
 import threading
+import traceback
 import re
 from typing import Optional, List, Dict, Any
 
@@ -1201,7 +1203,43 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 # ==============================================================================
-# 13. HELP COMMAND
+# 13. GLOBAL ERROR HANDLER
+# ==============================================================================
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    """Logs the full traceback of any unhandled exception, notifies the admin
+    (if configured), and lets the user know something went wrong instead of
+    the bot silently hanging."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
+
+    tb_list = traceback.format_exception(None, context.error, context.error.__traceback__)
+    tb_string = "".join(tb_list)
+
+    # Notify the admin with details, but keep it under Telegram's message size limit.
+    if ADMIN_CHAT_ID_INT != 0:
+        update_str = update.to_dict() if isinstance(update, Update) else str(update)
+        error_report = (
+            "⚠️ <b>Bot Exception</b>\n\n"
+            f"<pre>update = {html.escape(str(update_str))[:1500]}</pre>\n\n"
+            f"<pre>{html.escape(tb_string)[-2500:]}</pre>"
+        )
+        try:
+            await context.bot.send_message(chat_id=ADMIN_CHAT_ID_INT, text=error_report, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Failed to send error report to admin: {e}")
+
+    # Let the user know without exposing internals.
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text(
+                "❌ ይቅርታ፣ ያልተጠበቀ ስህተት ተከስቷል። እባክዎ 🏠 ዋና ገጽ ተጭነው እንደገና ይሞክሩ።",
+                reply_markup=MAIN_MARKUP,
+            )
+        except Exception as e:
+            logger.error(f"Failed to notify user of error: {e}")
+
+
+# ==============================================================================
+# 14. HELP COMMAND
 # ==============================================================================
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
@@ -1235,13 +1273,16 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================================================================
-# 14. MAIN ENGINE
+# 15. MAIN ENGINE
 # ==============================================================================
 def main():
     init_db()
     threading.Thread(target=run_flask, daemon=True).start()
 
     app = Application.builder().token(BOT_TOKEN).build()
+
+    # Register the global error handler FIRST so every exception below is caught.
+    app.add_error_handler(error_handler)
 
     app.add_handler(CommandHandler("start", start))
 
