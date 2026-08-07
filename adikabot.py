@@ -222,6 +222,7 @@ class ListingRepository:
             with get_db_connection() as conn:
                 with transaction(conn):
                     cursor = conn.cursor()
+                    
                     if Config.DATABASE_URL:
                         query = """
                             INSERT INTO listings 
@@ -244,7 +245,8 @@ class ListingRepository:
                             listing_data.get('budget'),
                             listing_data.get('telegram_contact')
                         ))
-                        return cursor.fetchone()[0]
+                        result = cursor.fetchone()
+                        return result[0] if result else None
                     else:
                         query = """
                             INSERT INTO listings 
@@ -269,6 +271,7 @@ class ListingRepository:
                         return cursor.lastrowid
         except Exception as e:
             logger.error(f"Failed to create listing: {e}")
+            logger.error(f"Listing data: {listing_data}")
             return None
     
     @staticmethod
@@ -524,7 +527,7 @@ def run_flask():
     web_app.run(host="0.0.0.0", port=Config.PORT)
 
 # ==============================================================================
-# 9. DATABASE INITIALIZATION (የተስተካከለ - SQLite እና PostgreSQL)
+# 9. DATABASE INITIALIZATION (የተስተካከለ)
 # ==============================================================================
 def init_db():
     """Initialize database tables if they don't exist"""
@@ -568,7 +571,7 @@ def init_db():
                     )
                 """)
                 
-                # ✅ PostgreSQL - አዲስ አምዶችን ለማረጋገጥ
+                # PostgreSQL - አዲስ አምዶችን ለማረጋገጥ
                 cursor.execute("""
                     DO $$ 
                     BEGIN
@@ -665,6 +668,7 @@ def init_db():
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
         raise
+
 # ==============================================================================
 # 10. HELPER FUNCTIONS
 # ==============================================================================
@@ -1025,6 +1029,7 @@ async def buyer_phone_received(update: Update, context: ContextTypes.DEFAULT_TYP
     phone = text if is_phone else ""
     telegram = text if is_telegram else ""
     
+    # ሁለቱንም ለማስቀመጥ ከፈለጉ
     if is_phone and is_telegram:
         phone = text
         telegram = text
