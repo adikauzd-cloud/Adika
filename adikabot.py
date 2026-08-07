@@ -535,141 +535,80 @@ def init_db():
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
-            if Config.DATABASE_URL:
-                # PostgreSQL - Create tables if not exist
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS listings (
-                        id SERIAL PRIMARY KEY,
-                        user_chat_id BIGINT NOT NULL,
-                        user_name TEXT,
-                        req_type TEXT NOT NULL,
-                        main_category TEXT NOT NULL,
-                        sub_type TEXT,
-                        action_type TEXT,
-                        description TEXT NOT NULL,
-                        price TEXT,
-                        phone TEXT,
-                        photo_file_id TEXT,
-                        budget TEXT,
-                        telegram_contact TEXT,
-                        status TEXT DEFAULT 'pending',
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS brokers (
-                        id SERIAL PRIMARY KEY,
-                        chat_id BIGINT NOT NULL UNIQUE,
-                        full_name TEXT NOT NULL,
-                        phone TEXT NOT NULL,
-                        telegram_id TEXT,
-                        role_type TEXT NOT NULL,
-                        national_id_photo TEXT,
-                        sub_city TEXT NOT NULL,
-                        status TEXT DEFAULT 'pending',
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                # PostgreSQL - አዲስ አምዶችን ለማረጋገጥ
-                cursor.execute("""
-                    DO $$ 
-                    BEGIN
-                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                                       WHERE table_name='listings' AND column_name='budget') THEN
-                            ALTER TABLE listings ADD COLUMN budget TEXT;
-                        END IF;
-                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                                       WHERE table_name='listings' AND column_name='telegram_contact') THEN
-                            ALTER TABLE listings ADD COLUMN telegram_contact TEXT;
-                        END IF;
-                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                                       WHERE table_name='brokers' AND column_name='telegram_id') THEN
-                            ALTER TABLE brokers ADD COLUMN telegram_id TEXT;
-                        END IF;
-                    END $$;
-                """)
-                
-                # Indexes
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_created ON listings(created_at DESC)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_status ON brokers(status)")
-                
-            else:
-                # ============================================================
-                # ✅ SQLite - ያለ DO $$ (የተስተካከለ)
-                # ============================================================
-                
-                # 1. ሰንጠረዦችን መፍጠር
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS listings (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        user_chat_id INTEGER NOT NULL,
-                        user_name TEXT,
-                        req_type TEXT NOT NULL,
-                        main_category TEXT NOT NULL,
-                        sub_type TEXT,
-                        action_type TEXT,
-                        description TEXT NOT NULL,
-                        price TEXT,
-                        phone TEXT,
-                        photo_file_id TEXT,
-                        budget TEXT,
-                        telegram_contact TEXT,
-                        status TEXT DEFAULT 'pending',
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS brokers (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        chat_id INTEGER NOT NULL UNIQUE,
-                        full_name TEXT NOT NULL,
-                        phone TEXT NOT NULL,
-                        telegram_id TEXT,
-                        role_type TEXT NOT NULL,
-                        national_id_photo TEXT,
-                        sub_city TEXT NOT NULL,
-                        status TEXT DEFAULT 'pending',
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
-                # 2. የ listings ሰንጠረዥ አምዶችን ማረጋገጥ
-                cursor.execute("PRAGMA table_info(listings)")
-                columns = [row[1] for row in cursor.fetchall()]
-                
-                if 'budget' not in columns:
-                    try:
-                        cursor.execute("ALTER TABLE listings ADD COLUMN budget TEXT")
-                        logger.info("✅ Added 'budget' column to listings")
-                    except Exception as e:
-                        logger.warning(f"Could not add budget column: {e}")
-                
-                if 'telegram_contact' not in columns:
-                    try:
-                        cursor.execute("ALTER TABLE listings ADD COLUMN telegram_contact TEXT")
-                        logger.info("✅ Added 'telegram_contact' column to listings")
-                    except Exception as e:
-                        logger.warning(f"Could not add telegram_contact column: {e}")
-                
-                # 3. የ brokers ሰንጠረዥ አምዶችን ማረጋገጥ
-                cursor.execute("PRAGMA table_info(brokers)")
-                broker_columns = [row[1] for row in cursor.fetchall()]
-                
-                if 'telegram_id' not in broker_columns:
-                    try:
-                        cursor.execute("ALTER TABLE brokers ADD COLUMN telegram_id TEXT")
-                        logger.info("✅ Added 'telegram_id' column to brokers")
-                    except Exception as e:
-                        logger.warning(f"Could not add telegram_id column: {e}")
-                
-                # 4. Indexes
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_created ON listings(created_at DESC)")
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_status ON brokers(status)")
-                
-                conn.commit()
+            # ============================================================
+            # ሁለቱንም PostgreSQL እና SQLite ለመደገፍ
+            # ============================================================
+            
+            # 1. ሰንጠረዦችን መፍጠር (ሁለቱም ይህን ይደግፋሉ)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS listings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_chat_id INTEGER NOT NULL,
+                    user_name TEXT,
+                    req_type TEXT NOT NULL,
+                    main_category TEXT NOT NULL,
+                    sub_type TEXT,
+                    action_type TEXT,
+                    description TEXT NOT NULL,
+                    price TEXT,
+                    phone TEXT,
+                    photo_file_id TEXT,
+                    budget TEXT,
+                    telegram_contact TEXT,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS brokers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    telegram_id TEXT,
+                    role_type TEXT NOT NULL,
+                    national_id_photo TEXT,
+                    sub_city TEXT NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # 2. የ listings ሰንጠረዥ አምዶችን ማረጋገጥ
+            cursor.execute("PRAGMA table_info(listings)")
+            columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'budget' not in columns:
+                try:
+                    cursor.execute("ALTER TABLE listings ADD COLUMN budget TEXT")
+                    logger.info("✅ Added 'budget' column to listings")
+                except Exception as e:
+                    logger.warning(f"Could not add budget column: {e}")
+            
+            if 'telegram_contact' not in columns:
+                try:
+                    cursor.execute("ALTER TABLE listings ADD COLUMN telegram_contact TEXT")
+                    logger.info("✅ Added 'telegram_contact' column to listings")
+                except Exception as e:
+                    logger.warning(f"Could not add telegram_contact column: {e}")
+            
+            # 3. የ brokers ሰንጠረዥ አምዶችን ማረጋገጥ
+            cursor.execute("PRAGMA table_info(brokers)")
+            broker_columns = [row[1] for row in cursor.fetchall()]
+            
+            if 'telegram_id' not in broker_columns:
+                try:
+                    cursor.execute("ALTER TABLE brokers ADD COLUMN telegram_id TEXT")
+                    logger.info("✅ Added 'telegram_id' column to brokers")
+                except Exception as e:
+                    logger.warning(f"Could not add telegram_id column: {e}")
+            
+            # 4. Indexes
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_created ON listings(created_at DESC)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_status ON brokers(status)")
+            
+            conn.commit()
             
             logger.info("✅ Database initialized successfully")
             
@@ -681,7 +620,6 @@ def init_db():
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
         raise
-
 # ==============================================================================
 # 10. HELPER FUNCTIONS
 # ==============================================================================
