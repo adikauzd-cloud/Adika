@@ -524,14 +524,16 @@ def run_flask():
     web_app.run(host="0.0.0.0", port=Config.PORT)
 
 # ==============================================================================
-# 9. DATABASE INITIALIZATION
+# 9. DATABASE INITIALIZATION (የተሻሻለ)
 # ==============================================================================
 def init_db():
+    """Initialize database tables if they don't exist"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
             if Config.DATABASE_URL:
+                # PostgreSQL - Create tables if not exist
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS listings (
                         id SERIAL PRIMARY KEY,
@@ -565,10 +567,33 @@ def init_db():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                
+                # ✅ አዲስ አምዶችን ለማረጋገጥ (ለነባር ዳታቤዝ)
+                cursor.execute("""
+                    DO $$ 
+                    BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                                       WHERE table_name='listings' AND column_name='budget') THEN
+                            ALTER TABLE listings ADD COLUMN budget TEXT;
+                        END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                                       WHERE table_name='listings' AND column_name='telegram_contact') THEN
+                            ALTER TABLE listings ADD COLUMN telegram_contact TEXT;
+                        END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
+                                       WHERE table_name='brokers' AND column_name='telegram_id') THEN
+                            ALTER TABLE brokers ADD COLUMN telegram_id TEXT;
+                        END IF;
+                    END $$;
+                """)
+                
+                # Indexes
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_created ON listings(created_at DESC)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_status ON brokers(status)")
+                
             else:
+                # SQLite - Create tables if not exist
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS listings (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -602,14 +627,34 @@ def init_db():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                
+                # ✅ SQLite - አዲስ አምዶችን ለማረጋገጥ (ለነባር ዳታቤዝ)
+                cursor.execute("PRAGMA table_info(listings)")
+                columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'budget' not in columns:
+                    cursor.execute("ALTER TABLE listings ADD COLUMN budget TEXT")
+                if 'telegram_contact' not in columns:
+                    cursor.execute("ALTER TABLE listings ADD COLUMN telegram_contact TEXT")
+                
+                cursor.execute("PRAGMA table_info(brokers)")
+                broker_columns = [row[1] for row in cursor.fetchall()]
+                if 'telegram_id' not in broker_columns:
+                    cursor.execute("ALTER TABLE brokers ADD COLUMN telegram_id TEXT")
+                
+                # Indexes
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_created ON listings(created_at DESC)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_status ON brokers(status)")
-            
-            if not Config.DATABASE_URL:
+                
                 conn.commit()
             
             logger.info("Database initialized successfully")
+            
+            # ✅ የዳታቤዝ መዋቅር ማረጋገጥ
+            cursor.execute("SELECT * FROM listings LIMIT 0")
+            logger.info(f"Listings columns: {[desc[0] for desc in cursor.description]}")
+            
     except Exception as e:
         logger.error(f"Database initialization failed: {e}")
         raise
