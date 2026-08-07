@@ -43,8 +43,10 @@ class Config:
             raise RuntimeError("❌ BOT_TOKEN environment variable is required")
         try:
             cls.ADMIN_CHAT_ID_INT = int(cls.ADMIN_CHAT_ID)
+            logger.info(f"✅ Admin chat ID set to: {cls.ADMIN_CHAT_ID_INT}")
         except ValueError:
             cls.ADMIN_CHAT_ID_INT = 0
+            logger.warning("⚠️ ADMIN_CHAT_ID is not set properly!")
 
 Config.validate()
 
@@ -446,6 +448,18 @@ class BrokerRepository:
             return result
     
     @staticmethod
+    def get_all_pending() -> List[Dict]:
+        """Get all pending broker registrations"""
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if Config.DATABASE_URL:
+                cursor.execute("SELECT * FROM brokers WHERE status = 'pending'")
+            else:
+                cursor.execute("SELECT * FROM brokers WHERE status = 'pending'")
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+    
+    @staticmethod
     def get_by_chat_id(chat_id: int) -> Optional[Dict]:
         cache_key = f"broker_{chat_id}"
         cached = cache.get(cache_key)
@@ -527,7 +541,7 @@ def run_flask():
     web_app.run(host="0.0.0.0", port=Config.PORT)
 
 # ==============================================================================
-# 9. DATABASE INITIALIZATION (የተስተካከለ - SQLite እና PostgreSQL)
+# 9. DATABASE INITIALIZATION
 # ==============================================================================
 def init_db():
     """Initialize database tables if they don't exist"""
@@ -535,11 +549,7 @@ def init_db():
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
-            # ============================================================
-            # ሁለቱንም PostgreSQL እና SQLite ለመደገፍ
-            # ============================================================
-            
-            # 1. ሰንጠረዦችን መፍጠር (ሁለቱም ይህን ይደግፋሉ)
+            # Create tables (works for both SQLite and PostgreSQL)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS listings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -574,7 +584,7 @@ def init_db():
                 )
             """)
             
-            # 2. የ listings ሰንጠረዥ አምዶችን ማረጋገጥ
+            # Check and add missing columns for listings
             cursor.execute("PRAGMA table_info(listings)")
             columns = [row[1] for row in cursor.fetchall()]
             
@@ -592,7 +602,7 @@ def init_db():
                 except Exception as e:
                     logger.warning(f"Could not add telegram_contact column: {e}")
             
-            # 3. የ brokers ሰንጠረዥ አምዶችን ማረጋገጥ
+            # Check and add missing columns for brokers
             cursor.execute("PRAGMA table_info(brokers)")
             broker_columns = [row[1] for row in cursor.fetchall()]
             
@@ -603,7 +613,7 @@ def init_db():
                 except Exception as e:
                     logger.warning(f"Could not add telegram_id column: {e}")
             
-            # 4. Indexes
+            # Create indexes
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_created ON listings(created_at DESC)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_status ON brokers(status)")
@@ -612,14 +622,10 @@ def init_db():
             
             logger.info("✅ Database initialized successfully")
             
-            # የዳታቤዝ መዋቅር ማረጋገጥ
-            cursor.execute("SELECT * FROM listings LIMIT 0")
-            columns = [desc[0] for desc in cursor.description]
-            logger.info(f"📊 Listings columns: {columns}")
-            
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
         raise
+
 # ==============================================================================
 # 10. HELPER FUNCTIONS
 # ==============================================================================
@@ -682,6 +688,7 @@ def format_welcome_message() -> str:
 """
 
 async def notify_brokers(context: ContextTypes.DEFAULT_TYPE, message_text: str, req_id: int, buyer_id: int):
+    """Broadcast to approved brokers with professional formatting"""
     approved_brokers = BrokerRepository.get_approved()
     logger.info(f"📢 Notifying {len(approved_brokers)} approved brokers about request #{req_id}")
     
@@ -1024,6 +1031,7 @@ async def buyer_phone_received(update: Update, context: ContextTypes.DEFAULT_TYP
     listing_id = ListingRepository.create(listing_data)
     
     if listing_id:
+        # ✅ ለደላሎች ማሳወቅ
         notification_text = f"""
 📢 **አዲስ የፍላጎት ጥያቄ (#REQ-{listing_id})**
 
@@ -1610,6 +1618,7 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=MAIN_MARKUP,
         )
         
+        # ✅ አድሚንን ማሳወቅ
         if Config.ADMIN_CHAT_ID_INT != 0:
             admin_msg = f"""
 🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**
@@ -1622,6 +1631,8 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
 📍 **ክፍለ ከተማ:** {sub_city}
 🆔 **Telegram ID:** `{user.id}`
 📅 **ቀን:** {datetime.now().strftime('%Y-%m-%d %H:%M')}
+
+📸 **መታወቂያ ፎቶ ከላይ ተላኳል**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
             admin_kbd = InlineKeyboardMarkup([
@@ -1632,6 +1643,7 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
                 [InlineKeyboardButton("👤 ዝርዝር", callback_data=f"admin_view_{user.id}")],
             ])
             try:
+                # ፎቶውን ከመልእክቱ ጋር መላክ
                 await context.bot.send_photo(
                     chat_id=Config.ADMIN_CHAT_ID_INT,
                     photo=photo_id,
@@ -1639,9 +1651,21 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
                     parse_mode="Markdown",
                     reply_markup=admin_kbd,
                 )
-                logger.info(f"Admin notification sent for broker {user.id}")
+                logger.info(f"✅ Admin notification sent for broker {user.id}")
             except Exception as e:
-                logger.error(f"Failed to send admin notification: {e}")
+                logger.error(f"❌ Failed to send admin notification: {e}")
+                # ፎቶ ሳይሆን መልእክት ብቻ ለመላክ ሙከራ
+                try:
+                    await context.bot.send_message(
+                        chat_id=Config.ADMIN_CHAT_ID_INT,
+                        text=admin_msg + f"\n\n📸 ፎቶ መላክ አልተቻለም። እባክዎ ከታች ያለውን ይጫኑ:",
+                        parse_mode="Markdown",
+                        reply_markup=admin_kbd,
+                    )
+                except Exception as e2:
+                    logger.error(f"❌ Failed to send admin message: {e2}")
+        else:
+            logger.warning("⚠️ ADMIN_CHAT_ID is not set! Admin notifications disabled.")
     else:
         await safe_send_message(
             update, context,
@@ -1943,7 +1967,7 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
 """,
                     reply_markup=MAIN_MARKUP,
                 )
-                logger.info(f"Broker {target_id} approved")
+                logger.info(f"✅ Broker {target_id} approved")
             except Exception as e:
                 logger.error(f"Failed to notify approved broker: {e}")
     
