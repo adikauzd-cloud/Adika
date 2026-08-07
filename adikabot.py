@@ -527,7 +527,7 @@ def run_flask():
     web_app.run(host="0.0.0.0", port=Config.PORT)
 
 # ==============================================================================
-# 9. DATABASE INITIALIZATION (የተስተካከለ)
+# 9. DATABASE INITIALIZATION (የተስተካከለ - SQLite እና PostgreSQL)
 # ==============================================================================
 def init_db():
     """Initialize database tables if they don't exist"""
@@ -596,7 +596,11 @@ def init_db():
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_status ON brokers(status)")
                 
             else:
-                # ✅ SQLite - Create tables if not exist
+                # ============================================================
+                # ✅ SQLite - ያለ DO $$ (የተስተካከለ)
+                # ============================================================
+                
+                # 1. ሰንጠረዦችን መፍጠር
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS listings (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -631,27 +635,36 @@ def init_db():
                     )
                 """)
                 
-                # ✅ SQLite - አዲስ አምዶችን ለማረጋገጥ (ያለ DO $$)
-                # የ listings ሰንጠረዥ አምዶችን ማረጋገጥ
+                # 2. የ listings ሰንጠረዥ አምዶችን ማረጋገጥ
                 cursor.execute("PRAGMA table_info(listings)")
                 columns = [row[1] for row in cursor.fetchall()]
                 
                 if 'budget' not in columns:
-                    cursor.execute("ALTER TABLE listings ADD COLUMN budget TEXT")
-                    logger.info("✅ Added 'budget' column to listings")
-                if 'telegram_contact' not in columns:
-                    cursor.execute("ALTER TABLE listings ADD COLUMN telegram_contact TEXT")
-                    logger.info("✅ Added 'telegram_contact' column to listings")
+                    try:
+                        cursor.execute("ALTER TABLE listings ADD COLUMN budget TEXT")
+                        logger.info("✅ Added 'budget' column to listings")
+                    except Exception as e:
+                        logger.warning(f"Could not add budget column: {e}")
                 
-                # የ brokers ሰንጠረዥ አምዶችን ማረጋገጥ
+                if 'telegram_contact' not in columns:
+                    try:
+                        cursor.execute("ALTER TABLE listings ADD COLUMN telegram_contact TEXT")
+                        logger.info("✅ Added 'telegram_contact' column to listings")
+                    except Exception as e:
+                        logger.warning(f"Could not add telegram_contact column: {e}")
+                
+                # 3. የ brokers ሰንጠረዥ አምዶችን ማረጋገጥ
                 cursor.execute("PRAGMA table_info(brokers)")
                 broker_columns = [row[1] for row in cursor.fetchall()]
                 
                 if 'telegram_id' not in broker_columns:
-                    cursor.execute("ALTER TABLE brokers ADD COLUMN telegram_id TEXT")
-                    logger.info("✅ Added 'telegram_id' column to brokers")
+                    try:
+                        cursor.execute("ALTER TABLE brokers ADD COLUMN telegram_id TEXT")
+                        logger.info("✅ Added 'telegram_id' column to brokers")
+                    except Exception as e:
+                        logger.warning(f"Could not add telegram_id column: {e}")
                 
-                # Indexes
+                # 4. Indexes
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_created ON listings(created_at DESC)")
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_status ON brokers(status)")
@@ -1029,7 +1042,6 @@ async def buyer_phone_received(update: Update, context: ContextTypes.DEFAULT_TYP
     phone = text if is_phone else ""
     telegram = text if is_telegram else ""
     
-    # ሁለቱንም ለማስቀመጥ ከፈለጉ
     if is_phone and is_telegram:
         phone = text
         telegram = text
