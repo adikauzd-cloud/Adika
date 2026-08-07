@@ -731,15 +731,33 @@ async def safe_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE, 
                 return False
     return False
 
+
 # ==============================================================================
 # 11. CONVERSATION STATES
 # ==============================================================================
 (
-    BUYER_MAIN, BUYER_SUB, BUYER_ACTION, BUYER_DETAILS, BUYER_BUDGET, BUYER_PHONE,
-    SELLER_MAIN, SELLER_ACTION, SELLER_SUBTYPE, SELLER_DETAILS, SELLER_PRICE, SELLER_PHONE, SELLER_PHOTO,
-    BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_TELEGRAM_ID, BROKER_SUBCITY, BROKER_NID_PHOTO,
-    BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO,
-) = range(22)
+    BUYER_MAIN,           # 0 - Main category selection
+    BUYER_SUB,            # 1 - Sub-category selection
+    BUYER_ACTION,         # 2 - Buy/Rent selection
+    BUYER_DETAILS,        # 3 - Description input
+    BUYER_BUDGET,         # 4 - Budget input
+    BUYER_PHONE,          # 5 - Phone input
+    SELLER_MAIN,          # 6 - Main category selection
+    SELLER_ACTION,        # 7 - Sub-category selection
+    SELLER_SUBTYPE,       # 8 - Buy/Rent selection
+    SELLER_DETAILS,       # 9 - Description input
+    SELLER_PRICE,         # 10 - Price input
+    SELLER_PHONE,         # 11 - Phone input
+    SELLER_PHOTO,         # 12 - Photo input
+    BROKER_ROLE,          # 13 - Role selection
+    BROKER_NAME,          # 14 - Name input
+    BROKER_PHONE,         # 15 - Phone input
+    BROKER_TELEGRAM_ID,   # 16 - Telegram ID input
+    BROKER_SUBCITY,       # 17 - Sub-city selection
+    BROKER_NID_PHOTO,     # 18 - NID photo input
+    BROKER_OFFER_TEXT,    # 19 - Offer text input
+    BROKER_OFFER_PHOTO,   # 20 - Offer photo input
+) = range(21)  # 21 states total
 
 # ==============================================================================
 # 12. HANDLERS - START & HOME
