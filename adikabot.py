@@ -215,6 +215,32 @@ MAIN_MARKUP = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
 # ==============================================================================
 # 7. DATABASE OPERATIONS
 # ==============================================================================
+# ==============================================================================
+# 7. DATABASE OPERATIONS (የተስተካከለ)
+# ==============================================================================
+
+class BrokerRepository:
+    # ... (የቀደሙት ተግባራት እንደበፊቱ ይቆያሉ)
+    
+    @staticmethod
+    def get_approved() -> List[int]:
+        """Get list of approved broker chat IDs"""
+        cache_key = "brokers_approved"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT chat_id FROM brokers WHERE status = 'approved'")
+            rows = cursor.fetchall()
+            result = [dict(row)['chat_id'] for row in rows]
+            
+            # ✅ ለዲባግ - ምን ያህል የተረጋገጡ ደላሎች እንዳሉ
+            logger.info(f"📊 Found {len(result)} approved brokers")
+            
+            cache.set(cache_key, result)
+            return result
 class ListingRepository:
     @staticmethod
     def create(listing_data: Dict) -> Optional[int]:
