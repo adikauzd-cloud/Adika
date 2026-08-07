@@ -524,7 +524,7 @@ def run_flask():
     web_app.run(host="0.0.0.0", port=Config.PORT)
 
 # ==============================================================================
-# 9. DATABASE INITIALIZATION (የተሻሻለ)
+# 9. DATABASE INITIALIZATION (የተስተካከለ - SQLite እና PostgreSQL)
 # ==============================================================================
 def init_db():
     """Initialize database tables if they don't exist"""
@@ -568,7 +568,7 @@ def init_db():
                     )
                 """)
                 
-                # ✅ አዲስ አምዶችን ለማረጋገጥ (ለነባር ዳታቤዝ)
+                # ✅ PostgreSQL - አዲስ አምዶችን ለማረጋገጥ
                 cursor.execute("""
                     DO $$ 
                     BEGIN
@@ -593,7 +593,7 @@ def init_db():
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_status ON brokers(status)")
                 
             else:
-                # SQLite - Create tables if not exist
+                # ✅ SQLite - Create tables if not exist
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS listings (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -628,19 +628,25 @@ def init_db():
                     )
                 """)
                 
-                # ✅ SQLite - አዲስ አምዶችን ለማረጋገጥ (ለነባር ዳታቤዝ)
+                # ✅ SQLite - አዲስ አምዶችን ለማረጋገጥ (ያለ DO $$)
+                # የ listings ሰንጠረዥ አምዶችን ማረጋገጥ
                 cursor.execute("PRAGMA table_info(listings)")
                 columns = [row[1] for row in cursor.fetchall()]
                 
                 if 'budget' not in columns:
                     cursor.execute("ALTER TABLE listings ADD COLUMN budget TEXT")
+                    logger.info("✅ Added 'budget' column to listings")
                 if 'telegram_contact' not in columns:
                     cursor.execute("ALTER TABLE listings ADD COLUMN telegram_contact TEXT")
+                    logger.info("✅ Added 'telegram_contact' column to listings")
                 
+                # የ brokers ሰንጠረዥ አምዶችን ማረጋገጥ
                 cursor.execute("PRAGMA table_info(brokers)")
                 broker_columns = [row[1] for row in cursor.fetchall()]
+                
                 if 'telegram_id' not in broker_columns:
                     cursor.execute("ALTER TABLE brokers ADD COLUMN telegram_id TEXT")
+                    logger.info("✅ Added 'telegram_id' column to brokers")
                 
                 # Indexes
                 cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
@@ -649,16 +655,16 @@ def init_db():
                 
                 conn.commit()
             
-            logger.info("Database initialized successfully")
+            logger.info("✅ Database initialized successfully")
             
-            # ✅ የዳታቤዝ መዋቅር ማረጋገጥ
+            # የዳታቤዝ መዋቅር ማረጋገጥ
             cursor.execute("SELECT * FROM listings LIMIT 0")
-            logger.info(f"Listings columns: {[desc[0] for desc in cursor.description]}")
+            columns = [desc[0] for desc in cursor.description]
+            logger.info(f"📊 Listings columns: {columns}")
             
     except Exception as e:
-        logger.error(f"Database initialization failed: {e}")
+        logger.error(f"❌ Database initialization failed: {e}")
         raise
-
 # ==============================================================================
 # 10. HELPER FUNCTIONS
 # ==============================================================================
