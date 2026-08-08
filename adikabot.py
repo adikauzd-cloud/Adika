@@ -1122,10 +1122,82 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 10. BROKER REGISTRATION (የተስተካከለ - broker_reg_start ተጨምሯል)
+# 10. BROKER REGISTRATION - COMPLETE (ሁሉም ተግባራት)
 # ==============================================================================
-# 10. BROKER REGISTRATION - COMPLETE FIX (የተስተካከለ)
-# ==============================================================================
+async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    
+    keyboard = [
+        [InlineKeyboardButton("👨💼 ደላላ", callback_data="role_broker")],
+        [InlineKeyboardButton("🚢 አስመጪ / አቅራቢ", callback_data="role_importer")],
+        [InlineKeyboardButton("👤 ባለቤት / አቅራቢ", callback_data="role_owner")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ]
+    await update.message.reply_text(
+        "📝 **የምዝገባ አይነት ይምረጡ፦**\n\n"
+        "💡 *ማብራሪያ፦*\n"
+        "• ደላላ - ሽያጭ/ኪራይ የሚያመቻች\n"
+        "• አስመጪ/አቅራቢ - ከውጭ የሚያስገባ\n"
+        "• ባለቤት/አቅራቢ - ንብረት ያለው",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return BROKER_ROLE
+
+async def broker_role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.data == "flow_home":
+        return await go_home(update, context)
+    
+    await query.answer()
+    role_map = {
+        "role_broker": "ደላላ",
+        "role_importer": "አስመጪ/አቅራቢ",
+        "role_owner": "ባለቤት/አቅራቢ"
+    }
+    role = role_map.get(query.data, "አቅራቢ")
+    context.user_data['broker_role'] = role
+    
+    await query.edit_message_text(f"👤 **ምዝገባ፦ {role}**\n\n1️⃣ ሙሉ ስምዎን ያስገቡ፦")
+    return BROKER_NAME
+
+async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    context.user_data['broker_name'] = update.message.text
+    await update.message.reply_text("2️⃣ የስልክ ቁጥርዎን ያስገቡ፦")
+    return BROKER_PHONE
+
+async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    if not validate_phone(update.message.text):
+        await update.message.reply_text("❌ ትክክለኛ የስልክ ቁጥር ያስገቡ። (ለምሳሌ፦ 0911223344)")
+        return BROKER_PHONE
+    
+    context.user_data['broker_phone'] = update.message.text
+    
+    keyboard = [[InlineKeyboardButton(sc, callback_data=f"broker_sc_{sc}")] for sc in SUB_CITIES]
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+    await update.message.reply_text("3️⃣ የሚሰሩበትን ክፍለ ከተማ ይምረጡ፦", reply_markup=InlineKeyboardMarkup(keyboard))
+    return BROKER_SUBCITY
+
+async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if query.data == "flow_home":
+        return await go_home(update, context)
+    
+    await query.answer()
+    sub_city = query.data.replace("broker_sc_", "")
+    context.user_data['broker_subcity'] = sub_city
+    
+    await query.edit_message_text(
+        "4️⃣ **የፋይዳ (National ID) ወይም የነዋሪነት መታወቂያ ፎቶ ያንሱና ይላኩ፦**\n\n"
+        "💡 *ይህ ለማረጋገጫ ብቻ ነው*"
+    )
+    return BROKER_NID_PHOTO
+
 async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
@@ -1162,6 +1234,78 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return ConversationHandler.END
     
+    await update.message.reply_text(
+        f"📝 **የምዝገባ መረጃዎ፦**\n\n"
+        f"👤 ስም: {name}\n"
+        f"🎭 ሚና: {role}\n"
+        f"📞 ስልክ: {phone}\n"
+        f"📍 ክፍለ ከተማ: {sub_city}\n"
+        f"🆔 Telegram ID: `{user.id}`\n\n"
+        f"⏳ እባክዎ ይጠብቁ፣ እያስመዘገብን ነው...",
+        parse_mode="Markdown"
+    )
+    
+    try:
+        broker_id = add_broker(user.id, name, phone, role, photo_id, sub_city)
+        
+        if broker_id:
+            await update.message.reply_text(
+                "✅ **ምዝገባዎ በስኬት ተጠናቋል!** 🎉\n\n"
+                "⏳ አድሚኑ መረጃዎን ካረጋገጠ በኋላ ማስታወቂያ ይደርስዎታል።\n\n"
+                "📋 ምዝገባዎ ከጸደቀ በኋላ '📋 የፈላጊዎች ዝርዝር' ማየት ይችላሉ።",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            
+            if ADMIN_CHAT_ID_INT != 0:
+                admin_msg = (
+                    f"🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**\n\n"
+                    f"👤 ስም: {name}\n"
+                    f"🎭 ሚና: {role}\n"
+                    f"📞 ስልክ: {phone}\n"
+                    f"📍 ክፍለ ከተማ: {sub_city}\n"
+                    f"🆔 Telegram ID: `{user.id}`"
+                )
+                admin_kbd = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("✅ አጽድቅ", callback_data=f"admin_appr_{user.id}"),
+                        InlineKeyboardButton("❌ ሰርዝ", callback_data=f"admin_reje_{user.id}")
+                    ],
+                    [InlineKeyboardButton("👤 ዝርዝር", callback_data=f"admin_view_{user.id}")]
+                ])
+                try:
+                    await context.bot.send_photo(
+                        chat_id=ADMIN_CHAT_ID_INT,
+                        photo=photo_id,
+                        caption=admin_msg,
+                        parse_mode="Markdown",
+                        reply_markup=admin_kbd
+                    )
+                    logger.info(f"Admin notification sent for broker {user.id}")
+                except Exception as e:
+                    logger.error(f"Failed to send admin approval message: {e}")
+                    await update.message.reply_text(
+                        "⚠️ ለአድሚን መላክ አልተቻለም፣ ነገር ግን ምዝገባዎ ተመዝግቧል።"
+                    )
+        else:
+            await update.message.reply_text(
+                "❌ **ምዝገባውን ማጠናቀቅ አልተቻለም!**\n\n"
+                "💡 እባክዎ የሚከተሉትን ያረጋግጡ፦\n"
+                "• መረጃዎቹ ሙሉ መሆናቸውን\n"
+                "• የበይነመረብ ግንኙነትዎን\n"
+                "• አስቀድመው ካልተመዘገቡ\n\n"
+                "🔄 እንደገና ለመሞከር '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+    except Exception as e:
+        logger.error(f"Broker registration error: {e}")
+        await update.message.reply_text(
+            f"❌ **የምዝገባ ስህተተ!**\n\n"
+            f"📝 ስህተት: {str(e)}\n\n"
+            f"💡 እባክዎ እንደገና ይሞክሩ ወይም አድሚንን ያግኙ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+    
+    return ConversationHandler.END
     await update.message.reply_text(
         f"📝 **የምዝገባ መረጃዎ፦**\n\n"
         f"👤 ስም: {name}\n"
