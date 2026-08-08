@@ -1580,10 +1580,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
 # ==============================================================================
-# 14. MAIN ENGINE (የተስተካከለ - አዲስ ሃንድለር ተጨምሯል)
+# 14. MAIN ENGINE (የተስተካከለ)
 # ==============================================================================
 def main():
     import asyncio
+    # ✅ የውሂብ ጎታ ሲጀመር CREATE TABLE IF NOT EXISTS ይጠቀሙ
     init_db()
     threading.Thread(target=run_flask, daemon=True).start()
 
@@ -1653,7 +1654,7 @@ def main():
     app.add_handler(CallbackQueryHandler(show_requests_page, pattern="^page_"))
     app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
     app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
-    app.add_handler(CallbackQueryHandler(delete_request_callback, pattern="^delete_item_"))  # ✅ አዲስ
+    app.add_handler(CallbackQueryHandler(delete_request_callback, pattern="^delete_item_"))
 
     app.add_handler(buyer_conv)
     app.add_handler(seller_conv)
