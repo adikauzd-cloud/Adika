@@ -72,92 +72,65 @@ HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየ�
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
 
 # ==============================================================================
-# 3. DATABASE UTILITIES (የተስተካከለ - Persistent Data)
+# 3. DATABASE UTILITIES - ADD_BROKER (የተስተካከለ)
 # ==============================================================================
-import os
-import psycopg2
-from psycopg2.extras import RealDictCursor
-import sqlite3
-
-def get_db_connection():
-    if DATABASE_URL:
-        db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1) if DATABASE_URL.startswith("postgres://") else DATABASE_URL
-        conn = psycopg2.connect(db_url)
-        conn.autocommit = True
-        return conn
-    else:
-        import sqlite3
-        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adika_marketplace.db")
-        conn = sqlite3.connect(db_path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
-
-def init_db():
+def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city):
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
+        p = get_placeholder()
         
-        if DATABASE_URL:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS listings (
-                    id SERIAL PRIMARY KEY,
-                    user_chat_id BIGINT NOT NULL,
-                    user_name TEXT,
-                    req_type TEXT NOT NULL,
-                    main_category TEXT NOT NULL,
-                    sub_category TEXT,
-                    action_type TEXT,
-                    property_type TEXT,
-                    description TEXT NOT NULL,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS brokers (
-                    id SERIAL PRIMARY KEY,
-                    chat_id BIGINT NOT NULL UNIQUE,
-                    full_name TEXT NOT NULL,
-                    phone TEXT NOT NULL,
-                    role_type TEXT NOT NULL,
-                    national_id_photo TEXT,
-                    sub_city TEXT NOT NULL,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            conn.commit()
+        # Check if user already exists
+        cursor.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing
+            if DATABASE_URL:
+                query = f"""
+                    UPDATE brokers 
+                    SET full_name = {p}, phone = {p}, role_type = {p}, 
+                        national_id_photo = {p}, sub_city = {p}, status = 'pending'
+                    WHERE chat_id = {p}
+                    RETURNING id
+                """
+                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
+                broker_id = cursor.fetchone()[0]
+            else:
+                query = """
+                    UPDATE brokers 
+                    SET full_name = ?, phone = ?, role_type = ?, 
+                        national_id_photo = ?, sub_city = ?, status = 'pending'
+                    WHERE chat_id = ?
+                """
+                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
+                broker_id = existing[0]
+                conn.commit()
         else:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS listings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_chat_id INTEGER NOT NULL,
-                    user_name TEXT,
-                    req_type TEXT NOT NULL,
-                    main_category TEXT NOT NULL,
-                    sub_category TEXT,
-                    action_type TEXT,
-                    property_type TEXT,
-                    description TEXT NOT NULL,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS brokers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chat_id INTEGER NOT NULL UNIQUE,
-                    full_name TEXT NOT NULL,
-                    phone TEXT NOT NULL,
-                    role_type TEXT NOT NULL,
-                    national_id_photo TEXT,
-                    sub_city TEXT NOT NULL,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            conn.commit()
+            # Insert new
+            if DATABASE_URL:
+                query = f"""
+                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                    VALUES ({p}, {p}, {p}, {p}, {p}, {p}, 'pending')
+                    RETURNING id
+                """
+                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
+                broker_id = cursor.fetchone()[0]
+            else:
+                query = """
+                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending')
+                """
+                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
+                broker_id = cursor.lastrowid
+                conn.commit()
             
-        logger.info("✅ Database initialized successfully")
+        logger.info(f"✅ Broker registered: {full_name} (ID: {broker_id})")
+        return broker_id
     except Exception as e:
-        logger.error(f"Database initialization error: {e}")
+        logger.error(f"Add broker error: {e}")
+        return None
     finally:
         if conn:
             conn.close()
@@ -950,7 +923,7 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 import html
 
 # ==============================================================================
-# 10. BROKER REGISTRATION
+# 10. BROKER REGISTRATION (የተስተካከለ - ሁሉም ተግባራት ተጨምረዋል)
 # ==============================================================================
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -962,16 +935,15 @@ async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     await update.message.reply_text(
-        "📝 <b>የምዝገባ አይነት ይምረጡ፦</b>\n\n"
-        "💡 <i>ማብራሪያ፦</i>\n"
+        "📝 **የምዝገባ አይነት ይምረጡ፦**\n\n"
+        "💡 *ማብራሪያ፦*\n"
         "• ደላላ - ሽያጭ/ኪራይ የሚያመቻች\n"
         "• አስመጪ/አቅራቢ - ከውጭ የሚያስገባ\n"
         "• ባለቤት/አቅራቢ - ንብረት ያለው",
         reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="HTML"
+        parse_mode="Markdown"
     )
     return BROKER_ROLE
-
 
 async def broker_role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -987,9 +959,8 @@ async def broker_role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
     role = role_map.get(query.data, "አቅራቢ")
     context.user_data['broker_role'] = role
     
-    await query.edit_message_text(f"👤 <b>ምዝገባ፦ {html.escape(role)}</b>\n\n1️⃣ ሙሉ ስምዎን ያስገቡ፦", parse_mode="HTML")
+    await query.edit_message_text(f"👤 **ምዝገባ፦ {role}**\n\n1️⃣ ሙሉ ስምዎን ያስገቡ፦")
     return BROKER_NAME
-
 
 async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🏠 ዋና ገጽ":
@@ -997,7 +968,6 @@ async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['broker_name'] = update.message.text
     await update.message.reply_text("2️⃣ የስልክ ቁጥርዎን ያስገቡ፦")
     return BROKER_PHONE
-
 
 async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🏠 ዋና ገጽ":
@@ -1014,7 +984,6 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("3️⃣ የሚሰሩበትን ክፍለ ከተማ ይምረጡ፦", reply_markup=InlineKeyboardMarkup(keyboard))
     return BROKER_SUBCITY
 
-
 async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.data == "flow_home":
@@ -1025,63 +994,111 @@ async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data['broker_subcity'] = sub_city
     
     await query.edit_message_text(
-        "4️⃣ <b>የፋይዳ (National ID) ወይም የነዋሪነት መታወቂያ ፎቶ ያንሱና ይላኩ፦</b>\n\n"
-        "💡 <i>ይህ ለማረጋገጫ ብቻ ነው</i>",
-        parse_mode="HTML"
+        "4️⃣ **የፋይዳ (National ID) ወይም የነዋሪነት መታወቂያ ፎቶ ያንሱና ይላኩ፦**\n\n"
+        "💡 *ይህ ለማረጋገጫ ብቻ ነው*"
     )
     return BROKER_NID_PHOTO
 
-
 async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = update.effective_message
-    if not msg:
-        return BROKER_NID_PHOTO
-
-    if msg.text == "🏠 ዋና ገጽ":
+    if update.message and update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
 
-    if not msg.photo:
-        await msg.reply_text(
-            "❌ <b>እባክዎ የመታወቂያዎን ፎቶ ይላኩ!</b>\n\n"
+    user = update.effective_user
+    
+    if not update.message or not update.message.photo:
+        await update.message.reply_text(
+            "❌ **እባክዎ የመታወቂያዎን ፎቶ ይላኩ!**\n\n"
             "📸 ፎቶውን ከቴሌግራም ፋይል አባሪ አማራጭ በመጠቀም ይላኩ።\n"
-            "✏️ ጽሁፍ አይቀበልም።",
-            parse_mode="HTML"
+            "✏️ ጽሁፍ አይቀበልም።"
         )
         return BROKER_NID_PHOTO
-
-    user = update.effective_user
-    photo_id = msg.photo[-1].file_id
-    
+        
+    photo_id = update.message.photo[-1].file_id
     role = context.user_data.get('broker_role', 'አቅራቢ')
-    name = context.user_data.get('broker_name', user.first_name or '')
+    name = context.user_data.get('broker_name', user.first_name)
     phone = context.user_data.get('broker_phone', '')
     sub_city = context.user_data.get('broker_subcity', '')
-
-    safe_name = html.escape(name)
-    safe_role = html.escape(role)
-    safe_phone = html.escape(phone)
-    safe_subcity = html.escape(sub_city)
-
-    await msg.reply_text(
-        f"📝 <b>የምዝገባ መረጃዎ፦</b>\n\n"
-        f"👤 ስም: {safe_name}\n"
-        f"🎭 ሚና: {safe_role}\n"
-        f"📞 ስልክ: {safe_phone}\n"
-        f"📍 ክፍለ ከተማ: {safe_subcity}\n"
-        f"🆔 Telegram ID: <code>{user.id}</code>\n\n"
+    
+    await update.message.reply_text(
+        f"📝 **የምዝገባ መረጃዎ፦**\n\n"
+        f"👤 ስም: {name}\n"
+        f"🎭 ሚና: {role}\n"
+        f"📞 ስልክ: {phone}\n"
+        f"📍 ክፍለ ከተማ: {sub_city}\n"
+        f"🆔 Telegram ID: `{user.id}`\n\n"
         f"⏳ እባክዎ ይጠብቁ፣ እያስመዘገብን ነው...",
-        parse_mode="HTML"
+        parse_mode="Markdown"
     )
-
+    
     try:
         if not all([name, phone, sub_city, photo_id]):
-            await msg.reply_text(
-                "❌ <b>የጎደሉ መረጃዎች አሉ!</b>\n\n"
+            await update.message.reply_text(
+                "❌ **የጎደሉ መረጃዎች አሉ!**\n\n"
                 "💡 እባክዎ ሁሉንም መረጃዎች ሙሉ በሙሉ ይሙሉ።",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-                parse_mode="HTML"
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
             )
             return ConversationHandler.END
+        
+        broker_id = add_broker(user.id, name, phone, role, photo_id, sub_city)
+        
+        if broker_id:
+            await update.message.reply_text(
+                "✅ **ምዝገባዎ በስኬት ተጠናቋል!** 🎉\n\n"
+                "⏳ አድሚኑ መረጃዎን ካረጋገጠ በኋላ ማስታወቂያ ይደርስዎታል።\n\n"
+                "📋 ምዝገባዎ ከጸደቀ በኋላ '📋 የፈላጊዎች ዝርዝር' ማየት ይችላሉ።",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            
+            if ADMIN_CHAT_ID_INT != 0:
+                admin_msg = (
+                    f"🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**\n\n"
+                    f"👤 ስም: {name}\n"
+                    f"🎭 ሚና: {role}\n"
+                    f"📞 ስልክ: {phone}\n"
+                    f"📍 ክፍለ ከተማ: {sub_city}\n"
+                    f"🆔 Telegram ID: `{user.id}`"
+                )
+                admin_kbd = InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton("✅ አጽድቅ", callback_data=f"admin_appr_{user.id}"),
+                        InlineKeyboardButton("❌ ሰርዝ", callback_data=f"admin_reje_{user.id}")
+                    ],
+                    [InlineKeyboardButton("👤 ዝርዝር", callback_data=f"admin_view_{user.id}")]
+                ])
+                try:
+                    await context.bot.send_photo(
+                        chat_id=ADMIN_CHAT_ID_INT,
+                        photo=photo_id,
+                        caption=admin_msg,
+                        parse_mode="Markdown",
+                        reply_markup=admin_kbd
+                    )
+                    logger.info(f"Admin notification sent for broker {user.id}")
+                except Exception as e:
+                    logger.error(f"Failed to send admin approval message: {e}")
+                    await update.message.reply_text(
+                        "⚠️ ለአድሚን መላክ አልተቻለም፣ ነገር ግን ምዝገባዎ ተመዝግቧል።"
+                    )
+        else:
+            await update.message.reply_text(
+                "❌ **ምዝገባውን ማጠናቀቅ አልተቻለም!**\n\n"
+                "💡 እባክዎ የሚከተሉትን ያረጋግጡ፦\n"
+                "• መረጃዎቹ ሙሉ መሆናቸውን\n"
+                "• የበይነመረብ ግንኙነትዎን\n"
+                "• አስቀድመው ካልተመዘገቡ\n\n"
+                "🔄 እንደገና ለመሞከር '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+    except Exception as e:
+        logger.error(f"Broker registration error: {e}")
+        await update.message.reply_text(
+            f"❌ **የምዝገባ ስህተተ!**\n\n"
+            f"📝 ስህተት: {str(e)}\n\n"
+            f"💡 እባክዎ እንደገና ይሞክሩ ወይም አድሚንን ያግኙ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+    
+    return ConversationHandler.END
 
         broker_id = add_broker(user.id, name, phone, role, photo_id, sub_city)
 
