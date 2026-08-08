@@ -46,11 +46,10 @@ class Config:
         except ValueError:
             cls.ADMIN_CHAT_ID_INT = 0
 
-# ✅ በመጀመሪያ Config እናረጋግጣለን
 Config.validate()
 
 # ==============================================================================
-# 1. LOGGING (ከ Config.validate() በኋላ)
+# 1. LOGGING
 # ==============================================================================
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -58,11 +57,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ✅ አሁን logger ተገልጿል
 logger.info(f"✅ Admin chat ID set to: {Config.ADMIN_CHAT_ID_INT}")
 
 # ==============================================================================
-# 2. DATABASE CONNECTION POOL
+# 2. DATABASE CONNECTION
 # ==============================================================================
 connection_pool = None
 
@@ -120,7 +118,7 @@ def transaction(conn):
         raise
 
 # ==============================================================================
-# 3. CACHE MANAGEMENT
+# 3. CACHE & RATE LIMITER
 # ==============================================================================
 class Cache:
     def __init__(self, ttl_seconds: int = Config.CACHE_TTL_SECONDS):
@@ -150,9 +148,6 @@ class Cache:
 
 cache = Cache()
 
-# ==============================================================================
-# 4. RATE LIMITER
-# ==============================================================================
 class RateLimiter:
     def __init__(self, max_requests: int = Config.MAX_REQUESTS_PER_MINUTE, time_window: int = 60):
         self.max_requests = max_requests
@@ -173,7 +168,7 @@ class RateLimiter:
 rate_limiter = RateLimiter()
 
 # ==============================================================================
-# 5. INPUT VALIDATION
+# 4. INPUT VALIDATION
 # ==============================================================================
 def validate_phone(phone: str) -> bool:
     phone = phone.replace(' ', '').replace('-', '')
@@ -194,7 +189,7 @@ def sanitize_input(text: str) -> str:
     return re.sub(r'[<>"\'%;]', '', text.strip())
 
 # ==============================================================================
-# 6. CONSTANTS & KEYBOARDS
+# 5. CONSTANTS & KEYBOARDS
 # ==============================================================================
 SUB_CITIES = [
     "ቦሌ", "የካ", "አራዳ", "ልደታ",
@@ -217,7 +212,7 @@ HOME_ONLY_KEYBOARD = ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboa
 MAIN_MARKUP = ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
 
 # ==============================================================================
-# 7. DATABASE OPERATIONS
+# 6. DATABASE OPERATIONS
 # ==============================================================================
 class ListingRepository:
     @staticmethod
@@ -231,8 +226,9 @@ class ListingRepository:
                         query = """
                             INSERT INTO listings 
                             (user_chat_id, user_name, req_type, main_category, sub_type,
-                             action_type, description, price, phone, photo_file_id, budget, telegram_contact)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                             action_type, description, price, phone, photo_file_id, budget, telegram_contact,
+                             is_active)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                             RETURNING id
                         """
                         cursor.execute(query, (
@@ -247,7 +243,8 @@ class ListingRepository:
                             listing_data.get('phone', ''),
                             listing_data.get('photo_file_id'),
                             listing_data.get('budget'),
-                            listing_data.get('telegram_contact')
+                            listing_data.get('telegram_contact'),
+                            True  # is_active
                         ))
                         result = cursor.fetchone()
                         return result[0] if result else None
@@ -255,8 +252,9 @@ class ListingRepository:
                         query = """
                             INSERT INTO listings 
                             (user_chat_id, user_name, req_type, main_category, sub_type,
-                             action_type, description, price, phone, photo_file_id, budget, telegram_contact)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             action_type, description, price, phone, photo_file_id, budget, telegram_contact,
+                             is_active)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """
                         cursor.execute(query, (
                             listing_data.get('user_chat_id'),
@@ -270,17 +268,17 @@ class ListingRepository:
                             listing_data.get('phone', ''),
                             listing_data.get('photo_file_id'),
                             listing_data.get('budget'),
-                            listing_data.get('telegram_contact')
+                            listing_data.get('telegram_contact'),
+                            True
                         ))
                         return cursor.lastrowid
         except Exception as e:
             logger.error(f"Failed to create listing: {e}")
-            logger.error(f"Listing data: {listing_data}")
             return None
     
     @staticmethod
-    def get_pending(limit: int = 10, offset: int = 0) -> List[Dict]:
-        cache_key = f"listings_pending_{limit}_{offset}"
+    def get_active(limit: int = 10, offset: int = 0) -> List[Dict]:
+        cache_key = f"listings_active_{limit}_{offset}"
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
@@ -290,7 +288,7 @@ class ListingRepository:
             if Config.DATABASE_URL:
                 query = """
                     SELECT * FROM listings 
-                    WHERE status = 'pending' 
+                    WHERE is_active = true 
                     ORDER BY created_at DESC 
                     LIMIT %s OFFSET %s
                 """
@@ -298,7 +296,7 @@ class ListingRepository:
             else:
                 query = """
                     SELECT * FROM listings 
-                    WHERE status = 'pending' 
+                    WHERE is_active = true 
                     ORDER BY created_at DESC 
                     LIMIT ? OFFSET ?
                 """
@@ -310,39 +308,59 @@ class ListingRepository:
             return result
     
     @staticmethod
-    def count_pending() -> int:
-        cache_key = "listings_count_pending"
+    def count_active() -> int:
+        cache_key = "listings_count_active"
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
         
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM listings WHERE status = 'pending'")
+            cursor.execute("SELECT COUNT(*) FROM listings WHERE is_active = true")
             count = cursor.fetchone()[0]
             cache.set(cache_key, count)
             return count
     
     @staticmethod
-    def update_status(listing_id: int, status: str) -> bool:
+    def get_by_id(listing_id: int) -> Optional[Dict]:
+        cache_key = f"listing_{listing_id}"
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return cached
+        
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            if Config.DATABASE_URL:
+                cursor.execute("SELECT * FROM listings WHERE id = %s", (listing_id,))
+            else:
+                cursor.execute("SELECT * FROM listings WHERE id = ?", (listing_id,))
+            
+            row = cursor.fetchone()
+            result = dict(row) if row else None
+            if result:
+                cache.set(cache_key, result)
+            return result
+    
+    @staticmethod
+    def deactivate(listing_id: int) -> bool:
         try:
             with get_db_connection() as conn:
                 with transaction(conn):
                     cursor = conn.cursor()
                     if Config.DATABASE_URL:
                         cursor.execute(
-                            "UPDATE listings SET status = %s WHERE id = %s",
-                            (status, listing_id)
+                            "UPDATE listings SET is_active = false WHERE id = %s",
+                            (listing_id,)
                         )
                     else:
                         cursor.execute(
-                            "UPDATE listings SET status = ? WHERE id = ?",
-                            (status, listing_id)
+                            "UPDATE listings SET is_active = false WHERE id = ?",
+                            (listing_id,)
                         )
                     cache.invalidate()
                     return True
         except Exception as e:
-            logger.error(f"Failed to update listing status: {e}")
+            logger.error(f"Failed to deactivate listing: {e}")
             return False
 
 class BrokerRepository:
@@ -450,18 +468,6 @@ class BrokerRepository:
             return result
     
     @staticmethod
-    def get_all_pending() -> List[Dict]:
-        """Get all pending broker registrations"""
-        with get_db_connection() as conn:
-            cursor = conn.cursor()
-            if Config.DATABASE_URL:
-                cursor.execute("SELECT * FROM brokers WHERE status = 'pending'")
-            else:
-                cursor.execute("SELECT * FROM brokers WHERE status = 'pending'")
-            rows = cursor.fetchall()
-            return [dict(row) for row in rows]
-    
-    @staticmethod
     def get_by_chat_id(chat_id: int) -> Optional[Dict]:
         cache_key = f"broker_{chat_id}"
         cached = cache.get(cache_key)
@@ -504,7 +510,7 @@ class BrokerRepository:
             return False
 
 # ==============================================================================
-# 8. FLASK WEB SERVER
+# 7. FLASK WEB SERVER
 # ==============================================================================
 web_app = Flask(__name__)
 
@@ -513,7 +519,7 @@ def home():
     return jsonify({
         'status': 'online',
         'service': 'Adika Marketplace Bot',
-        'version': '3.0',
+        'version': '4.0',
         'timestamp': datetime.now().isoformat()
     }), 200
 
@@ -543,15 +549,13 @@ def run_flask():
     web_app.run(host="0.0.0.0", port=Config.PORT)
 
 # ==============================================================================
-# 9. DATABASE INITIALIZATION
+# 8. DATABASE INITIALIZATION
 # ==============================================================================
 def init_db():
-    """Initialize database tables if they don't exist"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
-            # Create tables (works for both SQLite and PostgreSQL)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS listings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -567,6 +571,7 @@ def init_db():
                     photo_file_id TEXT,
                     budget TEXT,
                     telegram_contact TEXT,
+                    is_active BOOLEAN DEFAULT true,
                     status TEXT DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
@@ -586,42 +591,41 @@ def init_db():
                 )
             """)
             
-            # Check and add missing columns for listings
             cursor.execute("PRAGMA table_info(listings)")
             columns = [row[1] for row in cursor.fetchall()]
             
             if 'budget' not in columns:
                 try:
                     cursor.execute("ALTER TABLE listings ADD COLUMN budget TEXT")
-                    logger.info("✅ Added 'budget' column to listings")
                 except Exception as e:
-                    logger.warning(f"Could not add budget column: {e}")
+                    pass
             
             if 'telegram_contact' not in columns:
                 try:
                     cursor.execute("ALTER TABLE listings ADD COLUMN telegram_contact TEXT")
-                    logger.info("✅ Added 'telegram_contact' column to listings")
                 except Exception as e:
-                    logger.warning(f"Could not add telegram_contact column: {e}")
+                    pass
             
-            # Check and add missing columns for brokers
+            if 'is_active' not in columns:
+                try:
+                    cursor.execute("ALTER TABLE listings ADD COLUMN is_active BOOLEAN DEFAULT true")
+                except Exception as e:
+                    pass
+            
             cursor.execute("PRAGMA table_info(brokers)")
             broker_columns = [row[1] for row in cursor.fetchall()]
             
             if 'telegram_id' not in broker_columns:
                 try:
                     cursor.execute("ALTER TABLE brokers ADD COLUMN telegram_id TEXT")
-                    logger.info("✅ Added 'telegram_id' column to brokers")
                 except Exception as e:
-                    logger.warning(f"Could not add telegram_id column: {e}")
+                    pass
             
-            # Create indexes
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_active ON listings(is_active)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_created ON listings(created_at DESC)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_status ON brokers(status)")
             
             conn.commit()
-            
             logger.info("✅ Database initialized successfully")
             
     except Exception as e:
@@ -629,7 +633,7 @@ def init_db():
         raise
 
 # ==============================================================================
-# 10. HELPER FUNCTIONS
+# 9. HELPER FUNCTIONS
 # ==============================================================================
 def build_indexed_keyboard(options: List[str], prefix: str, columns: int = 1, extra_home: bool = True):
     buttons = [InlineKeyboardButton(opt, callback_data=f"{prefix}{i}") for i, opt in enumerate(options)]
@@ -689,32 +693,6 @@ def format_welcome_message() -> str:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
-async def notify_brokers(context: ContextTypes.DEFAULT_TYPE, message_text: str, req_id: int, buyer_id: int):
-    """Broadcast to approved brokers with professional formatting"""
-    approved_brokers = BrokerRepository.get_approved()
-    logger.info(f"📢 Notifying {len(approved_brokers)} approved brokers about request #{req_id}")
-    
-    if not approved_brokers:
-        logger.warning("⚠️ No approved brokers found to notify")
-        return
-    
-    success_count = 0
-    for b_id in approved_brokers:
-        try:
-            kbd = [[InlineKeyboardButton(f"✅ አለኝ - #{req_id}", callback_data=f"have_item_{req_id}_{buyer_id}")]]
-            await context.bot.send_message(
-                chat_id=b_id,
-                text=message_text,
-                parse_mode="Markdown",
-                reply_markup=InlineKeyboardMarkup(kbd),
-            )
-            success_count += 1
-            await asyncio.sleep(0.05)
-        except Exception as e:
-            logger.error(f"❌ Failed to send notification to broker {b_id}: {e}")
-    
-    logger.info(f"✅ Successfully notified {success_count}/{len(approved_brokers)} brokers")
-
 async def safe_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, **kwargs):
     max_retries = 3
     for attempt in range(max_retries):
@@ -734,13 +712,46 @@ async def safe_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     return False
 
 # ==============================================================================
+# 10. NOTIFICATION SYSTEM
+# ==============================================================================
+async def notify_brokers(context: ContextTypes.DEFAULT_TYPE, message_text: str, listing_id: int, user_id: int):
+    """Notify all approved brokers about new listing"""
+    approved_brokers = BrokerRepository.get_approved()
+    logger.info(f"📢 Notifying {len(approved_brokers)} approved brokers about listing #{listing_id}")
+    
+    if not approved_brokers:
+        logger.warning("⚠️ No approved brokers found to notify")
+        return
+    
+    success_count = 0
+    for b_id in approved_brokers:
+        try:
+            # Create "I have it" button
+            kbd = [[InlineKeyboardButton(
+                f"✅ አለኝ - #{listing_id}", 
+                callback_data=f"have_item_{listing_id}_{user_id}"
+            )]]
+            await context.bot.send_message(
+                chat_id=b_id,
+                text=message_text,
+                parse_mode="Markdown",
+                reply_markup=InlineKeyboardMarkup(kbd),
+            )
+            success_count += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            logger.error(f"❌ Failed to send notification to broker {b_id}: {e}")
+    
+    logger.info(f"✅ Successfully notified {success_count}/{len(approved_brokers)} brokers")
+
+# ==============================================================================
 # 11. CONVERSATION STATES
 # ==============================================================================
 (
     BUYER_MAIN, BUYER_SUB, BUYER_ACTION, BUYER_DETAILS, BUYER_BUDGET, BUYER_PHONE,
     SELLER_MAIN, SELLER_ACTION, SELLER_SUBTYPE, SELLER_DETAILS, SELLER_PRICE, SELLER_PHONE, SELLER_PHOTO,
     BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_TELEGRAM_ID, BROKER_SUBCITY, BROKER_NID_PHOTO,
-    BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO,
+    BROKER_OFFER_TEXT, BROKER_OFFER_PHONE,
 ) = range(21)
 
 # ==============================================================================
@@ -1033,8 +1044,9 @@ async def buyer_phone_received(update: Update, context: ContextTypes.DEFAULT_TYP
     listing_id = ListingRepository.create(listing_data)
     
     if listing_id:
+        # ✅ Notify all brokers
         notification_text = f"""
-📢 **አዲስ የፍላጎት ጥያቄ (#REQ-{listing_id})**
+📢 **አዲስ የፍላጎት ጥያቄ! (#REQ-{listing_id})**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📌 **ምድብ:** {listing_data['main_category']}
@@ -1363,6 +1375,7 @@ async def seller_photo_received(update: Update, context: ContextTypes.DEFAULT_TY
             reply_markup=MAIN_MARKUP
         )
         
+        # ✅ Notify all brokers about new listing
         notification_text = f"""
 📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ! (#{listing_id})**
 
@@ -1380,21 +1393,8 @@ async def seller_photo_received(update: Update, context: ContextTypes.DEFAULT_TY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ✅ ለደላሎች: ይህ ማስታወቂያ ለፈላጊዎች ማሳወቅ ይችላሉ!
 """
-        approved_brokers = BrokerRepository.get_approved()
-        if approved_brokers:
-            for b_id in approved_brokers:
-                try:
-                    await context.bot.send_message(
-                        chat_id=b_id,
-                        text=notification_text,
-                        parse_mode="Markdown"
-                    )
-                    await asyncio.sleep(0.05)
-                except Exception as e:
-                    logger.error(f"Failed to send listing notification to broker {b_id}: {e}")
-            logger.info(f"✅ Sell listing {listing_id} created and notified {len(approved_brokers)} brokers")
-        else:
-            logger.warning("⚠️ No approved brokers to notify")
+        await notify_brokers(context, notification_text, listing_id, user.id)
+        
     else:
         await safe_send_message(
             update, context,
@@ -1409,7 +1409,306 @@ async def seller_photo_received(update: Update, context: ContextTypes.DEFAULT_TY
     return ConversationHandler.END
 
 # ==============================================================================
-# 15. HANDLERS - BROKER REGISTRATION
+# 15. HANDLERS - BROKER "I HAVE IT" RESPONSE
+# ==============================================================================
+async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle broker clicking 'I have it' button"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = query.from_user.id
+    
+    # Check if user is an approved broker
+    broker = BrokerRepository.get_by_chat_id(user_id)
+    if not broker or broker.get('status') != 'approved':
+        await safe_send_message(
+            update, context,
+            "⛔ **ያልተፈቀደ ተግባር**\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "ይህን ማድረግ የሚችሉት በአድሚን የተረጋገጡ ደላሎች/አቅራቢዎች ብቻ ናቸው!\n\n"
+            "📝 መጀመሪያ ይመዝገቡ እና ማጽደቅ ይጠብቁ።"
+        )
+        return ConversationHandler.END
+    
+    # Extract listing ID and buyer ID from callback
+    parts = query.data.split('_')
+    if len(parts) < 3:
+        logger.error(f"Invalid callback data: {query.data}")
+        return ConversationHandler.END
+    
+    listing_id = int(parts[2])
+    buyer_id = int(parts[3]) if len(parts) > 3 else None
+    
+    # Check if listing is still active
+    listing = ListingRepository.get_by_id(listing_id)
+    if not listing or not listing.get('is_active', True):
+        await safe_send_message(
+            update, context,
+            "❌ **ስህተት**\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "ይህ ጥያቄ አልተገኘም ወይም ተዘግቷል።"
+        )
+        return ConversationHandler.END
+    
+    context.user_data['target_listing_id'] = listing_id
+    context.user_data['target_buyer_id'] = buyer_id
+    
+    # Show form for broker to fill property details
+    await safe_send_message(
+        update, context,
+        f"""
+✅ **ለጥያቄ #{listing_id} ምላሽ መስጠት**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✍️ እባክዎን ያለዎትን ንብረት ዝርዝር መረጃ ያስገቡ:
+
+📌 **የሚከተሉትን ያካትቱ:**
+• 🏷️ የንብረቱ አይነት
+• 📍 አካባቢ
+• 💰 ዋጋ
+• 📞 የስልክ ቁጥር ወይም ቴሌግራም
+
+💡 *ምሳሌ:* ቶዮታ ቪትዝ 2021፣ 30,000 KM የሄደ፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""",
+        reply_markup=HOME_ONLY_KEYBOARD,
+    )
+    return BROKER_OFFER_TEXT
+
+async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle broker's offer text"""
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    context.user_data['offer_text'] = sanitize_input(update.message.text)
+    await safe_send_message(
+        update, context,
+        "📸 **የንብረቱ ፎቶ**\n\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        "🖼️ እባክዎን የንብረቱን ፎቶ ይላኩ:\n\n"
+        "💡 ፎቶ ከሌለዎት 'ፎቶ የለውም' ብለው ይጻፉ"
+    )
+    return BROKER_OFFER_PHONE
+
+async def broker_offer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle broker's offer photo"""
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    # Get photo if provided
+    photo_id = None
+    if update.message.photo:
+        photo_id = update.message.photo[-1].file_id
+    elif update.message.text and update.message.text.lower() == "ፎቶ የለውም":
+        photo_id = None
+    else:
+        await safe_send_message(
+            update, context,
+            "⚠️ **ስህተት**\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "እባክዎን ፎቶ ይላኩ ወይም 'ፎቶ የለውም' ብለው ይጻፉ"
+        )
+        return BROKER_OFFER_PHONE
+    
+    listing_id = context.user_data.get('target_listing_id')
+    buyer_id = context.user_data.get('target_buyer_id')
+    offer_text = context.user_data.get('offer_text', '')
+    broker_name = update.effective_user.first_name or "አቅራቢ"
+    broker_phone = context.user_data.get('broker_phone', '')
+    
+    if not buyer_id or not listing_id:
+        await safe_send_message(update, context, "❌ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።")
+        return ConversationHandler.END
+    
+    # Get broker's phone if available
+    broker = BrokerRepository.get_by_chat_id(update.effective_user.id)
+    if broker:
+        broker_phone = broker.get('phone', '')
+    
+    # Deactivate the listing (remove from active listings)
+    ListingRepository.deactivate(listing_id)
+    
+    # Send offer to buyer
+    message_to_buyer = f"""
+🎉 **ለጥያቄዎ (#REQ-{listing_id}) አዲስ አማራጭ ቀርቧል!**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👤 **አቅራቢ/ደላላ:** {broker_name}
+📞 **ስልክ:** {broker_phone}
+
+📝 **የንብረቱ ዝርዝር:**
+{offer_text}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 *ለተጨማሪ መረጃ ከላይ ያለውን ስልክ ቁጥር በመጠቀም ይደውሉ!*
+"""
+    
+    try:
+        if photo_id:
+            await context.bot.send_photo(
+                chat_id=buyer_id,
+                photo=photo_id,
+                caption=message_to_buyer,
+                parse_mode="Markdown"
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=buyer_id,
+                text=message_to_buyer,
+                parse_mode="Markdown"
+            )
+        
+        await safe_send_message(
+            update, context,
+            f"""
+✅ **መረጃዎ ለፈላጊው ተልኳል!** 📨
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋 **የተላከው መረጃ:**
+• 📌 ጥያቄ: #{listing_id}
+• 👤 ተቀባይ: {buyer_id}
+• 📅 ቀን: {datetime.now().strftime('%Y-%m-%d %H:%M')}
+• 📊 ሁኔታ: ተልኳል
+
+📌 ጥያቄው ከ'📋 የፈላጊዎች ዝርዝር' ተወግዷል።
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""",
+            reply_markup=MAIN_MARKUP,
+        )
+        
+        logger.info(f"✅ Offer sent to buyer {buyer_id} for request {listing_id}")
+    except Exception as e:
+        logger.error(f"Failed to send offer to buyer: {e}")
+        await safe_send_message(
+            update, context,
+            "❌ **ስህተት**\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "መረጃውን ለፈላጊው መላክ አልተቻለም።\n"
+            "💡 እባክዎ እንደገና ይሞክሩ።",
+            reply_markup=MAIN_MARKUP,
+        )
+    
+    return ConversationHandler.END
+
+# ==============================================================================
+# 16. HANDLERS - VIEW REQUESTS (Broker)
+# ==============================================================================
+async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show active requests to brokers"""
+    user_id = update.effective_user.id
+    broker = BrokerRepository.get_by_chat_id(user_id)
+    
+    if not broker:
+        await safe_send_message(
+            update, context,
+            "⛔ **ያልተፈቀደ ተግባር**\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "ይህን ገጽ ማየት የሚችሉት የተመዘገቡ አቅራቢዎች/ደላሎች ብቻ ናቸው!\n\n"
+            "📝 እባክዎን መጀመሪያ '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
+            reply_markup=MAIN_MARKUP,
+        )
+        return
+    
+    if broker.get('status') != 'approved':
+        await safe_send_message(
+            update, context,
+            "⏳ **ምዝገባዎ ገና አልጸደቀም!**\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "⏳ ምዝገባዎ በአድሚን ሲረጋገጥ ማስታወቂያ ይደርስዎታል።\n"
+            "📞 ለተጨማሪ መረጃ ድጋፍን ይጠቀሙ።",
+            reply_markup=MAIN_MARKUP,
+        )
+        return
+    
+    context.user_data['view_page'] = 0
+    await show_requests_page(update, context)
+
+async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show paginated active requests"""
+    try:
+        if update.callback_query and update.callback_query.data.startswith("page_"):
+            context.user_data['view_page'] = int(update.callback_query.data.replace("page_", ""))
+        
+        page = context.user_data.get('view_page', 0)
+        offset = page * Config.ITEMS_PER_PAGE
+        
+        listings = ListingRepository.get_active(limit=Config.ITEMS_PER_PAGE, offset=offset)
+        total = ListingRepository.count_active()
+        total_pages = max(1, (total + Config.ITEMS_PER_PAGE - 1) // Config.ITEMS_PER_PAGE)
+        
+        if not listings:
+            text = """
+📭 **ምንም ንቁ ጥያቄዎች የሉም**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 ሁሉም ጥያቄዎች ተመልሰዋል ወይም በሂደት ላይ ናቸው።
+🔄 ቆይተው እንደገና ይሞክሩ።
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+            if update.message:
+                await safe_send_message(update, context, text, reply_markup=MAIN_MARKUP)
+            else:
+                await update.callback_query.answer()
+                await update.callback_query.edit_message_text(text)
+            return
+        
+        text = f"""
+📋 **የፈላጊዎች ዝርዝር**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📄 ገጽ {page + 1}/{total_pages}
+📊 አጠቃላይ ጥያቄዎች: {total}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"""
+        for listing in listings:
+            text += format_listing_for_broker(listing)
+            text += "\n"
+        
+        keyboard = []
+        for listing in listings:
+            l_id = listing.get('id')
+            u_id = listing.get('user_chat_id')
+            keyboard.append([InlineKeyboardButton(
+                f"✅ አለኝ - #{l_id}", 
+                callback_data=f"have_item_{l_id}_{u_id}"
+            )])
+        
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton("⬅️ ቀዳሚ ገጽ", callback_data=f"page_{page - 1}"))
+        if offset + Config.ITEMS_PER_PAGE < total:
+            nav_buttons.append(InlineKeyboardButton("➡️ ቀጣይ ገጽ", callback_data=f"page_{page + 1}"))
+        nav_buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
+        keyboard.append(nav_buttons)
+        
+        if update.message:
+            await safe_send_message(
+                update, context,
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+        else:
+            query = update.callback_query
+            await query.answer()
+            await query.edit_message_text(
+                text,
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown"
+            )
+    
+    except Exception as e:
+        logger.error(f"Error showing requests page: {e}")
+        await safe_send_message(
+            update, context,
+            "❌ **ስህተት**\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "ዝርዝሩን ማሳየት አልተቻለም።\n"
+            "💡 እባክዎ እንደገና ይሞክሩ።"
+        )
+
+# ==============================================================================
+# 17. HANDLERS - BROKER REGISTRATION
 # ==============================================================================
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not rate_limiter.is_allowed(update.effective_user.id):
@@ -1619,7 +1918,7 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=MAIN_MARKUP,
         )
         
-        # ✅ አድሚንን ማሳወቅ
+        # Notify admin
         if Config.ADMIN_CHAT_ID_INT != 0:
             admin_msg = f"""
 🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**
@@ -1657,7 +1956,7 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
                 try:
                     await context.bot.send_message(
                         chat_id=Config.ADMIN_CHAT_ID_INT,
-                        text=admin_msg + f"\n\n📸 ፎቶ መላክ አልተቻለም።",
+                        text=admin_msg,
                         parse_mode="Markdown",
                         reply_markup=admin_kbd,
                     )
@@ -1676,260 +1975,6 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         )
     
     return ConversationHandler.END
-
-# ==============================================================================
-# 16. HANDLERS - BROKER RESPONSE
-# ==============================================================================
-async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = query.from_user.id
-    broker = BrokerRepository.get_by_chat_id(user_id)
-    
-    if not broker or broker.get('status') != 'approved':
-        await safe_send_message(
-            update, context,
-            "⛔ **ያልተፈቀደ ተግባር**\n\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "ይህን ማድረግ የሚችሉት በአድሚን የተረጋገጡ ደላሎች/አቅራቢዎች ብቻ ናቸው!\n\n"
-            "📝 መጀመሪያ ይመዝገቡ እና ማጽደቅ ይጠብቁ።"
-        )
-        return ConversationHandler.END
-    
-    parts = query.data.split('_')
-    if len(parts) < 3:
-        logger.error(f"Invalid callback data: {query.data}")
-        return ConversationHandler.END
-    
-    req_id = parts[2]
-    buyer_id = parts[3] if len(parts) > 3 else None
-    
-    context.user_data['target_req_id'] = req_id
-    context.user_data['target_buyer_id'] = buyer_id
-    
-    await safe_send_message(
-        update, context,
-        f"""
-✅ **ለጥያቄ #{req_id} ምላሽ መስጠት**
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-✍️ እባክዎን ያለዎትን ንብረት ዝርዝር መረጃ ያስገቡ:
-
-📌 **የሚከተሉትን ያካትቱ:**
-• 🏷️ የንብረቱ አይነት
-• 📍 አካባቢ
-• 💰 ዋጋ
-• 📞 የስልክ ቁጥር ወይም ቴሌግራም
-
-💡 *ምሳሌ:* ቶዮታ ቪትዝ 2021፣ 30,000 KM የሄደ፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-""",
-        reply_markup=HOME_ONLY_KEYBOARD,
-    )
-    return BROKER_OFFER_TEXT
-
-async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "🏠 ዋና ገጽ":
-        return await go_home(update, context)
-    
-    context.user_data['offer_text'] = sanitize_input(update.message.text)
-    await safe_send_message(
-        update, context,
-        "📸 **የንብረቱ ፎቶ**\n\n"
-        "━━━━━━━━━━━━━━━━━━━━\n"
-        "🖼️ እባክዎን የንብረቱን ፎቶ ይላኩ:\n\n"
-        "💡 ፎቶ ከሌለዎት 'ፎቶ የለውም' ብለው ይጻፉ"
-    )
-    return BROKER_OFFER_PHOTO
-
-async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "🏠 ዋና ገጽ":
-        return await go_home(update, context)
-    
-    buyer_id = int(context.user_data.get('target_buyer_id', 0))
-    req_id = context.user_data.get('target_req_id')
-    offer_text = context.user_data.get('offer_text', '')
-    broker_name = update.effective_user.first_name or "አቅራቢ"
-    
-    if not buyer_id or not req_id:
-        await safe_send_message(update, context, "❌ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።")
-        return ConversationHandler.END
-    
-    ListingRepository.update_status(int(req_id), 'responded')
-    
-    message_to_buyer = f"""
-🎉 **ለጥያቄዎ (#REQ-{req_id}) አዲስ አማራጭ ቀርቧል!**
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 **አቅራቢ/ደላላ:** {broker_name}
-
-📝 **የንብረቱ ዝርዝር:**
-{offer_text}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 *ለተጨማሪ መረጃ ከላይ ያለውን መረጃ በመጠቀም ያነጋግሩ!*
-"""
-    
-    try:
-        if update.message.photo:
-            photo_id = update.message.photo[-1].file_id
-            await context.bot.send_photo(
-                chat_id=buyer_id,
-                photo=photo_id,
-                caption=message_to_buyer,
-                parse_mode="Markdown"
-            )
-        else:
-            await context.bot.send_message(
-                chat_id=buyer_id,
-                text=message_to_buyer,
-                parse_mode="Markdown"
-            )
-        
-        await safe_send_message(
-            update, context,
-            f"""
-✅ **መረጃዎ ለፈላጊው ተልኳል!** 📨
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📋 **የተላከው መረጃ:**
-• 📌 ጥያቄ: #{req_id}
-• 👤 ተቀባይ: {buyer_id}
-• 📅 ቀን: {datetime.now().strftime('%Y-%m-%d %H:%M')}
-• 📊 ሁኔታ: ተልኳል
-
-📌 ጥያቄው ከ'📋 የፈላጊዎች ዝርዝር' ተወግዷል።
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-""",
-            reply_markup=MAIN_MARKUP,
-        )
-        
-        logger.info(f"Offer sent to buyer {buyer_id} for request {req_id}")
-    except Exception as e:
-        logger.error(f"Failed to send offer to buyer: {e}")
-        await safe_send_message(
-            update, context,
-            "❌ **ስህተት**\n\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "መረጃውን ለፈላጊው መላክ አልተቻለም።\n"
-            "💡 እባክዎ እንደገና ይሞክሩ።",
-            reply_markup=MAIN_MARKUP,
-        )
-    
-    return ConversationHandler.END
-
-# ==============================================================================
-# 17. HANDLERS - VIEW REQUESTS
-# ==============================================================================
-async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    broker = BrokerRepository.get_by_chat_id(user_id)
-    
-    if not broker:
-        await safe_send_message(
-            update, context,
-            "⛔ **ያልተፈቀደ ተግባር**\n\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "ይህን ገጽ ማየት የሚችሉት የተመዘገቡ አቅራቢዎች/ደላሎች ብቻ ናቸው!\n\n"
-            "📝 እባክዎን መጀመሪያ '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
-            reply_markup=MAIN_MARKUP,
-        )
-        return
-    
-    if broker.get('status') != 'approved':
-        await safe_send_message(
-            update, context,
-            "⏳ **ምዝገባዎ ገና አልጸደቀም!**\n\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "⏳ ምዝገባዎ በአድሚን ሲረጋገጥ ማስታወቂያ ይደርስዎታል።\n"
-            "📞 ለተጨማሪ መረጃ ድጋፍን ይጠቀሙ።",
-            reply_markup=MAIN_MARKUP,
-        )
-        return
-    
-    context.user_data['view_page'] = 0
-    await show_requests_page(update, context)
-
-async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        if update.callback_query and update.callback_query.data.startswith("page_"):
-            context.user_data['view_page'] = int(update.callback_query.data.replace("page_", ""))
-        
-        page = context.user_data.get('view_page', 0)
-        offset = page * Config.ITEMS_PER_PAGE
-        
-        listings = ListingRepository.get_pending(limit=Config.ITEMS_PER_PAGE, offset=offset)
-        total = ListingRepository.count_pending()
-        total_pages = max(1, (total + Config.ITEMS_PER_PAGE - 1) // Config.ITEMS_PER_PAGE)
-        
-        if not listings:
-            text = """
-📭 **ምንም ንቁ ጥያቄዎች የሉም**
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-💡 ሁሉም ጥያቄዎች ተመልሰዋል ወይም በሂደት ላይ ናቸው።
-🔄 ቆይተው እንደገና ይሞክሩ።
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-"""
-            if update.message:
-                await safe_send_message(update, context, text, reply_markup=MAIN_MARKUP)
-            else:
-                await update.callback_query.answer()
-                await update.callback_query.edit_message_text(text)
-            return
-        
-        text = f"""
-📋 **የፈላጊዎች ዝርዝር**
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📄 ገጽ {page + 1}/{total_pages}
-📊 አጠቃላይ ጥያቄዎች: {total}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-"""
-        for listing in listings:
-            text += format_listing_for_broker(listing)
-            text += "\n"
-        
-        keyboard = []
-        for listing in listings:
-            l_id = listing.get('id')
-            u_id = listing.get('user_chat_id')
-            keyboard.append([InlineKeyboardButton(f"✅ አለኝ - #{l_id}", callback_data=f"have_item_{l_id}_{u_id}")])
-        
-        nav_buttons = []
-        if page > 0:
-            nav_buttons.append(InlineKeyboardButton("⬅️ ቀዳሚ ገጽ", callback_data=f"page_{page - 1}"))
-        if offset + Config.ITEMS_PER_PAGE < total:
-            nav_buttons.append(InlineKeyboardButton("➡️ ቀጣይ ገጽ", callback_data=f"page_{page + 1}"))
-        nav_buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
-        keyboard.append(nav_buttons)
-        
-        if update.message:
-            await safe_send_message(
-                update, context,
-                text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-        else:
-            query = update.callback_query
-            await query.answer()
-            await query.edit_message_text(
-                text,
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-    
-    except Exception as e:
-        logger.error(f"Error showing requests page: {e}")
-        await safe_send_message(
-            update, context,
-            "❌ **ስህተት**\n\n"
-            "━━━━━━━━━━━━━━━━━━━━\n"
-            "ዝርዝሩን ማሳየት አልተቻለም።\n"
-            "💡 እባክዎ እንደገና ይሞክሩ።"
-        )
 
 # ==============================================================================
 # 18. HANDLERS - ADMIN
@@ -2124,7 +2169,7 @@ def main():
         entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
         states={
             BROKER_OFFER_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_text)],
-            BROKER_OFFER_PHOTO: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, broker_offer_photo)],
+            BROKER_OFFER_PHONE: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, broker_offer_phone)],
         },
         fallbacks=[CommandHandler("start", start), cancel_message_handler],
         allow_reentry=True,
