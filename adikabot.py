@@ -71,8 +71,99 @@ HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየ�
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
 
 # ==============================================================================
-# 3. DATABASE UTILITIES - ADD_BROKER (የተስተካከለ)
+# 3. DATABASE UTILITIES (የተስተካከለ - init_db ተጨምሯል)
 # ==============================================================================
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import sqlite3
+
+def get_db_connection():
+    if DATABASE_URL:
+        db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1) if DATABASE_URL.startswith("postgres://") else DATABASE_URL
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = True
+        return conn
+    else:
+        import sqlite3
+        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adika_marketplace.db")
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+def get_placeholder():
+    return "%s" if DATABASE_URL else "?"
+
+def init_db():
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if DATABASE_URL:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS listings (
+                    id SERIAL PRIMARY KEY,
+                    user_chat_id BIGINT NOT NULL,
+                    user_name TEXT,
+                    req_type TEXT NOT NULL,
+                    main_category TEXT NOT NULL,
+                    sub_category TEXT,
+                    action_type TEXT,
+                    property_type TEXT,
+                    description TEXT NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS brokers (
+                    id SERIAL PRIMARY KEY,
+                    chat_id BIGINT NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    role_type TEXT NOT NULL,
+                    national_id_photo TEXT,
+                    sub_city TEXT NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            conn.commit()
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS listings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_chat_id INTEGER NOT NULL,
+                    user_name TEXT,
+                    req_type TEXT NOT NULL,
+                    main_category TEXT NOT NULL,
+                    sub_category TEXT,
+                    action_type TEXT,
+                    property_type TEXT,
+                    description TEXT NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS brokers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    role_type TEXT NOT NULL,
+                    national_id_photo TEXT,
+                    sub_city TEXT NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            conn.commit()
+            
+        logger.info("✅ Database initialized successfully")
+    except Exception as e:
+        logger.error(f"Database initialization error: {e}")
+    finally:
+        if conn:
+            conn.close()
+
 def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city):
     conn = None
     try:
@@ -80,12 +171,10 @@ def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city
         cursor = conn.cursor()
         p = get_placeholder()
         
-        # Check if user already exists
         cursor.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
         existing = cursor.fetchone()
         
         if existing:
-            # Update existing
             if DATABASE_URL:
                 query = f"""
                     UPDATE brokers 
@@ -107,7 +196,6 @@ def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city
                 broker_id = existing[0]
                 conn.commit()
         else:
-            # Insert new
             if DATABASE_URL:
                 query = f"""
                     INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
