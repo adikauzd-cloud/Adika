@@ -2,7 +2,7 @@ import logging
 import os
 import threading
 import re
-import asyncio
+import asyncio  # ✅ ይህን ይጨምሩ
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import psycopg2
@@ -89,14 +89,12 @@ def get_placeholder():
     return "%s" if DATABASE_URL else "?"
 
 def init_db():
-    """Initialize database tables"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
         if DATABASE_URL:
-            # PostgreSQL
             cursor.execute("DROP TABLE IF EXISTS brokers CASCADE")
             cursor.execute("DROP TABLE IF EXISTS listings CASCADE")
             cursor.execute("DROP TABLE IF EXISTS responses CASCADE")
@@ -136,7 +134,6 @@ def init_db():
             """)
             conn.commit()
         else:
-            # SQLite
             cursor.execute("DROP TABLE IF EXISTS brokers")
             cursor.execute("DROP TABLE IF EXISTS listings")
             cursor.execute("DROP TABLE IF EXISTS responses")
@@ -214,7 +211,6 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category, 
             conn.close()
 
 def get_listings_by_category(limit=10, offset=0, category_filter=None, search_term=None):
-    """Get listings with optional filter and search"""
     conn = None
     try:
         conn = get_db_connection()
@@ -271,7 +267,6 @@ def get_listing_by_id(listing_id):
             conn.close()
 
 def count_listings(category_filter=None, search_term=None):
-    """Count listings with optional filter and search"""
     conn = None
     try:
         conn = get_db_connection()
@@ -324,7 +319,6 @@ def update_listing_status(req_id, status):
             conn.close()
 
 def deactivate_listing(listing_id: int) -> bool:
-    """Deactivate a listing (close it) - Admin only"""
     conn = None
     try:
         conn = get_db_connection()
@@ -448,7 +442,6 @@ def get_broker(chat_id):
             conn.close()
 
 def get_response_count(listing_id: int) -> int:
-    """Get number of responses for a listing"""
     conn = None
     try:
         conn = get_db_connection()
@@ -467,7 +460,6 @@ def get_response_count(listing_id: int) -> int:
             conn.close()
 
 def save_response(listing_id: int, broker_id: int, message: str):
-    """Save broker response to database"""
     conn = None
     try:
         conn = get_db_connection()
@@ -1300,7 +1292,6 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.message.reply_text(view_text, parse_mode="Markdown")
 
 async def admin_delete_listing(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin can delete/close a listing"""
     query = update.callback_query
     await query.answer()
     
@@ -1672,6 +1663,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 15. MAIN ENGINE
 # ==============================================================================
 def main():
+    import asyncio
     init_db()
     threading.Thread(target=run_flask, daemon=True).start()
 
