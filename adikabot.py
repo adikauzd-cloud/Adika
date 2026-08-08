@@ -946,7 +946,6 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return ConversationHandler.END
 
-import html
 
 # ==============================================================================
 # 10. BROKER REGISTRATION
