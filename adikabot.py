@@ -3,6 +3,7 @@ import os
 import threading
 import re
 from typing import Optional, List, Dict, Any
+from datetime import datetime  # ✅ ይህን ይጨምሩ
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask
@@ -1181,8 +1182,10 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
 
 
 # ==============================================================================
-# 12. VIEW REQUESTS (የተሻሻለ)
+# 12. VIEW REQUESTS (የተስተካከለ - datetime import ተጨምሯል)
 # ==============================================================================
+from datetime import datetime  # ✅ ይህን ከላይ ይጨምሩ
+
 ITEMS_PER_PAGE = 8
 
 def format_listing_card(listing: Dict, idx: int) -> str:
@@ -1195,13 +1198,16 @@ def format_listing_card(listing: Dict, idx: int) -> str:
         description = listing.get('description', '')
         created_at = listing.get('created_at', '')
         
-        # ✅ ቀንን በቀላል መንገድ መለወጥ
+        # ✅ ቀንን በትክክል መለወጥ (datetime አሁን ተገልጿል)
         if created_at:
-            date_str = str(created_at)
-            if len(date_str) >= 10:
-                date_str = date_str[:10]
+            if isinstance(created_at, datetime):
+                date_str = created_at.strftime('%Y-%m-%d')
             else:
-                date_str = 'N/A'
+                # ለሌሎች የውሂብ አይነቶች
+                try:
+                    date_str = str(created_at)[:10]
+                except:
+                    date_str = 'N/A'
         else:
             date_str = 'N/A'
         
