@@ -1181,7 +1181,7 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
 
 
 # ==============================================================================
-# 12. VIEW REQUESTS (የተሻሻለ - ከስህተት መረጃ ጋር)
+# 12. VIEW REQUESTS (የተስተካከለ)
 # ==============================================================================
 ITEMS_PER_PAGE = 8
 
@@ -1194,6 +1194,15 @@ def format_listing_card(listing: Dict, idx: int) -> str:
         action_type = listing.get('action_type', '')
         description = listing.get('description', '')
         created_at = listing.get('created_at', '')
+        
+        # ✅ ቀንን በትክክል መለወጥ
+        if created_at:
+            if isinstance(created_at, datetime):
+                date_str = created_at.strftime('%Y-%m-%d')
+            else:
+                date_str = str(created_at)[:10] if created_at else 'N/A'
+        else:
+            date_str = 'N/A'
         
         # Category emojis
         cat_emojis = {
@@ -1212,9 +1221,6 @@ def format_listing_card(listing: Dict, idx: int) -> str:
         if len(clean_desc) > 50:
             clean_desc = clean_desc[:50] + "..."
         
-        # Format date
-        date_str = created_at[:10] if created_at else 'N/A'
-        
         # Professional compact card
         card = f"""
 ┌─── 📌 #{listing_id} ──────────────────────
@@ -1226,21 +1232,28 @@ def format_listing_card(listing: Dict, idx: int) -> str:
         return card
     except Exception as e:
         logger.error(f"Error formatting card: {e}")
-        return f"❌ ስህተት በማሳየት ላይ: {e}"
+        return f"❌ ስህተት በማሳየት ላይ: {str(e)}"
 
 async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
+    
+    # ✅ አድሚን ከሆነ ሁሉንም ጥያቄዎች ማየት ይችላል
+    is_admin = (user_id == ADMIN_CHAT_ID_INT)
+    
+    # ተጠቃሚው ደላላ መሆኑን ያረጋግጡ
     broker = get_broker(user_id)
     
-    if not broker:
+    # አድሚን ካልሆነ እና ደላላ ካልሆነ አይፈቀድም
+    if not is_admin and not broker:
         await update.message.reply_text(
-            "⛔ ይህን ገጽ ማየት የሚችሉት የተመዘገቡ አቅራቢዎች/ደላሎች ብቻ ናቸው!\n\n"
+            "⛔ ይህን ገጽ ማየት የሚችሉት የተመዘገቡ አቅራቢዎች/ደላሎች ወይም አድሚን ብቻ ናቸው!\n\n"
             "📝 እባክዎን መጀመሪያ '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return
     
-    if broker.get('status') != 'approved':
+    # ደላላ ከሆነ እና ካልጸደቀ
+    if not is_admin and broker.get('status') != 'approved':
         await update.message.reply_text(
             "⏳ **ምዝገባዎ ገና በአድሚን አልጸደቀም!**\n\n"
             "⏳ ምዝገባዎ በአድሚን ሲረጋገጥ ማስታወቂያ ይደርስዎታል።\n"
@@ -1265,7 +1278,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         offset = page * ITEMS_PER_PAGE
         
-        # ✅ Get listings with error handling
+        # ✅ የተሻሻለ የውሂብ ማግኛ
         try:
             listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
             total = count_listings()
@@ -1304,10 +1317,15 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.callback_query.edit_message_text(text, parse_mode="Markdown")
             return
         
-        # ✅ Get broker name safely
+        # ✅ የተጠቃሚ ስም ማግኘት
         user_id = update.effective_user.id
-        broker_data = get_broker(user_id)
-        broker_name = broker_data.get('full_name', 'ደላላ') if broker_data else 'ደላላ'
+        is_admin = (user_id == ADMIN_CHAT_ID_INT)
+        
+        if is_admin:
+            broker_name = "👑 አድሚን"
+        else:
+            broker_data = get_broker(user_id)
+            broker_name = broker_data.get('full_name', 'ደላላ') if broker_data else 'ደላላ'
         
         header = f"""
 📋 **የፈላጊዎች ዝርዝር**
