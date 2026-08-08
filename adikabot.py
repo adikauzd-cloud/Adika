@@ -1179,22 +1179,38 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
             )
             await query.message.reply_text(view_text, parse_mode="Markdown")
 
-# ==============================================================================
+
 # ==============================================================================
 # 12. VIEW REQUESTS (የተሻሻለ - ፕሮፌሽናል አቀራረብ)
 # ==============================================================================
 ITEMS_PER_PAGE = 5
 
+def format_date(date_value) -> str:
+    """Format date properly whether it's string or datetime"""
+    if not date_value:
+        return 'N/A'
+    try:
+        # If it's already a datetime object
+        if hasattr(date_value, 'strftime'):
+            return date_value.strftime('%Y-%m-%d')
+        # If it's a string
+        elif isinstance(date_value, str):
+            return date_value[:10]
+        else:
+            return str(date_value)[:10]
+    except Exception as e:
+        logger.error(f"Error formatting date: {e}")
+        return 'N/A'
+
 def format_listing_card(listing: Dict) -> str:
     """Professional card format for each listing"""
     try:
-        # ✅ ትክክለኛውን የአምድ ስም መጠቀም
         listing_id = listing.get('id', 'N/A')
         main_cat = listing.get('main_category', listing.get('main_cat', ''))
         sub_cat = listing.get('sub_category', listing.get('sub_cat', ''))
         action_type = listing.get('action_type', '')
         description = listing.get('description', '')
-        created_at = listing.get('created_at', '')
+        created_at = listing.get('created_at', None)
         property_type = listing.get('property_type', '')
         
         # Category emojis
@@ -1205,7 +1221,7 @@ def format_listing_card(listing: Dict) -> str:
         }
         emoji = cat_emojis.get(main_cat.lower() if main_cat else '', '📌')
         
-        # ✅ Extract phone from description (if exists)
+        # Extract phone from description (if exists)
         phone = 'N/A'
         clean_desc = description
         if description:
@@ -1226,17 +1242,16 @@ def format_listing_card(listing: Dict) -> str:
                     phone_match = re.search(r'(09|07|01)\d{8}', description)
                     if phone_match:
                         phone = phone_match.group(0)
-                        # Don't remove from description if not clearly labeled
         
         # ✅ Clean description
         clean_desc = clean_desc.strip()
         if not clean_desc:
             clean_desc = 'መግለጫ የለም'
         
-        # Format date
-        date_str = created_at[:10] if created_at else 'N/A'
+        # ✅ Format date properly
+        date_str = format_date(created_at)
         
-        # ✅ Build professional card
+        # Build professional card
         card = f"""
 ┌─────────────────────────────────────────────
 │ {emoji} **ማስታወቂያ #{listing_id}**
@@ -1255,7 +1270,6 @@ def format_listing_card(listing: Dict) -> str:
     except Exception as e:
         logger.error(f"Error formatting listing card: {e}")
         logger.error(f"Listing data: {listing}")
-        # ✅ Return a simple card for debugging
         return f"""
 ┌─────────────────────────────────────────────
 │ ⚠️ **ማስታወቂያ #{listing.get('id', 'N/A')}**
