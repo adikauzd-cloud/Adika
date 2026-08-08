@@ -1436,7 +1436,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
 # ==============================================================================
-# 14. MAIN ENGINE
+# 14. MAIN ENGINE (የተስተካከለ)
 # ==============================================================================
 def main():
     import asyncio
