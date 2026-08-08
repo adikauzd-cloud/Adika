@@ -72,8 +72,14 @@ HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየ�
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
 
 # ==============================================================================
-# 3. DATABASE UTILITIES
+# 3. DATABASE UTILITIES (የተስተካከለ - Persistent Database)
 # ==============================================================================
+import json
+import os
+
+# ለውሂብ ጎታ ፋይል ቋሚ መንገድ
+DB_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adika_marketplace.db")
+
 def get_db_connection():
     if DATABASE_URL:
         db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1) if DATABASE_URL.startswith("postgres://") else DATABASE_URL
@@ -82,7 +88,8 @@ def get_db_connection():
         return conn
     else:
         import sqlite3
-        conn = sqlite3.connect("adika_marketplace.db")
+        # ✅ ቋሚ መንገድ ይጠቀሙ
+        conn = sqlite3.connect(DB_FILE_PATH)
         conn.row_factory = sqlite3.Row
         return conn
 
@@ -95,7 +102,6 @@ def init_db():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Drop existing tables to avoid conflicts
         if DATABASE_URL:
             cursor.execute("DROP TABLE IF EXISTS brokers CASCADE")
             cursor.execute("DROP TABLE IF EXISTS listings CASCADE")
@@ -128,11 +134,9 @@ def init_db():
             """)
             conn.commit()
         else:
-            cursor.execute("DROP TABLE IF EXISTS brokers")
-            cursor.execute("DROP TABLE IF EXISTS listings")
-            
+            # ✅ SQLite ላይ ሰንጠረዦችን እንደገና አይፍጠሩ (ተመዝጋቢዎችን ለማቆየት)
             cursor.execute("""
-                CREATE TABLE listings (
+                CREATE TABLE IF NOT EXISTS listings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_chat_id INTEGER NOT NULL,
                     user_name TEXT,
@@ -145,7 +149,7 @@ def init_db():
                     status TEXT DEFAULT 'pending',
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
-                CREATE TABLE brokers (
+                CREATE TABLE IF NOT EXISTS brokers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     chat_id INTEGER NOT NULL UNIQUE,
                     full_name TEXT NOT NULL,
@@ -159,13 +163,12 @@ def init_db():
             """)
             conn.commit()
             
-        logger.info("✅ Database initialized successfully")
+        logger.info(f"✅ Database initialized successfully at {DB_FILE_PATH}")
     except Exception as e:
         logger.error(f"Database initialization error: {e}")
     finally:
         if conn:
             conn.close()
-
 # ========== LISTING DB OPERATIONS ==========
 def add_listing(user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description):
     conn = None
