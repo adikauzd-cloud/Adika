@@ -1181,7 +1181,7 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
 
 
 # ==============================================================================
-# 12. VIEW REQUESTS (የተስተካከለ)
+# 12. VIEW REQUESTS (የተሻሻለ)
 # ==============================================================================
 ITEMS_PER_PAGE = 8
 
@@ -1195,12 +1195,13 @@ def format_listing_card(listing: Dict, idx: int) -> str:
         description = listing.get('description', '')
         created_at = listing.get('created_at', '')
         
-        # ✅ ቀንን በትክክል መለወጥ
+        # ✅ ቀንን በቀላል መንገድ መለወጥ
         if created_at:
-            if isinstance(created_at, datetime):
-                date_str = created_at.strftime('%Y-%m-%d')
+            date_str = str(created_at)
+            if len(date_str) >= 10:
+                date_str = date_str[:10]
             else:
-                date_str = str(created_at)[:10] if created_at else 'N/A'
+                date_str = 'N/A'
         else:
             date_str = 'N/A'
         
