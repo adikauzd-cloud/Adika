@@ -1180,7 +1180,50 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
             )
             await query.message.reply_text(view_text, parse_mode="Markdown")
 
-
+# ==============================================================================
+# 12.5 DELETE REQUEST HANDLER (አዲስ ተጨምሯል)
+# ==============================================================================
+async def delete_request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ጥያቄን ለማጥፋት - ለባለቤቱ እና ለአድሚን ብቻ"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    is_admin = (user_id == ADMIN_CHAT_ID_INT)
+    
+    parts = query.data.split('_')
+    if len(parts) < 3:
+        await query.message.reply_text("❌ የተሳሳተ መረጃ ተላኳል።")
+        return
+    
+    req_id = int(parts[2])
+    listing = get_listing_by_id(req_id)
+    
+    if not listing:
+        await query.message.reply_text("❌ ጥያቄው አልተገኘም።")
+        return
+    
+    if not is_admin and listing.get('user_chat_id') != user_id:
+        await query.message.reply_text("⛔ ይህን ጥያቄ የማጥፋት ፈቃድ የለዎትም!")
+        return
+    
+    success = update_listing_status(req_id, 'deleted')
+    
+    if success:
+        await query.edit_message_text(
+            f"🗑️ **ጥያቄ #{req_id} ተሰርዟል**\n\n"
+            f"👤 በ: {update.effective_user.first_name}\n"
+            f"📅 ቀን: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            parse_mode="Markdown"
+        )
+        
+        await query.message.reply_text(
+            f"✅ **ጥያቄ #{req_id} በስኬት ተሰርዟል!**\n\n"
+            f"📌 ጥያቄው ከ'📋 የፈላጊዎች ዝርዝር' ተወግዷል።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+    else:
+        await query.message.reply_text("❌ ጥያቄውን ማጥፋት አልተቻለም።")
 # ==============================================================================
 # 12. VIEW REQUESTS (የተስተካከለ - የማጥፋት ቁልፍ ተጨምሯል)
 # ==============================================================================
