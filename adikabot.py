@@ -1641,11 +1641,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
 # ==============================================================================
-# 14. MAIN ENGINE (የተስተካከለ)
+# 14. MAIN ENGINE (የተስተካከለ - ሙሉ ማስኬጃ)
 # ==============================================================================
 def main():
     import asyncio
-    # ✅ የውሂብ ጎታ ሲጀመር CREATE TABLE IF NOT EXISTS ይጠቀሙ
     init_db()
     threading.Thread(target=run_flask, daemon=True).start()
 
