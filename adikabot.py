@@ -1186,37 +1186,35 @@ ITEMS_PER_PAGE = 5
 
 def format_listing_card(listing: Dict) -> str:
     """Professional card format for each listing"""
-    listing_id = listing.get('id', 'N/A')
-    main_cat = listing.get('main_category', '').upper()
-    sub_cat = listing.get('sub_category', '')
-    action_type = listing.get('action_type', '')
-    description = listing.get('description', '')
-    created_at = listing.get('created_at', '')
-    
-    # Category emojis
-    cat_emojis = {
-        'car': '🚗',
-        'house': '🏠',
-        'commercial': '🏢'
-    }
-    emoji = cat_emojis.get(listing.get('main_category', ''), '📌')
-    
-    # ✅ ስልክን ከ description ለማውጣት (ካለ)
-    phone = 'N/A'
-    phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
-    if phone_match:
-        phone = phone_match.group(1)
-    
-    # ✅ Clean description (remove phone line)
-    clean_desc = description
-    if phone_match:
-        clean_desc = re.sub(r'\n?📞 ስልክ:\s*[\d+]+', '', description)
-    clean_desc = clean_desc.strip()
-    
-    # Format date
-    date_str = created_at[:10] if created_at else 'N/A'
-    
-    card = f"""
+    try:
+        listing_id = listing.get('id', 'N/A')
+        main_cat = listing.get('main_category', '').upper()
+        sub_cat = listing.get('sub_category', '')
+        action_type = listing.get('action_type', '')
+        description = listing.get('description', '')
+        created_at = listing.get('created_at', '')
+        
+        # Category emojis
+        cat_emojis = {
+            'car': '🚗',
+            'house': '🏠',
+            'commercial': '🏢'
+        }
+        emoji = cat_emojis.get(listing.get('main_category', ''), '📌')
+        
+        # Extract phone from description (if exists)
+        phone = 'N/A'
+        if description:
+            phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
+            if phone_match:
+                phone = phone_match.group(1)
+                # Remove phone line from description
+                description = re.sub(r'\n?📞 ስልክ:\s*[\d+]+', '', description)
+        
+        # Format date
+        date_str = created_at[:10] if created_at else 'N/A'
+        
+        card = f"""
 ┌─────────────────────────────────────────────
 │ {emoji} **ማስታወቂያ #{listing_id}**
 ├─────────────────────────────────────────────
@@ -1227,10 +1225,19 @@ def format_listing_card(listing: Dict) -> str:
 │ 📅 ቀን: {date_str}
 ├─────────────────────────────────────────────
 │ 📝 **ዝርዝር መግለጫ:**
-│ {clean_desc if clean_desc else 'መግለጫ የለም'}
+│ {description.strip() if description else 'መግለጫ የለም'}
 └─────────────────────────────────────────────
 """
-    return card
+        return card
+    except Exception as e:
+        logger.error(f"Error formatting listing card: {e}")
+        return f"""
+┌─────────────────────────────────────────────
+│ ⚠️ **ማስታወቂያ #{listing.get('id', 'N/A')}**
+├─────────────────────────────────────────────
+│ ❌ ይህን ማስታወቂያ ማሳየት አልተቻለም
+└─────────────────────────────────────────────
+"""
 
 async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1258,21 +1265,26 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Handle page navigation from callback
-        if update.callback_query and update.callback_query.data.startswith("page_"):
-            page = int(update.callback_query.data.replace("page_", ""))
-            context.user_data['view_page'] = page
-            query = update.callback_query
-            await query.answer()
+        # ✅ Handle page navigation
+        page = 0
+        if update.callback_query and update.callback_query.data:
+            if update.callback_query.data.startswith("page_"):
+                page = int(update.callback_query.data.replace("page_", ""))
+                context.user_data['view_page'] = page
+                await update.callback_query.answer()
+            else:
+                page = context.user_data.get('view_page', 0)
         else:
             page = context.user_data.get('view_page', 0)
         
         offset = page * ITEMS_PER_PAGE
         
+        # ✅ Get listings
         listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
         total = count_listings()
         total_pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
         
+        # ✅ Check if no listings
         if not listings:
             text = """
 📭 **ምንም ንቁ ጥያቄዎች የሉም**
@@ -1288,8 +1300,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.callback_query.edit_message_text(text, parse_mode="Markdown")
             return
         
-        # ✅ Header with statistics
-        broker_name = context.user_data.get('broker_name', 'ደላላ')
+        # ✅ Header
         header = f"""
 📋 **የፈላጊዎች ዝርዝር**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1299,7 +1310,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 """
         
-        # ✅ Professional listing cards
+        # ✅ Build listing cards
         body = ""
         for idx, listing in enumerate(listings, 1):
             body += format_listing_card(listing)
@@ -1309,12 +1320,17 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # ✅ Build keyboard
         keyboard = []
         for listing in listings:
-            l_id = listing.get('id')
-            u_id = listing.get('user_chat_id')
-            keyboard.append([InlineKeyboardButton(
-                f"✅ አለኝ - #{l_id}", 
-                callback_data=f"have_item_{l_id}_{u_id}"
-            )])
+            try:
+                l_id = listing.get('id')
+                u_id = listing.get('user_chat_id')
+                if l_id and u_id:
+                    keyboard.append([InlineKeyboardButton(
+                        f"✅ አለኝ - #{l_id}", 
+                        callback_data=f"have_item_{l_id}_{u_id}"
+                    )])
+            except Exception as e:
+                logger.error(f"Error creating button for listing: {e}")
+                continue
         
         # ✅ Navigation buttons
         nav_buttons = []
@@ -1327,6 +1343,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         text = header + body
         
+        # ✅ Send message
         if update.message:
             await update.message.reply_text(
                 text, 
@@ -1341,17 +1358,24 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             
     except Exception as e:
-        logger.error(f"Error in show_requests_page: {e}")
+        logger.error(f"❌ Error in show_requests_page: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
         error_text = """
 ❌ **ስህተተ!**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ዝርዝሩን ማሳየት አልተቻለም።
 💡 እባክዎ እንደገና ይሞክሩ።
+
+📋 **ስህተቱን ለማስተካከል:**
+• እባክዎ የቴሌግራም ቦቱን እንደገና ያስጀምሩ
+• ወይም ድጋፍን ያግኙ
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
         if update.message:
-            await update.message.reply_text(error_text, parse_mode="Markdown")
+            await update.message.reply_text(error_text, parse_mode="Markdown", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
         else:
             try:
                 await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
