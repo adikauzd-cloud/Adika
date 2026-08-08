@@ -955,89 +955,14 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 10. BROKER REGISTRATION (የተሻሻለ)
+# 10. BROKER REGISTRATION (የተስተካከለ - Duplicate Check)
 # ==============================================================================
-async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    
-    keyboard = [
-        [InlineKeyboardButton("👨💼 ደላላ", callback_data="role_broker")],
-        [InlineKeyboardButton("🚢 አስመጪ / አቅራቢ", callback_data="role_importer")],
-        [InlineKeyboardButton("👤 ባለቤት / አቅራቢ", callback_data="role_owner")],
-        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
-    ]
-    await update.message.reply_text(
-        "📝 **የምዝገባ አይነት ይምረጡ፦**\n\n"
-        "💡 *ማብራሪያ፦*\n"
-        "• ደላላ - ሽያጭ/ኪራይ የሚያመቻች\n"
-        "• አስመጪ/አቅራቢ - ከውጭ የሚያስገባ\n"
-        "• ባለቤት/አቅራቢ - ንብረት ያለው",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
-    return BROKER_ROLE
-
-async def broker_role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if query.data == "flow_home":
-        return await go_home(update, context)
-    
-    await query.answer()
-    role_map = {
-        "role_broker": "ደላላ",
-        "role_importer": "አስመጪ/አቅራቢ",
-        "role_owner": "ባለቤት/አቅራቢ"
-    }
-    role = role_map.get(query.data, "አቅራቢ")
-    context.user_data['broker_role'] = role
-    
-    await query.edit_message_text(f"👤 **ምዝገባ፦ {role}**\n\n1️⃣ ሙሉ ስምዎን ያስገቡ፦")
-    return BROKER_NAME
-
-async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "🏠 ዋና ገጽ":
-        return await go_home(update, context)
-    context.user_data['broker_name'] = update.message.text
-    await update.message.reply_text("2️⃣ የስልክ ቁጥርዎን ያስገቡ፦")
-    return BROKER_PHONE
-
-async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "🏠 ዋና ገጽ":
-        return await go_home(update, context)
-    
-    if not validate_phone(update.message.text):
-        await update.message.reply_text("❌ ትክክለኛ የስልክ ቁጥር ያስገቡ። (ለምሳሌ፦ 0911223344)")
-        return BROKER_PHONE
-    
-    context.user_data['broker_phone'] = update.message.text
-    
-    keyboard = [[InlineKeyboardButton(sc, callback_data=f"broker_sc_{sc}")] for sc in SUB_CITIES]
-    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
-    await update.message.reply_text("3️⃣ የሚሰሩበትን ክፍለ ከተማ ይምረጡ፦", reply_markup=InlineKeyboardMarkup(keyboard))
-    return BROKER_SUBCITY
-
-async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    if query.data == "flow_home":
-        return await go_home(update, context)
-    
-    await query.answer()
-    sub_city = query.data.replace("broker_sc_", "")
-    context.user_data['broker_subcity'] = sub_city
-    
-    await query.edit_message_text(
-        "4️⃣ **የፋይዳ (National ID) ወይም የነዋሪነት መታወቂያ ፎቶ ያንሱና ይላኩ፦**\n\n"
-        "💡 *ይህ ለማረጋገጫ ብቻ ነው*"
-    )
-    return BROKER_NID_PHOTO
-
 async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
 
     user = update.effective_user
     
-    # Check if it's a photo
     if not update.message or not update.message.photo:
         await update.message.reply_text(
             "❌ **እባክዎ የመታወቂያዎን ፎቶ ይላኩ!**\n\n"
@@ -1046,13 +971,24 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return BROKER_NID_PHOTO
         
+    # ✅ ተጠቃሚው አስቀድሞ ተመዝግቧል እንደሆነ ያረጋግጡ
+    existing_broker = get_broker(user.id)
+    if existing_broker:
+        await update.message.reply_text(
+            "ℹ️ **አስቀድመው ተመዝግበዋል!**\n\n"
+            f"👤 ስም: {existing_broker.get('full_name')}\n"
+            f"📊 ሁኔታ: {existing_broker.get('status')}\n\n"
+            "📌 ለውጥ ለማድረግ እባክዎን አድሚንን ያግኙ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return ConversationHandler.END
+        
     photo_id = update.message.photo[-1].file_id
     role = context.user_data.get('broker_role', 'አቅራቢ')
     name = context.user_data.get('broker_name', user.first_name)
     phone = context.user_data.get('broker_phone', '')
     sub_city = context.user_data.get('broker_subcity', '')
     
-    # Show registration info
     await update.message.reply_text(
         f"📝 **የምዝገባ መረጃዎ፦**\n\n"
         f"👤 ስም: {name}\n"
@@ -1064,7 +1000,6 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         parse_mode="Markdown"
     )
     
-    # Save to database
     broker_id = add_broker(user.id, name, phone, role, photo_id, sub_city)
     
     if broker_id:
@@ -1075,7 +1010,6 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
-        # Send to admin for approval
         if ADMIN_CHAT_ID_INT != 0:
             admin_msg = (
                 f"🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**\n\n"
@@ -1118,7 +1052,6 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         )
     
     return ConversationHandler.END
-
 # ==============================================================================
 # 11. ADMIN APPROVAL HANDLER
 # ==============================================================================
