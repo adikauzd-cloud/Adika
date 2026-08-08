@@ -1009,6 +1009,72 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==============================================================================
 # 10. BROKER REGISTRATION (የተስተካከለ - broker_reg_start ተጨምሯል)
 # ==============================================================================
+# ==============================================================================
+# 10. BROKER REGISTRATION - ADD_BROKER FIX (የተስተካከለ)
+# ==============================================================================
+def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        
+        logger.info(f"Attempting to register broker: {full_name}, chat_id: {chat_id}")
+        
+        # Check if user already exists
+        cursor.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            logger.info(f"Broker already exists, updating: {chat_id}")
+            if DATABASE_URL:
+                query = f"""
+                    UPDATE brokers 
+                    SET full_name = {p}, phone = {p}, role_type = {p}, 
+                        national_id_photo = {p}, sub_city = {p}, status = 'pending'
+                    WHERE chat_id = {p}
+                    RETURNING id
+                """
+                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
+                broker_id = cursor.fetchone()[0]
+            else:
+                query = """
+                    UPDATE brokers 
+                    SET full_name = ?, phone = ?, role_type = ?, 
+                        national_id_photo = ?, sub_city = ?, status = 'pending'
+                    WHERE chat_id = ?
+                """
+                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
+                broker_id = existing[0]
+                conn.commit()
+        else:
+            logger.info(f"Creating new broker: {chat_id}")
+            if DATABASE_URL:
+                query = f"""
+                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                    VALUES ({p}, {p}, {p}, {p}, {p}, {p}, 'pending')
+                    RETURNING id
+                """
+                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
+                broker_id = cursor.fetchone()[0]
+            else:
+                query = """
+                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending')
+                """
+                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
+                broker_id = cursor.lastrowid
+                conn.commit()
+            
+        logger.info(f"✅ Broker registered successfully: {full_name} (ID: {broker_id})")
+        return broker_id
+    except Exception as e:
+        logger.error(f"Add broker error: {e}")
+        logger.error(f"Data: chat_id={chat_id}, name={full_name}, phone={phone}, role={role_type}, sub_city={sub_city}")
+        return None
+    finally:
+        if conn:
+            conn.close()
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     
