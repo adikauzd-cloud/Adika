@@ -1181,7 +1181,7 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
 
 
 # ==============================================================================
-# 12. VIEW REQUESTS (የተሻሻለ - ቁልፍ ከጥያቄው አጠገብ)
+# 12. VIEW REQUESTS (የተስተካከለ - ቁልፍ ከጥያቄው አጠገብ)
 # ==============================================================================
 ITEMS_PER_PAGE = 8
 
@@ -1281,8 +1281,9 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.callback_query.edit_message_text(text, parse_mode="Markdown")
             return
         
-        # Compact professional header
-        broker_data = get_broker(update.effective_user.id)
+        # ✅ Get broker name safely
+        user_id = update.effective_user.id
+        broker_data = get_broker(user_id)
         broker_name = broker_data.get('full_name', 'ደላላ') if broker_data else 'ደላላ'
         
         header = f"""
