@@ -71,100 +71,65 @@ HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየ�
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
 
 # ==============================================================================
-# 3. DATABASE UTILITIES (የተስተካከለ - Persistent Database)
+# 3. DATABASE UTILITIES - ADD_BROKER (የተስተካከለ)
 # ==============================================================================
-import json
-import os
-
-# ለውሂብ ጎታ ፋይል ቋሚ መንገድ
-DB_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adika_marketplace.db")
-
-def get_db_connection():
-    if DATABASE_URL:
-        db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1) if DATABASE_URL.startswith("postgres://") else DATABASE_URL
-        conn = psycopg2.connect(db_url)
-        conn.autocommit = True
-        return conn
-    else:
-        import sqlite3
-        # ✅ ቋሚ መንገድ ይጠቀሙ
-        conn = sqlite3.connect(DB_FILE_PATH)
-        conn.row_factory = sqlite3.Row
-        return conn
-
-def get_placeholder():
-    return "%s" if DATABASE_URL else "?"
-
-def init_db():
+def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city):
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
+        p = get_placeholder()
         
-        if DATABASE_URL:
-            cursor.execute("DROP TABLE IF EXISTS brokers CASCADE")
-            cursor.execute("DROP TABLE IF EXISTS listings CASCADE")
-            
-            cursor.execute("""
-                CREATE TABLE listings (
-                    id SERIAL PRIMARY KEY,
-                    user_chat_id BIGINT NOT NULL,
-                    user_name TEXT,
-                    req_type TEXT NOT NULL,
-                    main_category TEXT NOT NULL,
-                    sub_category TEXT,
-                    action_type TEXT,
-                    property_type TEXT,
-                    description TEXT NOT NULL,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE brokers (
-                    id SERIAL PRIMARY KEY,
-                    chat_id BIGINT NOT NULL UNIQUE,
-                    full_name TEXT NOT NULL,
-                    phone TEXT NOT NULL,
-                    role_type TEXT NOT NULL,
-                    national_id_photo TEXT,
-                    sub_city TEXT NOT NULL,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            conn.commit()
+        # Check if user already exists
+        cursor.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Update existing
+            if DATABASE_URL:
+                query = f"""
+                    UPDATE brokers 
+                    SET full_name = {p}, phone = {p}, role_type = {p}, 
+                        national_id_photo = {p}, sub_city = {p}, status = 'pending'
+                    WHERE chat_id = {p}
+                    RETURNING id
+                """
+                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
+                broker_id = cursor.fetchone()[0]
+            else:
+                query = """
+                    UPDATE brokers 
+                    SET full_name = ?, phone = ?, role_type = ?, 
+                        national_id_photo = ?, sub_city = ?, status = 'pending'
+                    WHERE chat_id = ?
+                """
+                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
+                broker_id = existing[0]
+                conn.commit()
         else:
-            # ✅ SQLite ላይ ሰንጠረዦችን እንደገና አይፍጠሩ (ተመዝጋቢዎችን ለማቆየት)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS listings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_chat_id INTEGER NOT NULL,
-                    user_name TEXT,
-                    req_type TEXT NOT NULL,
-                    main_category TEXT NOT NULL,
-                    sub_category TEXT,
-                    action_type TEXT,
-                    property_type TEXT,
-                    description TEXT NOT NULL,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS brokers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chat_id INTEGER NOT NULL UNIQUE,
-                    full_name TEXT NOT NULL,
-                    phone TEXT NOT NULL,
-                    role_type TEXT NOT NULL,
-                    national_id_photo TEXT,
-                    sub_city TEXT NOT NULL,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            conn.commit()
+            # Insert new
+            if DATABASE_URL:
+                query = f"""
+                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                    VALUES ({p}, {p}, {p}, {p}, {p}, {p}, 'pending')
+                    RETURNING id
+                """
+                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
+                broker_id = cursor.fetchone()[0]
+            else:
+                query = """
+                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending')
+                """
+                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
+                broker_id = cursor.lastrowid
+                conn.commit()
             
-        logger.info(f"✅ Database initialized successfully at {DB_FILE_PATH}")
+        logger.info(f"✅ Broker registered: {full_name} (ID: {broker_id})")
+        return broker_id
     except Exception as e:
-        logger.error(f"Database initialization error: {e}")
+        logger.error(f"Add broker error: {e}")
+        return None
     finally:
         if conn:
             conn.close()
