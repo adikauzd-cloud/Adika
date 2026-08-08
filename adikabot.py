@@ -43,21 +43,23 @@ class Config:
             raise RuntimeError("❌ BOT_TOKEN environment variable is required")
         try:
             cls.ADMIN_CHAT_ID_INT = int(cls.ADMIN_CHAT_ID)
-            logger.info(f"✅ Admin chat ID set to: {cls.ADMIN_CHAT_ID_INT}")
         except ValueError:
             cls.ADMIN_CHAT_ID_INT = 0
-            logger.warning("⚠️ ADMIN_CHAT_ID is not set properly!")
 
+# ✅ በመጀመሪያ Config እናረጋግጣለን
 Config.validate()
 
 # ==============================================================================
-# 1. LOGGING
+# 1. LOGGING (ከ Config.validate() በኋላ)
 # ==============================================================================
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+# ✅ አሁን logger ተገልጿል
+logger.info(f"✅ Admin chat ID set to: {Config.ADMIN_CHAT_ID_INT}")
 
 # ==============================================================================
 # 2. DATABASE CONNECTION POOL
@@ -1031,7 +1033,6 @@ async def buyer_phone_received(update: Update, context: ContextTypes.DEFAULT_TYP
     listing_id = ListingRepository.create(listing_data)
     
     if listing_id:
-        # ✅ ለደላሎች ማሳወቅ
         notification_text = f"""
 📢 **አዲስ የፍላጎት ጥያቄ (#REQ-{listing_id})**
 
@@ -1643,7 +1644,6 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
                 [InlineKeyboardButton("👤 ዝርዝር", callback_data=f"admin_view_{user.id}")],
             ])
             try:
-                # ፎቶውን ከመልእክቱ ጋር መላክ
                 await context.bot.send_photo(
                     chat_id=Config.ADMIN_CHAT_ID_INT,
                     photo=photo_id,
@@ -1654,11 +1654,10 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
                 logger.info(f"✅ Admin notification sent for broker {user.id}")
             except Exception as e:
                 logger.error(f"❌ Failed to send admin notification: {e}")
-                # ፎቶ ሳይሆን መልእክት ብቻ ለመላክ ሙከራ
                 try:
                     await context.bot.send_message(
                         chat_id=Config.ADMIN_CHAT_ID_INT,
-                        text=admin_msg + f"\n\n📸 ፎቶ መላክ አልተቻለም። እባክዎ ከታች ያለውን ይጫኑ:",
+                        text=admin_msg + f"\n\n📸 ፎቶ መላክ አልተቻለም።",
                         parse_mode="Markdown",
                         reply_markup=admin_kbd,
                     )
