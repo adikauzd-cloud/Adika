@@ -1,8 +1,11 @@
+# ==============================================================================
+# 1. IMPORTS (የተስተካከለ - asyncio ተጨምሯል)
+# ==============================================================================
 import logging
 import os
 import threading
 import re
-import asyncio  # ✅ ይህን ይጨምሩ
+import asyncio  # ✅ ተጨምሯል
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 import psycopg2
@@ -18,7 +21,6 @@ from telegram.ext import (
     ConversationHandler,
     filters,
 )
-
 # ==============================================================================
 # 0. FLASK WEB SERVER
 # ==============================================================================
@@ -494,17 +496,8 @@ def save_response(listing_id: int, broker_id: int, message: str):
 ) = range(21)
 
 # ==============================================================================
-# 5. HELPER FUNCTIONS
+# 5. HELPER FUNCTIONS (የተስተካከለ - notify_brokers)
 # ==============================================================================
-def validate_phone(phone: str) -> bool:
-    phone = phone.replace(' ', '').replace('-', '')
-    pattern = r'^(09|07|01)\d{8}$|^\+251(9|7|1)\d{8}$'
-    return bool(re.match(pattern, phone))
-
-def validate_price(price: str) -> bool:
-    price = price.replace(',', '').replace(' ', '')
-    return price.isdigit()
-
 async def notify_brokers(context: ContextTypes.DEFAULT_TYPE, message_text: str, req_id: int, buyer_id: int):
     approved_brokers = get_approved_brokers()
     if not approved_brokers:
@@ -520,10 +513,9 @@ async def notify_brokers(context: ContextTypes.DEFAULT_TYPE, message_text: str, 
                 parse_mode="Markdown",
                 reply_markup=InlineKeyboardMarkup(kbd)
             )
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.05)  # ✅ አሁን asyncio ተገልጿል
         except Exception as e:
             logger.error(f"Failed to send notification to broker {b_id}: {e}")
-
 # ==============================================================================
 # 6. START & CANCEL HANDLERS
 # ==============================================================================
