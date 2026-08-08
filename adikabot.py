@@ -56,7 +56,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
 logger.info(f"✅ Admin chat ID set to: {Config.ADMIN_CHAT_ID_INT}")
 
 # ==============================================================================
@@ -109,13 +108,19 @@ def get_db_connection():
 def transaction(conn):
     try:
         yield
-        if not Config.DATABASE_URL:
-            conn.commit()
+        conn.commit()
     except Exception as e:
-        if not Config.DATABASE_URL:
-            conn.rollback()
+        conn.rollback()
         logger.error(f"Transaction failed: {e}")
         raise
+
+# Helper to fetch single ID or value cross-platform (RealDictCursor vs SQLite Row)
+def _extract_first_val(row):
+    if not row:
+        return None
+    if isinstance(row, dict):
+        return list(row.values())[0]
+    return row[0]
 
 # ==============================================================================
 # 3. CACHE MANAGEMENT
@@ -248,7 +253,7 @@ class ListingRepository:
                             listing_data.get('telegram_contact')
                         ))
                         result = cursor.fetchone()
-                        return result['id'] if isinstance(result, dict) else result[0]
+                        return _extract_first_val(result)
                     else:
                         query = """
                             INSERT INTO listings 
@@ -273,7 +278,6 @@ class ListingRepository:
                         return cursor.lastrowid
         except Exception as e:
             logger.error(f"Failed to create listing: {e}")
-            logger.error(f"Listing data: {listing_data}")
             return None
     
     @staticmethod
@@ -317,8 +321,7 @@ class ListingRepository:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM listings WHERE status = 'pending'")
-            row = cursor.fetchone()
-            count = row['count'] if isinstance(row, dict) else row[0]
+            count = _extract_first_val(cursor.fetchone()) or 0
             cache.set(cache_key, count)
             return count
     
@@ -357,8 +360,9 @@ class BrokerRepository:
                     cursor.execute("SELECT id FROM brokers WHERE chat_id = ?", (broker_data.get('chat_id'),))
                 
                 existing = cursor.fetchone()
+                existing_id = _extract_first_val(existing)
                 
-                if existing:
+                if existing_id:
                     if Config.DATABASE_URL:
                         query = """
                             UPDATE brokers 
@@ -376,8 +380,7 @@ class BrokerRepository:
                             broker_data.get('sub_city'),
                             broker_data.get('chat_id')
                         ))
-                        res = cursor.fetchone()
-                        broker_id = res['id'] if isinstance(res, dict) else res[0]
+                        broker_id = _extract_first_val(cursor.fetchone())
                     else:
                         query = """
                             UPDATE brokers 
@@ -394,7 +397,7 @@ class BrokerRepository:
                             broker_data.get('sub_city'),
                             broker_data.get('chat_id')
                         ))
-                        broker_id = existing['id'] if isinstance(existing, dict) else existing[0]
+                        broker_id = existing_id
                 else:
                     if Config.DATABASE_URL:
                         query = """
@@ -412,8 +415,7 @@ class BrokerRepository:
                             broker_data.get('national_id_photo'),
                             broker_data.get('sub_city')
                         ))
-                        res = cursor.fetchone()
-                        broker_id = res['id'] if isinstance(res, dict) else res[0]
+                        broker_id = _extract_first_val(cursor.fetchone())
                     else:
                         query = """
                             INSERT INTO brokers 
@@ -543,7 +545,6 @@ def run_flask():
 # 9. DATABASE INITIALIZATION
 # ==============================================================================
 def init_db():
-    """Initialize database tables for PostgreSQL or SQLite"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -582,24 +583,9 @@ def init_db():
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-                
-                for col in ['budget', 'telegram_contact']:
-                    cursor.execute("""
-                        SELECT column_name FROM information_schema.columns 
-                        WHERE table_name='listings' AND column_name=%s
-                    """, (col,))
-                    if not cursor.fetchone():
-                        cursor.execute(f"ALTER TABLE listings ADD COLUMN {col} TEXT")
-                        logger.info(f"✅ Added '{col}' column to listings")
-
-                cursor.execute("""
-                    SELECT column_name FROM information_schema.columns 
-                    WHERE table_name='brokers' AND column_name='telegram_id'
-                """)
-                if not cursor.fetchone():
-                    cursor.execute("ALTER TABLE brokers ADD COLUMN telegram_id TEXT")
-                    logger.info("✅ Added 'telegram_id' column to brokers")
-
+                cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS budget TEXT;")
+                cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS telegram_contact TEXT;")
+                cursor.execute("ALTER TABLE brokers ADD COLUMN IF NOT EXISTS telegram_id TEXT;")
             else:
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS listings (
@@ -637,30 +623,15 @@ def init_db():
                 
                 cursor.execute("PRAGMA table_info(listings)")
                 columns = [row[1] for row in cursor.fetchall()]
-                
                 if 'budget' not in columns:
-                    try:
-                        cursor.execute("ALTER TABLE listings ADD COLUMN budget TEXT")
-                        logger.info("✅ Added 'budget' column to listings")
-                    except Exception as e:
-                        logger.warning(f"Could not add budget column: {e}")
-                
+                    cursor.execute("ALTER TABLE listings ADD COLUMN budget TEXT")
                 if 'telegram_contact' not in columns:
-                    try:
-                        cursor.execute("ALTER TABLE listings ADD COLUMN telegram_contact TEXT")
-                        logger.info("✅ Added 'telegram_contact' column to listings")
-                    except Exception as e:
-                        logger.warning(f"Could not add telegram_contact column: {e}")
+                    cursor.execute("ALTER TABLE listings ADD COLUMN telegram_contact TEXT")
                 
                 cursor.execute("PRAGMA table_info(brokers)")
-                broker_columns = [row[1] for row in cursor.fetchall()]
-                
-                if 'telegram_id' not in broker_columns:
-                    try:
-                        cursor.execute("ALTER TABLE brokers ADD COLUMN telegram_id TEXT")
-                        logger.info("✅ Added 'telegram_id' column to brokers")
-                    except Exception as e:
-                        logger.warning(f"Could not add telegram_id column: {e}")
+                b_columns = [row[1] for row in cursor.fetchall()]
+                if 'telegram_id' not in b_columns:
+                    cursor.execute("ALTER TABLE brokers ADD COLUMN telegram_id TEXT")
             
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_created ON listings(created_at DESC)")
@@ -792,7 +763,6 @@ async def safe_send_message(update: Update, context: ContextTypes.DEFAULT_TYPE, 
 # ==============================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    
     if not rate_limiter.is_allowed(user_id):
         await update.message.reply_text("⏳ እባክዎ ትንሽ ቆይተው እንደገና ይሞክሩ።")
         return ConversationHandler.END
@@ -812,7 +782,6 @@ async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
 📌 እባክዎን ከታች ካሉት አማራጮች ይምረጡ!
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
-    
     if update.message:
         await safe_send_message(update, context, welcome_text, parse_mode="Markdown", reply_markup=MAIN_MARKUP)
     elif update.callback_query:
@@ -873,7 +842,6 @@ async def buyer_category_chosen(update: Update, context: ContextTypes.DEFAULT_TY
     keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
     
     cat_name = {"car": "መኪና", "house": "ቤት/ቦታ", "commercial": "የሥራ ቦታ"}.get(cat, "")
-    
     await query.edit_message_text(
         f"📌 **የ{cat_name} ንኡስ ምድብ ይምረጡ**\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -954,12 +922,11 @@ async def buyer_details_received(update: Update, context: ContextTypes.DEFAULT_T
             update, context,
             "⚠️ **ስህተት**\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "እባክዎን ቢያንስ 5 ፊደላት ያለው ዝርዝር መግለጫ ያስገቡ።"
+            "እባክዎን ቢያንስ 5 ፊደላት ያለው ዝርዝር መግለጫ ያስገቡ。"
         )
         return BUYER_DETAILS
     
     context.user_data['description'] = sanitize_input(text)
-    
     await safe_send_message(
         update, context,
         "💰 **በጀት (Budget)**\n\n"
@@ -986,7 +953,6 @@ async def buyer_budget_received(update: Update, context: ContextTypes.DEFAULT_TY
         return BUYER_BUDGET
     
     context.user_data['budget'] = text.replace(',', '').replace(' ', '')
-    
     await safe_send_message(
         update, context,
         "📱 **የስልክ ቁጥር ወይም ቴሌግራም መለያ**\n\n"
@@ -1020,7 +986,6 @@ async def buyer_phone_received(update: Update, context: ContextTypes.DEFAULT_TYP
     
     phone = text if is_phone else ""
     telegram = text if is_telegram else ""
-    
     context.user_data['phone'] = phone
     context.user_data['telegram_contact'] = telegram
     
@@ -1095,7 +1060,6 @@ async def buyer_phone_received(update: Update, context: ContextTypes.DEFAULT_TYP
 """,
             reply_markup=MAIN_MARKUP
         )
-        logger.info(f"✅ Buy request {listing_id} created and notified brokers")
     else:
         await safe_send_message(
             update, context,
@@ -1152,7 +1116,6 @@ async def seller_category_chosen(update: Update, context: ContextTypes.DEFAULT_T
     keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
     
     cat_name = {"car": "መኪና", "house": "ቤት/ቦታ", "commercial": "የሥራ ቦታ"}.get(cat, "")
-    
     await query.edit_message_text(
         f"📌 **የ{cat_name} ንኡስ ምድብ ይምረጡ**\n\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
@@ -1233,12 +1196,11 @@ async def seller_details_received(update: Update, context: ContextTypes.DEFAULT_
             update, context,
             "⚠️ **ስህተት**\n\n"
             "━━━━━━━━━━━━━━━━━━━━\n"
-            "እባክዎን ቢያንስ 5 ፊደላት ያለው መግለጫ ያስገቡ።"
+            "እባክዎን ቢያንስ 5 ፊደላት ያለው መግለጫ ያስገቡ。"
         )
         return SELLER_DETAILS
     
     context.user_data['description'] = sanitize_input(text)
-    
     await safe_send_message(
         update, context,
         "💰 **ዋጋ**\n\n"
@@ -1265,7 +1227,6 @@ async def seller_price_received(update: Update, context: ContextTypes.DEFAULT_TY
         return SELLER_PRICE
     
     context.user_data['price'] = text.replace(',', '').replace(' ', '')
-    
     await safe_send_message(
         update, context,
         "📱 **የስልክ ቁጥር ወይም ቴሌግራም መለያ**\n\n"
@@ -1309,12 +1270,13 @@ async def seller_phone_received(update: Update, context: ContextTypes.DEFAULT_TY
     return SELLER_PHOTO
 
 async def seller_photo_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text if update.message.text else ""
-    if text == "🏠 ዋና ገጽ":
+    text = update.message.text if update.message and update.message.text else None
+    
+    if text and text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
     photo_id = None
-    if update.message.photo:
+    if update.message and update.message.photo:
         photo_id = update.message.photo[-1].file_id
     elif text and text.lower() == "ፎቶ የለውም":
         photo_id = None
@@ -1405,9 +1367,6 @@ async def seller_photo_received(update: Update, context: ContextTypes.DEFAULT_TY
                     await asyncio.sleep(0.05)
                 except Exception as e:
                     logger.error(f"Failed to send listing notification to broker {b_id}: {e}")
-            logger.info(f"✅ Sell listing {listing_id} created and notified {len(approved_brokers)} brokers")
-        else:
-            logger.warning("⚠️ No approved brokers to notify")
     else:
         await safe_send_message(
             update, context,
@@ -1430,7 +1389,6 @@ async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
     
     context.user_data.clear()
-    
     keyboard = [
         [InlineKeyboardButton("👨💼 ደላላ", callback_data="role_broker")],
         [InlineKeyboardButton("🚢 አስመጪ / አቅራቢ", callback_data="role_importer")],
@@ -1483,7 +1441,6 @@ async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await go_home(update, context)
     
     context.user_data['broker_name'] = sanitize_input(update.message.text)
-    
     await safe_send_message(
         update, context,
         "📞 **ምዝገባ፦ ደረጃ 2/6**\n\n"
@@ -1508,7 +1465,6 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return BROKER_PHONE
     
     context.user_data['broker_phone'] = update.message.text
-    
     await safe_send_message(
         update, context,
         "🆔 **ምዝገባ፦ ደረጃ 3/6**\n\n"
@@ -1530,7 +1486,6 @@ async def broker_reg_telegram_id(update: Update, context: ContextTypes.DEFAULT_T
         telegram_id = sanitize_input(telegram_id)
     
     context.user_data['broker_telegram_id'] = telegram_id
-    
     await safe_send_message(
         update, context,
         "📍 **ምዝገባ፦ ደረጃ 4/6**\n\n"
@@ -1564,7 +1519,6 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         return await go_home(update, context)
     
     user = update.effective_user
-    
     if not update.message or not update.message.photo:
         await safe_send_message(
             update, context,
@@ -1663,9 +1617,8 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
                     parse_mode="Markdown",
                     reply_markup=admin_kbd,
                 )
-                logger.info(f"✅ Admin notification sent for broker {user.id}")
             except Exception as e:
-                logger.error(f"❌ Failed to send admin notification: {e}")
+                logger.error(f"❌ Failed to send admin photo notification: {e}")
                 try:
                     await context.bot.send_message(
                         chat_id=Config.ADMIN_CHAT_ID_INT,
@@ -1674,9 +1627,7 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
                         reply_markup=admin_kbd,
                     )
                 except Exception as e2:
-                    logger.error(f"❌ Failed to send admin message: {e2}")
-        else:
-            logger.warning("⚠️ ADMIN_CHAT_ID is not set! Admin notifications disabled.")
+                    logger.error(f"❌ Failed to send admin text message: {e2}")
     else:
         await safe_send_message(
             update, context,
@@ -1711,7 +1662,6 @@ async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_T
     
     parts = query.data.split('_')
     if len(parts) < 3:
-        logger.error(f"Invalid callback data: {query.data}")
         return ConversationHandler.END
     
     req_id = parts[2]
@@ -1756,7 +1706,7 @@ async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return BROKER_OFFER_PHOTO
 
 async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text and update.message.text == "🏠 ዋና ገጽ":
+    if update.message and update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
     buyer_id = int(context.user_data.get('target_buyer_id', 0))
@@ -1816,8 +1766,6 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 """,
             reply_markup=MAIN_MARKUP,
         )
-        
-        logger.info(f"Offer sent to buyer {buyer_id} for request {req_id}")
     except Exception as e:
         logger.error(f"Failed to send offer to buyer: {e}")
         await safe_send_message(
@@ -1900,8 +1848,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 """
         for listing in listings:
-            text += format_listing_for_broker(listing)
-            text += "\n"
+            text += format_listing_for_broker(listing) + "\n"
         
         keyboard = []
         for listing in listings:
@@ -1919,8 +1866,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         if update.message:
             await safe_send_message(
-                update, context,
-                text,
+                update, context, text,
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown"
             )
@@ -1956,8 +1902,8 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
         if BrokerRepository.update_status(target_id, 'approved'):
             await query.edit_message_caption(
                 caption=(query.message.caption or "") + """
-✅ **ሁኔታ: ጸድቋል (Approved)**
 
+✅ **ሁኔታ: ጸድቋል (Approved)**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📌 ይህ አቅራቢ አሁን ጥያቄዎችን ማየት እና መመለስ ይችላል።
 """,
@@ -1978,7 +1924,6 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
 """,
                     reply_markup=MAIN_MARKUP,
                 )
-                logger.info(f"✅ Broker {target_id} approved")
             except Exception as e:
                 logger.error(f"Failed to notify approved broker: {e}")
     
@@ -1987,8 +1932,8 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
         if BrokerRepository.update_status(target_id, 'rejected'):
             await query.edit_message_caption(
                 caption=(query.message.caption or "") + """
-❌ **ሁኔታ: ተሰርዟል (Rejected)**
 
+❌ **ሁኔታ: ተሰርዟል (Rejected)**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📌 ይህ አቅራቢ አልጸደቀም።
 """,
@@ -2007,7 +1952,6 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
 """,
                     reply_markup=MAIN_MARKUP,
                 )
-                logger.info(f"Broker {target_id} rejected")
             except Exception as e:
                 logger.error(f"Failed to notify rejected broker: {e}")
     
@@ -2074,8 +2018,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 20. MAIN APPLICATION
 # ==============================================================================
 def main():
-    init_connection_pool()
     init_db()
+    init_connection_pool()
     
     threading.Thread(target=run_flask, daemon=True).start()
     logger.info(f"Flask server started on port {Config.PORT}")
@@ -2152,10 +2096,6 @@ def main():
     app.add_handler(broker_response_conv)
     
     logger.info("🚀 Adika Marketplace Bot started successfully!")
-    logger.info(f"Environment: {Config.ENVIRONMENT}")
-    logger.info(f"Database: {'PostgreSQL' if Config.DATABASE_URL else 'SQLite'}")
-    logger.info(f"Admin ID: {Config.ADMIN_CHAT_ID_INT}")
-    
     app.run_polling()
 
 if __name__ == "__main__":
