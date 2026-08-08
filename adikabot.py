@@ -1180,9 +1180,52 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.message.reply_text(view_text, parse_mode="Markdown")
 
 # ==============================================================================
-# 12. VIEW REQUESTS
+# 12. VIEW REQUESTS (የተሻሻለ - ፕሮፌሽናል አቀራረብ)
 # ==============================================================================
 ITEMS_PER_PAGE = 5
+
+def format_listing_card(listing: Dict) -> str:
+    """Professional card format for each listing"""
+    listing_id = listing.get('id', 'N/A')
+    main_cat = listing.get('main_category', '').upper()
+    sub_cat = listing.get('sub_category', '')
+    action_type = listing.get('action_type', '')
+    description = listing.get('description', '')
+    created_at = listing.get('created_at', '')
+    
+    # Category emojis
+    cat_emojis = {
+        'car': '🚗',
+        'house': '🏠',
+        'commercial': '🏢'
+    }
+    emoji = cat_emojis.get(listing.get('main_category', ''), '📌')
+    
+    # Extract phone number from description
+    phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
+    phone = phone_match.group(1) if phone_match else 'N/A'
+    
+    # Clean description (remove phone line)
+    clean_desc = re.sub(r'\n📞 ስልክ:\s*[\d+]+', '', description)
+    
+    # Format date
+    date_str = created_at[:10] if created_at else 'N/A'
+    
+    card = f"""
+┌─────────────────────────────────────────────
+│ {emoji} **ማስታወቂያ #{listing_id}**
+├─────────────────────────────────────────────
+│ 📌 ምድብ: {main_cat}
+│ 🔹 ንኡስ: {sub_cat if sub_cat else 'N/A'}
+│ 🔄 አይነት: {action_type if action_type else 'N/A'}
+│ 📞 ስልክ: {phone}
+│ 📅 ቀን: {date_str}
+├─────────────────────────────────────────────
+│ 📝 **ዝርዝር መግለጫ:**
+│ {clean_desc.strip()}
+└─────────────────────────────────────────────
+"""
+    return card
 
 async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1196,7 +1239,6 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Check if broker is approved
     if broker.get('status') != 'approved':
         await update.message.reply_text(
             "⏳ **ምዝገባዎ ገና በአድሚን አልጸደቀም!**\n\n"
@@ -1227,26 +1269,51 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         total_pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
         
         if not listings:
-            text = "📭 ምንም ንቁ ጥያቄዎች የሉም።"
+            text = """
+📭 **ምንም ንቁ ጥያቄዎች የሉም**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 ሁሉም ጥያቄዎች ተመልሰዋል ወይም በሂደት ላይ ናቸው።
+🔄 ቆይተው እንደገና ይሞክሩ።
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
             if update.message:
-                await update.message.reply_text(text, reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+                await update.message.reply_text(text, parse_mode="Markdown", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
             else:
-                await update.callback_query.edit_message_text(text)
+                await update.callback_query.edit_message_text(text, parse_mode="Markdown")
             return
         
-        text = f"📋 **የፈላጊዎች ዝርዝር** (ገጽ {page+1}/{total_pages})\n\n"
+        # Header with statistics
+        broker_name = context.user_data.get('broker_name', 'ደላላ')
+        header = f"""
+📋 **የፈላጊዎች ዝርዝር**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👤 ደላላ: {broker_name}
+📊 አጠቃላይ ጥያቄዎች: {total}
+📄 ገጽ {page + 1} / {total_pages}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+"""
         
-        for listing in listings:
-            listing_id = listing.get('id', '')
-            description = listing.get('description', '')
-            text += f"━━━━━━━━━━━━━━━━━━━━\n📌 **#{listing_id}**\n{description}\n"
+        # Professional listing cards
+        body = ""
+        for idx, listing in enumerate(listings, 1):
+            body += format_listing_card(listing)
+            if idx < len(listings):
+                body += "\n"
         
+        # Build keyboard
         keyboard = []
         for listing in listings:
             l_id = listing.get('id')
             u_id = listing.get('user_chat_id')
-            keyboard.append([InlineKeyboardButton(f"👉 አለኝ - #{l_id}", callback_data=f"have_item_{l_id}_{u_id}")])
+            # Professional button with emoji
+            keyboard.append([InlineKeyboardButton(
+                f"✅ አለኝ - ማስታወቂያ #{l_id}", 
+                callback_data=f"have_item_{l_id}_{u_id}"
+            )])
         
+        # Navigation buttons with professional style
         nav_buttons = []
         if page > 0:
             nav_buttons.append(InlineKeyboardButton("⬅️ ቀዳሚ", callback_data=f"page_{page-1}"))
@@ -1255,18 +1322,35 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         nav_buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
         keyboard.append(nav_buttons)
         
+        text = header + body
+        
         if update.message:
-            await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await update.message.reply_text(
+                text, 
+                reply_markup=InlineKeyboardMarkup(keyboard), 
+                parse_mode="Markdown"
+            )
         else:
-            await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+            await update.callback_query.edit_message_text(
+                text, 
+                reply_markup=InlineKeyboardMarkup(keyboard), 
+                parse_mode="Markdown"
+            )
             
     except Exception as e:
         logger.error(f"Error in show_requests_page: {e}")
-        if update.message:
-            await update.message.reply_text("❌ ዝርዝሩን ማሳየት አልተቻለም። እባክዎ እንደገና ይሞክሩ።")
-        else:
-            await update.callback_query.edit_message_text("❌ ዝርዝሩን ማሳየት አልተቻለም። እባክዎ እንደገና ይሞክሩ።")
+        error_text = """
+❌ **ስህተተ!**
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ዝርዝሩን ማሳየት አልተቻለም።
+💡 እባክዎ እንደገና ይሞክሩ።
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        if update.message:
+            await update.message.reply_text(error_text, parse_mode="Markdown")
+        else:
+            await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
 # ==============================================================================
 # 13. HELP COMMAND
 # ==============================================================================
