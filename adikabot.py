@@ -46,11 +46,10 @@ class Config:
         except ValueError:
             cls.ADMIN_CHAT_ID_INT = 0
 
-# ✅ በመጀመሪያ Config እናረጋግጣለን
 Config.validate()
 
 # ==============================================================================
-# 1. LOGGING (ከ Config.validate() በኋላ)
+# 1. LOGGING
 # ==============================================================================
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -58,7 +57,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ✅ አሁን logger ተገልጿል
 logger.info(f"✅ Admin chat ID set to: {Config.ADMIN_CHAT_ID_INT}")
 
 # ==============================================================================
@@ -250,7 +248,7 @@ class ListingRepository:
                             listing_data.get('telegram_contact')
                         ))
                         result = cursor.fetchone()
-                        return result[0] if result else None
+                        return result['id'] if isinstance(result, dict) else result[0]
                     else:
                         query = """
                             INSERT INTO listings 
@@ -319,7 +317,8 @@ class ListingRepository:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM listings WHERE status = 'pending'")
-            count = cursor.fetchone()[0]
+            row = cursor.fetchone()
+            count = row['count'] if isinstance(row, dict) else row[0]
             cache.set(cache_key, count)
             return count
     
@@ -377,7 +376,8 @@ class BrokerRepository:
                             broker_data.get('sub_city'),
                             broker_data.get('chat_id')
                         ))
-                        broker_id = cursor.fetchone()[0]
+                        res = cursor.fetchone()
+                        broker_id = res['id'] if isinstance(res, dict) else res[0]
                     else:
                         query = """
                             UPDATE brokers 
@@ -394,7 +394,7 @@ class BrokerRepository:
                             broker_data.get('sub_city'),
                             broker_data.get('chat_id')
                         ))
-                        broker_id = existing[0]
+                        broker_id = existing['id'] if isinstance(existing, dict) else existing[0]
                 else:
                     if Config.DATABASE_URL:
                         query = """
@@ -412,7 +412,8 @@ class BrokerRepository:
                             broker_data.get('national_id_photo'),
                             broker_data.get('sub_city')
                         ))
-                        broker_id = cursor.fetchone()[0]
+                        res = cursor.fetchone()
+                        broker_id = res['id'] if isinstance(res, dict) else res[0]
                     else:
                         query = """
                             INSERT INTO brokers 
@@ -451,13 +452,9 @@ class BrokerRepository:
     
     @staticmethod
     def get_all_pending() -> List[Dict]:
-        """Get all pending broker registrations"""
         with get_db_connection() as conn:
             cursor = conn.cursor()
-            if Config.DATABASE_URL:
-                cursor.execute("SELECT * FROM brokers WHERE status = 'pending'")
-            else:
-                cursor.execute("SELECT * FROM brokers WHERE status = 'pending'")
+            cursor.execute("SELECT * FROM brokers WHERE status = 'pending'")
             rows = cursor.fetchall()
             return [dict(row) for row in rows]
     
@@ -546,82 +543,130 @@ def run_flask():
 # 9. DATABASE INITIALIZATION
 # ==============================================================================
 def init_db():
-    """Initialize database tables if they don't exist"""
+    """Initialize database tables for PostgreSQL or SQLite"""
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
-            # Create tables (works for both SQLite and PostgreSQL)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS listings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_chat_id INTEGER NOT NULL,
-                    user_name TEXT,
-                    req_type TEXT NOT NULL,
-                    main_category TEXT NOT NULL,
-                    sub_type TEXT,
-                    action_type TEXT,
-                    description TEXT NOT NULL,
-                    price TEXT,
-                    phone TEXT,
-                    photo_file_id TEXT,
-                    budget TEXT,
-                    telegram_contact TEXT,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS brokers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chat_id INTEGER NOT NULL UNIQUE,
-                    full_name TEXT NOT NULL,
-                    phone TEXT NOT NULL,
-                    telegram_id TEXT,
-                    role_type TEXT NOT NULL,
-                    national_id_photo TEXT,
-                    sub_city TEXT NOT NULL,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            
-            # Check and add missing columns for listings
-            cursor.execute("PRAGMA table_info(listings)")
-            columns = [row[1] for row in cursor.fetchall()]
-            
-            if 'budget' not in columns:
-                try:
-                    cursor.execute("ALTER TABLE listings ADD COLUMN budget TEXT")
-                    logger.info("✅ Added 'budget' column to listings")
-                except Exception as e:
-                    logger.warning(f"Could not add budget column: {e}")
-            
-            if 'telegram_contact' not in columns:
-                try:
-                    cursor.execute("ALTER TABLE listings ADD COLUMN telegram_contact TEXT")
-                    logger.info("✅ Added 'telegram_contact' column to listings")
-                except Exception as e:
-                    logger.warning(f"Could not add telegram_contact column: {e}")
-            
-            # Check and add missing columns for brokers
-            cursor.execute("PRAGMA table_info(brokers)")
-            broker_columns = [row[1] for row in cursor.fetchall()]
-            
-            if 'telegram_id' not in broker_columns:
-                try:
+            if Config.DATABASE_URL:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS listings (
+                        id SERIAL PRIMARY KEY,
+                        user_chat_id BIGINT NOT NULL,
+                        user_name TEXT,
+                        req_type TEXT NOT NULL,
+                        main_category TEXT NOT NULL,
+                        sub_type TEXT,
+                        action_type TEXT,
+                        description TEXT NOT NULL,
+                        price TEXT,
+                        phone TEXT,
+                        photo_file_id TEXT,
+                        budget TEXT,
+                        telegram_contact TEXT,
+                        status TEXT DEFAULT 'pending',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS brokers (
+                        id SERIAL PRIMARY KEY,
+                        chat_id BIGINT NOT NULL UNIQUE,
+                        full_name TEXT NOT NULL,
+                        phone TEXT NOT NULL,
+                        telegram_id TEXT,
+                        role_type TEXT NOT NULL,
+                        national_id_photo TEXT,
+                        sub_city TEXT NOT NULL,
+                        status TEXT DEFAULT 'pending',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                for col in ['budget', 'telegram_contact']:
+                    cursor.execute("""
+                        SELECT column_name FROM information_schema.columns 
+                        WHERE table_name='listings' AND column_name=%s
+                    """, (col,))
+                    if not cursor.fetchone():
+                        cursor.execute(f"ALTER TABLE listings ADD COLUMN {col} TEXT")
+                        logger.info(f"✅ Added '{col}' column to listings")
+
+                cursor.execute("""
+                    SELECT column_name FROM information_schema.columns 
+                    WHERE table_name='brokers' AND column_name='telegram_id'
+                """)
+                if not cursor.fetchone():
                     cursor.execute("ALTER TABLE brokers ADD COLUMN telegram_id TEXT")
                     logger.info("✅ Added 'telegram_id' column to brokers")
-                except Exception as e:
-                    logger.warning(f"Could not add telegram_id column: {e}")
+
+            else:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS listings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_chat_id INTEGER NOT NULL,
+                        user_name TEXT,
+                        req_type TEXT NOT NULL,
+                        main_category TEXT NOT NULL,
+                        sub_type TEXT,
+                        action_type TEXT,
+                        description TEXT NOT NULL,
+                        price TEXT,
+                        phone TEXT,
+                        photo_file_id TEXT,
+                        budget TEXT,
+                        telegram_contact TEXT,
+                        status TEXT DEFAULT 'pending',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS brokers (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        chat_id INTEGER NOT NULL UNIQUE,
+                        full_name TEXT NOT NULL,
+                        phone TEXT NOT NULL,
+                        telegram_id TEXT,
+                        role_type TEXT NOT NULL,
+                        national_id_photo TEXT,
+                        sub_city TEXT NOT NULL,
+                        status TEXT DEFAULT 'pending',
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                cursor.execute("PRAGMA table_info(listings)")
+                columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'budget' not in columns:
+                    try:
+                        cursor.execute("ALTER TABLE listings ADD COLUMN budget TEXT")
+                        logger.info("✅ Added 'budget' column to listings")
+                    except Exception as e:
+                        logger.warning(f"Could not add budget column: {e}")
+                
+                if 'telegram_contact' not in columns:
+                    try:
+                        cursor.execute("ALTER TABLE listings ADD COLUMN telegram_contact TEXT")
+                        logger.info("✅ Added 'telegram_contact' column to listings")
+                    except Exception as e:
+                        logger.warning(f"Could not add telegram_contact column: {e}")
+                
+                cursor.execute("PRAGMA table_info(brokers)")
+                broker_columns = [row[1] for row in cursor.fetchall()]
+                
+                if 'telegram_id' not in broker_columns:
+                    try:
+                        cursor.execute("ALTER TABLE brokers ADD COLUMN telegram_id TEXT")
+                        logger.info("✅ Added 'telegram_id' column to brokers")
+                    except Exception as e:
+                        logger.warning(f"Could not add telegram_id column: {e}")
             
-            # Create indexes
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_listings_created ON listings(created_at DESC)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_brokers_status ON brokers(status)")
             
             conn.commit()
-            
             logger.info("✅ Database initialized successfully")
             
     except Exception as e:
@@ -647,7 +692,7 @@ def format_listing_for_broker(listing: Dict) -> str:
     budget = listing.get('budget', 'N/A')
     phone = listing.get('phone', 'N/A')
     telegram = listing.get('telegram_contact', '')
-    created_at = listing.get('created_at', '')
+    created_at = str(listing.get('created_at', ''))
     
     cat_emoji = {'car': '🚗', 'house': '🏠', 'commercial': '🏢'}
     emoji = cat_emoji.get(main_cat, '📌')
@@ -690,7 +735,6 @@ def format_welcome_message() -> str:
 """
 
 async def notify_brokers(context: ContextTypes.DEFAULT_TYPE, message_text: str, req_id: int, buyer_id: int):
-    """Broadcast to approved brokers with professional formatting"""
     approved_brokers = BrokerRepository.get_approved()
     logger.info(f"📢 Notifying {len(approved_brokers)} approved brokers about request #{req_id}")
     
@@ -855,11 +899,7 @@ async def buyer_sub_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         options = COMMERCIAL_TYPES
     
-    if idx < len(options):
-        sub = options[idx]
-    else:
-        sub = "N/A"
-    
+    sub = options[idx] if idx < len(options) else "N/A"
     context.user_data['sub_type'] = sub
     
     keyboard = [
@@ -883,12 +923,7 @@ async def buyer_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
         return await go_home(update, context)
     
     await query.answer()
-    
-    if "buy" in query.data:
-        action = "መግዛት"
-    else:
-        action = "መከራየት"
-    
+    action = "መግዛት" if "buy" in query.data else "መከራየት"
     context.user_data['action_type'] = action
     
     cat = context.user_data.get('main_category', '')
@@ -911,7 +946,6 @@ async def buyer_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 async def buyer_details_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    
     if text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
@@ -938,7 +972,6 @@ async def buyer_details_received(update: Update, context: ContextTypes.DEFAULT_T
 
 async def buyer_budget_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    
     if text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
@@ -968,7 +1001,6 @@ async def buyer_budget_received(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def buyer_phone_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    
     if text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
@@ -989,10 +1021,6 @@ async def buyer_phone_received(update: Update, context: ContextTypes.DEFAULT_TYP
     phone = text if is_phone else ""
     telegram = text if is_telegram else ""
     
-    if is_phone and is_telegram:
-        phone = text
-        telegram = text
-    
     context.user_data['phone'] = phone
     context.user_data['telegram_contact'] = telegram
     
@@ -1012,8 +1040,6 @@ async def buyer_phone_received(update: Update, context: ContextTypes.DEFAULT_TYP
         contact_info += f"📞 ስልክ: {phone}\n"
     if telegram:
         contact_info += f"🆔 ቴሌግራም: {telegram}\n"
-    
-    full_description = f"{description}\n\n💰 በጀት: {budget} ብር\n{contact_info}"
     
     listing_data = {
         'user_chat_id': user.id,
@@ -1152,11 +1178,7 @@ async def seller_sub_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         options = COMMERCIAL_TYPES
     
-    if idx < len(options):
-        sub = options[idx]
-    else:
-        sub = "N/A"
-    
+    sub = options[idx] if idx < len(options) else "N/A"
     context.user_data['sub_type'] = sub
     
     keyboard = [
@@ -1180,12 +1202,7 @@ async def seller_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
         return await go_home(update, context)
     
     await query.answer()
-    
-    if "sell" in query.data:
-        action = "መሸጥ"
-    else:
-        action = "ማከራየት"
-    
+    action = "መሸጥ" if "sell" in query.data else "ማከራየት"
     context.user_data['action_type'] = action
     
     cat = context.user_data.get('main_category', '')
@@ -1208,7 +1225,6 @@ async def seller_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def seller_details_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    
     if text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
@@ -1235,7 +1251,6 @@ async def seller_details_received(update: Update, context: ContextTypes.DEFAULT_
 
 async def seller_price_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    
     if text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
@@ -1264,7 +1279,6 @@ async def seller_price_received(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def seller_phone_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
-    
     if text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
@@ -1295,8 +1309,7 @@ async def seller_phone_received(update: Update, context: ContextTypes.DEFAULT_TY
     return SELLER_PHOTO
 
 async def seller_photo_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text
-    
+    text = update.message.text if update.message.text else ""
     if text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
@@ -1619,7 +1632,6 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=MAIN_MARKUP,
         )
         
-        # ✅ አድሚንን ማሳወቅ
         if Config.ADMIN_CHAT_ID_INT != 0:
             admin_msg = f"""
 🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**
@@ -1744,7 +1756,7 @@ async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return BROKER_OFFER_PHOTO
 
 async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "🏠 ዋና ገጽ":
+    if update.message.text and update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
     buyer_id = int(context.user_data.get('target_buyer_id', 0))
@@ -1772,7 +1784,7 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 """
     
     try:
-        if update.message.photo:
+        if update.message and update.message.photo:
             photo_id = update.message.photo[-1].file_id
             await context.bot.send_photo(
                 chat_id=buyer_id,
@@ -2062,8 +2074,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # 20. MAIN APPLICATION
 # ==============================================================================
 def main():
-    init_db()
     init_connection_pool()
+    init_db()
     
     threading.Thread(target=run_flask, daemon=True).start()
     logger.info(f"Flask server started on port {Config.PORT}")
@@ -2073,7 +2085,6 @@ def main():
     cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
     cancel_message_handler = MessageHandler(cancel_filter, go_home)
     
-    # Buyer conversation
     buyer_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🔍 መግዛት / መከራየት$"), buyer_start)],
         states={
@@ -2088,7 +2099,6 @@ def main():
         allow_reentry=True,
     )
     
-    # Seller conversation
     seller_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📢 መሸጥ / ማከራየት$"), seller_start)],
         states={
@@ -2104,7 +2114,6 @@ def main():
         allow_reentry=True,
     )
     
-    # Broker registration conversation
     broker_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)],
         states={
@@ -2119,7 +2128,6 @@ def main():
         allow_reentry=True,
     )
     
-    # Broker response conversation
     broker_response_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
         states={
