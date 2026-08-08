@@ -570,6 +570,17 @@ async def notify_brokers(context: ContextTypes.DEFAULT_TYPE, message_text: str, 
             await asyncio.sleep(0.05)
         except Exception as e:
             logger.error(f"Failed to send notification to broker {b_id}: {e}")
+def get_db_connection():
+    if DATABASE_URL:
+        # የጥቅስ ምልክቶችንና ባዶ ቦታዎችን ሙሉ በሙሉ ያጸዳል
+        cleaned_url = DATABASE_URL.strip().strip('"').strip("'").replace('"', '').replace("'", '')
+        if cleaned_url.startswith("postgres://"):
+            cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
+        return psycopg2.connect(cleaned_url)
+    else:
+        import sqlite3
+        return sqlite3.connect("adika_marketplace.db")
+
 
 # ==============================================================================
 # 6. START & CANCEL HANDLERS
