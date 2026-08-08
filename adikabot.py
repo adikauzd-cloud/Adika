@@ -1180,6 +1180,7 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
             await query.message.reply_text(view_text, parse_mode="Markdown")
 
 # ==============================================================================
+# ==============================================================================
 # 12. VIEW REQUESTS (የተሻሻለ - ፕሮፌሽናል አቀራረብ)
 # ==============================================================================
 ITEMS_PER_PAGE = 5
@@ -1187,12 +1188,14 @@ ITEMS_PER_PAGE = 5
 def format_listing_card(listing: Dict) -> str:
     """Professional card format for each listing"""
     try:
+        # ✅ ትክክለኛውን የአምድ ስም መጠቀም
         listing_id = listing.get('id', 'N/A')
-        main_cat = listing.get('main_category', '').upper()
-        sub_cat = listing.get('sub_category', '')
+        main_cat = listing.get('main_category', listing.get('main_cat', ''))
+        sub_cat = listing.get('sub_category', listing.get('sub_cat', ''))
         action_type = listing.get('action_type', '')
         description = listing.get('description', '')
         created_at = listing.get('created_at', '')
+        property_type = listing.get('property_type', '')
         
         # Category emojis
         cat_emojis = {
@@ -1200,42 +1203,65 @@ def format_listing_card(listing: Dict) -> str:
             'house': '🏠',
             'commercial': '🏢'
         }
-        emoji = cat_emojis.get(listing.get('main_category', ''), '📌')
+        emoji = cat_emojis.get(main_cat.lower() if main_cat else '', '📌')
         
-        # Extract phone from description (if exists)
+        # ✅ Extract phone from description (if exists)
         phone = 'N/A'
+        clean_desc = description
         if description:
-            phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
+            # Try to find phone in description
+            phone_match = re.search(r'📞 ስልክ:\s*([\d+\s-]+)', description)
             if phone_match:
-                phone = phone_match.group(1)
+                phone = phone_match.group(1).strip()
                 # Remove phone line from description
-                description = re.sub(r'\n?📞 ስልክ:\s*[\d+]+', '', description)
+                clean_desc = re.sub(r'\n?📞 ስልክ:\s*[\d+\s-]+', '', description)
+            else:
+                # Try alternative phone format
+                phone_match = re.search(r'ስልክ[:\s]*([\d+\s-]+)', description)
+                if phone_match:
+                    phone = phone_match.group(1).strip()
+                    clean_desc = re.sub(r'\n?ስልክ[:\s]*[\d+\s-]+', '', description)
+                else:
+                    # Try to find any phone number
+                    phone_match = re.search(r'(09|07|01)\d{8}', description)
+                    if phone_match:
+                        phone = phone_match.group(0)
+                        # Don't remove from description if not clearly labeled
+        
+        # ✅ Clean description
+        clean_desc = clean_desc.strip()
+        if not clean_desc:
+            clean_desc = 'መግለጫ የለም'
         
         # Format date
         date_str = created_at[:10] if created_at else 'N/A'
         
+        # ✅ Build professional card
         card = f"""
 ┌─────────────────────────────────────────────
 │ {emoji} **ማስታወቂያ #{listing_id}**
 ├─────────────────────────────────────────────
-│ 📌 ምድብ: {main_cat}
+│ 📌 ምድብ: {main_cat.upper() if main_cat else 'N/A'}
 │ 🔹 ንኡስ: {sub_cat if sub_cat else 'N/A'}
 │ 🔄 አይነት: {action_type if action_type else 'N/A'}
 │ 📞 ስልክ: {phone}
 │ 📅 ቀን: {date_str}
 ├─────────────────────────────────────────────
 │ 📝 **ዝርዝር መግለጫ:**
-│ {description.strip() if description else 'መግለጫ የለም'}
+│ {clean_desc}
 └─────────────────────────────────────────────
 """
         return card
     except Exception as e:
         logger.error(f"Error formatting listing card: {e}")
+        logger.error(f"Listing data: {listing}")
+        # ✅ Return a simple card for debugging
         return f"""
 ┌─────────────────────────────────────────────
 │ ⚠️ **ማስታወቂያ #{listing.get('id', 'N/A')}**
 ├─────────────────────────────────────────────
 │ ❌ ይህን ማስታወቂያ ማሳየት አልተቻለም
+│ 📋 ስህተት: {str(e)[:50]}
 └─────────────────────────────────────────────
 """
 
@@ -1265,7 +1291,7 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # ✅ Handle page navigation
+        # Handle page navigation
         page = 0
         if update.callback_query and update.callback_query.data:
             if update.callback_query.data.startswith("page_"):
@@ -1279,12 +1305,12 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         offset = page * ITEMS_PER_PAGE
         
-        # ✅ Get listings
+        # Get listings
         listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
         total = count_listings()
         total_pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
         
-        # ✅ Check if no listings
+        # Check if no listings
         if not listings:
             text = """
 📭 **ምንም ንቁ ጥያቄዎች የሉም**
@@ -1313,9 +1339,13 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         # ✅ Build listing cards
         body = ""
         for idx, listing in enumerate(listings, 1):
-            body += format_listing_card(listing)
-            if idx < len(listings):
-                body += "\n"
+            try:
+                body += format_listing_card(listing)
+                if idx < len(listings):
+                    body += "\n"
+            except Exception as e:
+                logger.error(f"Error processing listing {listing.get('id')}: {e}")
+                continue
         
         # ✅ Build keyboard
         keyboard = []
@@ -1368,10 +1398,6 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ዝርዝሩን ማሳየት አልተቻለም።
 💡 እባክዎ እንደገና ይሞክሩ።
-
-📋 **ስህተቱን ለማስተካከል:**
-• እባክዎ የቴሌግራም ቦቱን እንደገና ያስጀምሩ
-• ወይም ድጋፍን ያግኙ
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
         if update.message:
