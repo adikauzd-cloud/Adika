@@ -641,7 +641,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 8. BROKER RESPONSE FLOW (ደላላው "አለኝ" ሲል) - የተሻሻለ
+# 8. BROKER RESPONSE FLOW (የተስተካከለ)
 # ==============================================================================
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -688,12 +688,11 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
     offer_text = context.user_data.get('offer_text')
     broker_name = update.effective_user.first_name
     
-    # ✅ የደላላውን ስልክ ቁጥር ማግኘት
     broker = get_broker(update.effective_user.id)
     broker_phone = broker.get('phone', '') if broker else ''
     
-    # Update listing status to 'responded'
-    update_listing_status(int(req_id), 'responded')
+    # ✅ የጥያቄውን ሁኔታ ወደ 'responded' አይለውጡ - በዝርዝር ውስጥ እንዲቀመጥ ለማድረግ
+    # update_listing_status(int(req_id), 'responded')  # ይህን አስወግዱ
     
     message_to_buyer = (
         f"🎉 **ለጥያቄዎ (#REQ-{req_id}) አዲስ የቀረበ አማራጭ አለ!**\n\n"
@@ -713,7 +712,6 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 parse_mode="Markdown"
             )
         else:
-            # ✅ ፎቶ ከሌለ በቀላሉ መልእክት መላክ
             await context.bot.send_message(
                 chat_id=buyer_id,
                 text=message_to_buyer,
@@ -722,7 +720,8 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
         await update.message.reply_text(
             "✅ **መረጃዎ ለፈላጊው በስኬት ተልኳል!**\n\n"
-            "📌 ጥያቄው ከ'📋 የፈላጊዎች ዝርዝር' ተወግዷል።",
+            "📌 ጥያቄው በ'📋 የፈላጊዎች ዝርዝር' ውስጥ እንደበፊቱ ይቀመጣል።\n"
+            "🗑️ ለማጥፋት '❌ ሰርዝ' የሚለውን ይጫኑ።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
     except Exception as e:
