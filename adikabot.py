@@ -1201,12 +1201,17 @@ def format_listing_card(listing: Dict) -> str:
     }
     emoji = cat_emojis.get(listing.get('main_category', ''), '📌')
     
-    # Extract phone number from description
+    # ✅ ስልክን ከ description ለማውጣት (ካለ)
+    phone = 'N/A'
     phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
-    phone = phone_match.group(1) if phone_match else 'N/A'
+    if phone_match:
+        phone = phone_match.group(1)
     
-    # Clean description (remove phone line)
-    clean_desc = re.sub(r'\n📞 ስልክ:\s*[\d+]+', '', description)
+    # ✅ Clean description (remove phone line)
+    clean_desc = description
+    if phone_match:
+        clean_desc = re.sub(r'\n?📞 ስልክ:\s*[\d+]+', '', description)
+    clean_desc = clean_desc.strip()
     
     # Format date
     date_str = created_at[:10] if created_at else 'N/A'
@@ -1222,7 +1227,7 @@ def format_listing_card(listing: Dict) -> str:
 │ 📅 ቀን: {date_str}
 ├─────────────────────────────────────────────
 │ 📝 **ዝርዝር መግለጫ:**
-│ {clean_desc.strip()}
+│ {clean_desc if clean_desc else 'መግለጫ የለም'}
 └─────────────────────────────────────────────
 """
     return card
@@ -1283,37 +1288,35 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.callback_query.edit_message_text(text, parse_mode="Markdown")
             return
         
-        # Header with statistics
+        # ✅ Header with statistics
         broker_name = context.user_data.get('broker_name', 'ደላላ')
         header = f"""
 📋 **የፈላጊዎች ዝርዝር**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 ደላላ: {broker_name}
 📊 አጠቃላይ ጥያቄዎች: {total}
 📄 ገጽ {page + 1} / {total_pages}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 """
         
-        # Professional listing cards
+        # ✅ Professional listing cards
         body = ""
         for idx, listing in enumerate(listings, 1):
             body += format_listing_card(listing)
             if idx < len(listings):
                 body += "\n"
         
-        # Build keyboard
+        # ✅ Build keyboard
         keyboard = []
         for listing in listings:
             l_id = listing.get('id')
             u_id = listing.get('user_chat_id')
-            # Professional button with emoji
             keyboard.append([InlineKeyboardButton(
-                f"✅ አለኝ - ማስታወቂያ #{l_id}", 
+                f"✅ አለኝ - #{l_id}", 
                 callback_data=f"have_item_{l_id}_{u_id}"
             )])
         
-        # Navigation buttons with professional style
+        # ✅ Navigation buttons
         nav_buttons = []
         if page > 0:
             nav_buttons.append(InlineKeyboardButton("⬅️ ቀዳሚ", callback_data=f"page_{page-1}"))
@@ -1350,7 +1353,10 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if update.message:
             await update.message.reply_text(error_text, parse_mode="Markdown")
         else:
-            await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
+            try:
+                await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
+            except:
+                pass
 # ==============================================================================
 # 13. HELP COMMAND
 # ==============================================================================
