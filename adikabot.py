@@ -1306,54 +1306,201 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
 
 # ==============================================================================
-# 12.5 DELETE REQUEST HANDLER (አዲስ ተጨምሯል)
+# 12. VIEW REQUESTS (የተስተካከለ)
 # ==============================================================================
-async def delete_request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ጥያቄን ለማጥፋት - ለባለቤቱ እና ለአድሚን ብቻ"""
-    query = update.callback_query
-    await query.answer()
-    
-    user_id = update.effective_user.id
-    is_admin = (user_id == ADMIN_CHAT_ID_INT)
-    
-    # የጥያቄውን መረጃ ያግኙ
-    parts = query.data.split('_')
-    if len(parts) < 3:
-        await query.message.reply_text("❌ የተሳሳተ መረጃ ተላኳል።")
-        return
-    
-    req_id = int(parts[2])
-    listing = get_listing_by_id(req_id)
-    
-    if not listing:
-        await query.message.reply_text("❌ ጥያቄው አልተገኘም።")
-        return
-    
-    # ፈቃድ ማረጋገጥ: አድሚን ወይም ጥያቄውን ያስገባው ተጠቃሚ ብቻ
-    if not is_admin and listing.get('user_chat_id') != user_id:
-        await query.message.reply_text("⛔ ይህን ጥያቄ የማጥፋት ፈቃድ የለዎትም!")
-        return
-    
-    # ጥያቄውን ያጥፉ
-    success = update_listing_status(req_id, 'deleted')
-    
-    if success:
-        # በመልእክቱ ላይ ለውጥ ያድርጉ
-        await query.edit_message_caption(
-            caption=f"🗑️ **ጥያቄ #{req_id} ተሰርዟል**\n\n"
-                    f"👤 በ: {update.effective_user.first_name}\n"
-                    f"📅 ቀን: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-            parse_mode="Markdown"
-        )
+ITEMS_PER_PAGE = 8
+
+def format_listing_card(listing: Dict, idx: int) -> str:
+    """Professional compact card format with button indicator"""
+    try:
+        listing_id = listing.get('id', 'N/A')
+        main_cat = listing.get('main_category', '').upper()
+        sub_cat = listing.get('sub_category', '')
+        action_type = listing.get('action_type', '')
+        description = listing.get('description', '')
+        created_at = listing.get('created_at', '')
         
-        # ማሳወቂያ ይላኩ
-        await query.message.reply_text(
-            f"✅ **ጥያቄ #{req_id} በስኬት ተሰርዟል!**\n\n"
-            f"📌 ጥያቄው ከ'📋 የፈላጊዎች ዝርዝር' ተወግዷል።",
+        if created_at:
+            try:
+                if isinstance(created_at, datetime):
+                    date_str = created_at.strftime('%Y-%m-%d')
+                else:
+                    date_str = str(created_at)[:10]
+            except:
+                date_str = 'N/A'
+        else:
+            date_str = 'N/A'
+        
+        cat_emojis = {
+            'car': '🚗',
+            'house': '🏠',
+            'commercial': '🏢'
+        }
+        emoji = cat_emojis.get(listing.get('main_category', ''), '📌')
+        
+        phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
+        phone = phone_match.group(1) if phone_match else 'N/A'
+        
+        clean_desc = re.sub(r'\n📞 ስልክ:\s*[\d+]+', '', description)
+        if len(clean_desc) > 50:
+            clean_desc = clean_desc[:50] + "..."
+        
+        card = f"""
+┌─── 📌 #{listing_id} ──────────────────────
+│ {emoji} {main_cat} | {sub_cat if sub_cat else 'N/A'} | {action_type if action_type else 'N/A'}
+│ 📞 {phone} | 📅 {date_str}
+│ 📝 {clean_desc}
+└─────────────────────────────────────────
+"""
+        return card
+    except Exception as e:
+        logger.error(f"Error formatting card: {e}")
+        return f"❌ ስህተት በማሳየት ላይ: {str(e)}"
+
+async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    
+    is_admin = (user_id == ADMIN_CHAT_ID_INT)
+    broker = get_broker(user_id)
+    
+    if not is_admin and not broker:
+        await update.message.reply_text(
+            "⛔ ይህን ገጽ ማየት የሚችሉት የተመዘገቡ አቅራቢዎች/ደላሎች ወይም አድሚን ብቻ ናቸው!\n\n"
+            "📝 እባክዎን መጀመሪያ '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
-    else:
-        await query.message.reply_text("❌ ጥያቄውን ማጥፋት አልተቻለም።")
+        return
+    
+    if not is_admin and broker.get('status') != 'approved':
+        await update.message.reply_text(
+            "⏳ **ምዝገባዎ ገና በአድሚን አልጸደቀም!**\n\n"
+            "⏳ ምዝገባዎ በአድሚን ሲረጋገጥ ማስታወቂያ ይደርስዎታል።\n"
+            "📞 ለተጨማሪ መረጃ ድጋፍን ይጠቀሙ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+    
+    context.user_data['view_page'] = 0
+    await show_requests_page(update, context)
+
+async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        if update.callback_query and update.callback_query.data.startswith("page_"):
+            page = int(update.callback_query.data.replace("page_", ""))
+            context.user_data['view_page'] = page
+            query = update.callback_query
+            await query.answer()
+        else:
+            page = context.user_data.get('view_page', 0)
+        
+        offset = page * ITEMS_PER_PAGE
+        
+        try:
+            listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
+            total = count_listings()
+        except Exception as e:
+            logger.error(f"Database error: {e}")
+            error_text = f"""
+❌ **የውሂብ ጎቶ ስህተተ!**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 ዝርዝሩን ከውሂብ ጎቶ ማግኘት አልተቻለም።
+💡 እባክዎ ቆይተው እንደገና ይሞክሩ።
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+            if update.message:
+                await update.message.reply_text(error_text, parse_mode="Markdown")
+            else:
+                await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
+            return
+        
+        total_pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
+        
+        if not listings:
+            text = """
+📭 **ምንም ንቁ ጥያቄዎች የሉም**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💡 ሁሉም ጥያቄዎች ተመልሰዋል ወይም በሂደት ላይ ናቸው።
+🔄 ቆይተው እንደገና ይሞክሩ።
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+            if update.message:
+                await update.message.reply_text(text, parse_mode="Markdown", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
+            else:
+                await update.callback_query.edit_message_text(text, parse_mode="Markdown")
+            return
+        
+        user_id = update.effective_user.id
+        is_admin = (user_id == ADMIN_CHAT_ID_INT)
+        
+        if is_admin:
+            broker_name = "👑 አድሚን"
+        else:
+            broker_data = get_broker(user_id)
+            broker_name = broker_data.get('full_name', 'ደላላ') if broker_data else 'ደላላ'
+        
+        header = f"""
+📋 **የፈላጊዎች ዝርዝር**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👤 {broker_name} | 📊 {total} ጥያቄዎች | 📄 ገጽ {page + 1}/{total_pages}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        
+        body = ""
+        for idx, listing in enumerate(listings, 1):
+            body += format_listing_card(listing, idx)
+            body += "\n"
+        
+        keyboard = []
+        for listing in listings:
+            l_id = listing.get('id')
+            u_id = listing.get('user_chat_id')
+            if l_id and u_id:
+                row = [
+                    InlineKeyboardButton(f"✅ አለኝ - #{l_id}", callback_data=f"have_item_{l_id}_{u_id}"),
+                    InlineKeyboardButton(f"❌ ሰርዝ - #{l_id}", callback_data=f"delete_item_{l_id}")
+                ]
+                keyboard.append(row)
+        
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton("◀️ ቀዳሚ", callback_data=f"page_{page-1}"))
+        nav_buttons.append(InlineKeyboardButton(f"📄 {page+1}/{total_pages}", callback_data="page_info"))
+        if offset + ITEMS_PER_PAGE < total:
+            nav_buttons.append(InlineKeyboardButton("➡️ ቀጣይ", callback_data=f"page_{page+1}"))
+        nav_buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
+        keyboard.append(nav_buttons)
+        
+        text = header + body
+        
+        if update.message:
+            await update.message.reply_text(
+                text, 
+                reply_markup=InlineKeyboardMarkup(keyboard), 
+                parse_mode="Markdown"
+            )
+        else:
+            await update.callback_query.edit_message_text(
+                text, 
+                reply_markup=InlineKeyboardMarkup(keyboard), 
+                parse_mode="Markdown"
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in show_requests_page: {e}", exc_info=True)
+        error_text = f"""
+❌ **ስህተተ!**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ዝርዝሩን ማሳየት አልተቻለም።
+💡 እባክዎ እንደገና ይሞክሩ።
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        if update.message:
+            await update.message.reply_text(error_text, parse_mode="Markdown")
+        else:
+            await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
 # ==============================================================================
 # 13. HELP COMMAND
 # ==============================================================================
