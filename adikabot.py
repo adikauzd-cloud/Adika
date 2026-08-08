@@ -1181,49 +1181,52 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
 
 
 # ==============================================================================
-# 12. VIEW REQUESTS (የተስተካከለ - ቁልፍ ከጥያቄው አጠገብ)
+# 12. VIEW REQUESTS (የተሻሻለ - ከስህተት መረጃ ጋር)
 # ==============================================================================
 ITEMS_PER_PAGE = 8
 
 def format_listing_card(listing: Dict, idx: int) -> str:
     """Professional compact card format with button indicator"""
-    listing_id = listing.get('id', 'N/A')
-    main_cat = listing.get('main_category', '').upper()
-    sub_cat = listing.get('sub_category', '')
-    action_type = listing.get('action_type', '')
-    description = listing.get('description', '')
-    created_at = listing.get('created_at', '')
-    
-    # Category emojis
-    cat_emojis = {
-        'car': '🚗',
-        'house': '🏠',
-        'commercial': '🏢'
-    }
-    emoji = cat_emojis.get(listing.get('main_category', ''), '📌')
-    
-    # Extract phone number from description
-    phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
-    phone = phone_match.group(1) if phone_match else 'N/A'
-    
-    # Clean description
-    clean_desc = re.sub(r'\n📞 ስልክ:\s*[\d+]+', '', description)
-    if len(clean_desc) > 50:
-        clean_desc = clean_desc[:50] + "..."
-    
-    # Format date
-    date_str = created_at[:10] if created_at else 'N/A'
-    
-    # Professional compact card with button indicator
-    card = f"""
+    try:
+        listing_id = listing.get('id', 'N/A')
+        main_cat = listing.get('main_category', '').upper()
+        sub_cat = listing.get('sub_category', '')
+        action_type = listing.get('action_type', '')
+        description = listing.get('description', '')
+        created_at = listing.get('created_at', '')
+        
+        # Category emojis
+        cat_emojis = {
+            'car': '🚗',
+            'house': '🏠',
+            'commercial': '🏢'
+        }
+        emoji = cat_emojis.get(listing.get('main_category', ''), '📌')
+        
+        # Extract phone number from description
+        phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
+        phone = phone_match.group(1) if phone_match else 'N/A'
+        
+        # Clean description
+        clean_desc = re.sub(r'\n📞 ስልክ:\s*[\d+]+', '', description)
+        if len(clean_desc) > 50:
+            clean_desc = clean_desc[:50] + "..."
+        
+        # Format date
+        date_str = created_at[:10] if created_at else 'N/A'
+        
+        # Professional compact card
+        card = f"""
 ┌─── 📌 #{listing_id} ──────────────────────
 │ {emoji} {main_cat} | {sub_cat if sub_cat else 'N/A'} | {action_type if action_type else 'N/A'}
 │ 📞 {phone} | 📅 {date_str}
 │ 📝 {clean_desc}
-│ 👉 ለመልስ [{idx}] የታችኛውን ቁልፍ ይጫኑ
 └─────────────────────────────────────────
 """
-    return card
+        return card
+    except Exception as e:
+        logger.error(f"Error formatting card: {e}")
+        return f"❌ ስህተት በማሳየት ላይ: {e}"
 
 async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -1262,8 +1265,28 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         offset = page * ITEMS_PER_PAGE
         
-        listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
-        total = count_listings()
+        # ✅ Get listings with error handling
+        try:
+            listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
+            total = count_listings()
+        except Exception as e:
+            logger.error(f"Database error: {e}")
+            error_text = f"""
+❌ **የውሂብ ጎቶ ስህተተ!**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 ዝርዝሩን ከውሂብ ጎቶ ማግኘት አልተቻለም።
+💡 እባክዎ ቆይተው እንደገና ይሞክሩ።
+
+📝 ስህተት: {str(e)}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+            if update.message:
+                await update.message.reply_text(error_text, parse_mode="Markdown")
+            else:
+                await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
+            return
+        
         total_pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
         
         if not listings:
@@ -1297,21 +1320,20 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         body = ""
         for idx, listing in enumerate(listings, 1):
             body += format_listing_card(listing, idx)
-            if idx < len(listings):
-                body += ""
+            body += "\n"
         
         # ✅ Build keyboard with buttons next to each listing
         keyboard = []
-        for idx, listing in enumerate(listings, 1):
+        for listing in listings:
             l_id = listing.get('id')
             u_id = listing.get('user_chat_id')
-            # Button with listing number for easy reference
-            keyboard.append([InlineKeyboardButton(
-                f"✅ አለኝ - #{l_id}", 
-                callback_data=f"have_item_{l_id}_{u_id}"
-            )])
+            if l_id and u_id:
+                keyboard.append([InlineKeyboardButton(
+                    f"✅ አለኝ - #{l_id}", 
+                    callback_data=f"have_item_{l_id}_{u_id}"
+                )])
         
-        # Navigation buttons in one row
+        # Navigation buttons
         nav_buttons = []
         if page > 0:
             nav_buttons.append(InlineKeyboardButton("◀️ ቀዳሚ", callback_data=f"page_{page-1}"))
@@ -1337,13 +1359,15 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             
     except Exception as e:
-        logger.error(f"Error in show_requests_page: {e}")
-        error_text = """
+        logger.error(f"Error in show_requests_page: {e}", exc_info=True)
+        error_text = f"""
 ❌ **ስህተተ!**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ዝርዝሩን ማሳየት አልተቻለም።
 💡 እባክዎ እንደገና ይሞክሩ።
+
+📝 ስህተት: {str(e)}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
         if update.message:
