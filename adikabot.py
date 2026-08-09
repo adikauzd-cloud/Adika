@@ -689,6 +689,93 @@ def get_broker(chat_id):
     finally:
         if conn:
             conn.close()
+# ==============================================================================
+# SECTION 2: NEW DATABASE UTILITIES
+# ==============================================================================
+def get_public_marketplace_items(main_category=None, limit=10, offset=0):
+    """የሚሸጡ ወይም የሚያከራዩ ንብረቶችን ለተጠቃሚዎች ለማሳየት የሚያወጣ ፈንክሽን"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor) if DATABASE_URL else conn.cursor()
+        p = get_placeholder()
+        
+        if main_category:
+            query = f"SELECT * FROM listings WHERE req_type = 'SELL' AND status = 'pending' AND main_category = {p} ORDER BY created_at DESC LIMIT {p} OFFSET {p}"
+            cursor.execute(query, (main_category, limit, offset))
+        else:
+            query = f"SELECT * FROM listings WHERE req_type = 'SELL' AND status = 'pending' ORDER BY created_at DESC LIMIT {p} OFFSET {p}"
+            cursor.execute(query, (limit, offset))
+            
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    except Exception as e:
+        logger.error(f"Get public marketplace items error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def get_approved_brokers_directory(sub_city=None):
+    """የተረጋገጡ ደላሎችን በክፍለ ከተማ እና በRating ለይቶ የሚያወጣ ፈንክሽን"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor) if DATABASE_URL else conn.cursor()
+        p = get_placeholder()
+        
+        if sub_city and sub_city != "ሁሉም":
+            query = f"SELECT full_name, phone, role_type, sub_city, rating FROM brokers WHERE status = 'approved' AND sub_city = {p} ORDER BY rating DESC"
+            cursor.execute(query, (sub_city,))
+        else:
+            query = "SELECT full_name, phone, role_type, sub_city, rating FROM brokers WHERE status = 'approved' ORDER BY rating DESC"
+            cursor.execute(query)
+            
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+    except Exception as e:
+        logger.error(f"Get approved brokers directory error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def add_broker_rating(broker_chat_id, user_chat_id, stars):
+    """ለደላላ Rating መስጫ እና አማካኝ ማሰሊያ ፈንክሽን"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        
+        # 1. Add new rating entry
+        cursor.execute(
+            f"INSERT INTO ratings (broker_chat_id, user_chat_id, stars) VALUES ({p}, {p}, {p})",
+            (broker_chat_id, user_chat_id, stars)
+        )
+        
+        # 2. Recalculate average rating
+        cursor.execute(
+            f"SELECT AVG(stars), COUNT(*) FROM ratings WHERE broker_chat_id = {p}",
+            (broker_chat_id,)
+        )
+        avg_stars, total_count = cursor.fetchone()
+        
+        # 3. Update broker table
+        cursor.execute(
+            f"UPDATE brokers SET rating = {p}, total_ratings = {p} WHERE chat_id = {p}",
+            (round(float(avg_stars), 1), total_count, broker_chat_id)
+        )
+        
+        if not DATABASE_URL:
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Add broker rating error: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
 
 # ==============================================================================
 # 4. CONVERSATION STATES (የተስተካከለ)
