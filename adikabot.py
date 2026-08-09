@@ -2221,6 +2221,11 @@ def main():
     init_db()
     threading.Thread(target=run_flask, daemon=True).start()
 
+
+app.add_handler(MessageHandler(filters.Regex("^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
+app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
+app.add_handler(CallbackQueryHandler(filter_brokers_by_subcity_callback, pattern="^dir_sc_"))
+
     app = Application.builder().token(BOT_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
