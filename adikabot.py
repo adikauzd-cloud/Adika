@@ -2,9 +2,9 @@ import logging
 import os
 import threading
 import re
-import asyncio
+import asyncio  # ✅ ይህን ይጨምሩ
 from typing import Optional, List, Dict, Any
-from datetime import datetime
+from datetime import datetime  # ✅ date አያስፈልግም
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from flask import Flask
@@ -71,10 +71,7 @@ HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየ�
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
 
 # ==============================================================================
-# 1. IMPORT STATEMENTS (የተስተካከለ)
-# ========================================================================
-# ==============================================================================
-# 3. DATABASE UTILITIES (የተስተካከለ)
+# 3. DATABASE UTILITIES (የተስተካከለ - init_db ተጨምሯል)
 # ==============================================================================
 import os
 import psycopg2
@@ -174,7 +171,6 @@ def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city
         cursor = conn.cursor()
         p = get_placeholder()
         
-        # Check if user already exists
         cursor.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
         existing = cursor.fetchone()
         
@@ -217,152 +213,11 @@ def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city
                 broker_id = cursor.lastrowid
                 conn.commit()
             
+        logger.info(f"✅ Broker registered: {full_name} (ID: {broker_id})")
         return broker_id
     except Exception as e:
         logger.error(f"Add broker error: {e}")
         return None
-    finally:
-        if conn:
-            conn.close()
-
-def get_broker(chat_id):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor) if DATABASE_URL else conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"SELECT * FROM brokers WHERE chat_id = {p}", (chat_id,))
-        row = cursor.fetchone()
-        return dict(row) if row else None
-    except Exception as e:
-        logger.error(f"Get broker error: {e}")
-        return None
-    finally:
-        if conn:
-            conn.close()
-
-def update_broker_status(chat_id, status):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"UPDATE brokers SET status = {p} WHERE chat_id = {p}", (status, chat_id))
-        if not DATABASE_URL:
-            conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"Update broker status error: {e}")
-        return False
-    finally:
-        if conn:
-            conn.close()
-
-def get_approved_brokers():
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor) if DATABASE_URL else conn.cursor()
-        cursor.execute("SELECT chat_id FROM brokers WHERE status = 'approved'")
-        rows = cursor.fetchall()
-        return [dict(row)['chat_id'] for row in rows]
-    except Exception as e:
-        logger.error(f"Get approved brokers error: {e}")
-        return []
-    finally:
-        if conn:
-            conn.close()
-
-def add_listing(user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        query = f"""
-            INSERT INTO listings (user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description)
-            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
-        """
-        params = (user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description)
-        
-        if DATABASE_URL:
-            cursor.execute(query + " RETURNING id", params)
-            req_id = cursor.fetchone()[0]
-        else:
-            cursor.execute(query, params)
-            req_id = cursor.lastrowid
-            conn.commit()
-            
-        return req_id
-    except Exception as e:
-        logger.error(f"Add listing error: {e}")
-        return None
-    finally:
-        if conn:
-            conn.close()
-
-def get_listings_by_category(limit=10, offset=0):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor) if DATABASE_URL else conn.cursor()
-        p = get_placeholder()
-        
-        query = f"SELECT * FROM listings WHERE status = 'pending' ORDER BY created_at DESC LIMIT {p} OFFSET {p}"
-        cursor.execute(query, (limit, offset))
-        rows = cursor.fetchall()
-        
-        return [dict(row) for row in rows]
-    except Exception as e:
-        logger.error(f"Get listings error: {e}")
-        return []
-    finally:
-        if conn:
-            conn.close()
-
-def count_listings():
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM listings WHERE status = 'pending'")
-        return cursor.fetchone()[0]
-    except Exception as e:
-        logger.error(f"Count listings error: {e}")
-        return 0
-    finally:
-        if conn:
-            conn.close()
-
-def get_listing_by_id(listing_id):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor) if DATABASE_URL else conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"SELECT * FROM listings WHERE id = {p}", (listing_id,))
-        row = cursor.fetchone()
-        return dict(row) if row else None
-    except Exception as e:
-        logger.error(f"Get listing by id error: {e}")
-        return None
-    finally:
-        if conn:
-            conn.close()
-
-def update_listing_status(req_id, status):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
-        if not DATABASE_URL:
-            conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"Update listing error: {e}")
-        return False
     finally:
         if conn:
             conn.close()
@@ -611,17 +466,6 @@ async def notify_brokers(context: ContextTypes.DEFAULT_TYPE, message_text: str, 
             await asyncio.sleep(0.05)
         except Exception as e:
             logger.error(f"Failed to send notification to broker {b_id}: {e}")
-def get_db_connection():
-    if DATABASE_URL:
-        # የጥቅስ ምልክቶችንና ባዶ ቦታዎችን ሙሉ በሙሉ ያጸዳል
-        cleaned_url = DATABASE_URL.strip().strip('"').strip("'").replace('"', '').replace("'", '')
-        if cleaned_url.startswith("postgres://"):
-            cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
-        return psycopg2.connect(cleaned_url)
-    else:
-        import sqlite3
-        return sqlite3.connect("adika_marketplace.db")
-
 
 # ==============================================================================
 # 6. START & CANCEL HANDLERS
@@ -1163,7 +1007,7 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 10. BROKER REGISTRATION - COMPLETE (ሁሉም ተግባራት)
+# 10. BROKER REGISTRATION (የተስተካከለ - broker_reg_start ተጨምሯል)
 # ==============================================================================
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -1253,175 +1097,16 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return BROKER_NID_PHOTO
         
-    photo_id = update.message.photo[-1].file_id
-    role = context.user_data.get('broker_role', 'አቅራቢ')
-    name = context.user_data.get('broker_name', user.first_name)
-    phone = context.user_data.get('broker_phone', '')
-    sub_city = context.user_data.get('broker_subcity', '')
-    
-    # Validate all required fields
-    if not all([name, phone, sub_city, photo_id]):
-        missing = []
-        if not name: missing.append("ስም")
-        if not phone: missing.append("ስልክ")
-        if not sub_city: missing.append("ክፍለ ከተማ")
-        if not photo_id: missing.append("ፎቶ")
-        
+    existing_broker = get_broker(user.id)
+    if existing_broker:
         await update.message.reply_text(
-            f"❌ **የሚከተሉት መረጃዎች ጎድለዋል!**\n\n"
-            f"📝 {', '.join(missing)}\n\n"
-            f"💡 እባክዎ እንደገና ይሞክሩ።",
+            "ℹ️ **አስቀድመው ተመዝግበዋል!**\n\n"
+            f"👤 ስም: {existing_broker.get('full_name')}\n"
+            f"📊 ሁኔታ: {existing_broker.get('status')}\n\n"
+            "📌 ለውጥ ለማድረግ እባክዎን አድሚንን ያግኙ።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return ConversationHandler.END
-    
-    await update.message.reply_text(
-        f"📝 **የምዝገባ መረጃዎ፦**\n\n"
-        f"👤 ስም: {name}\n"
-        f"🎭 ሚና: {role}\n"
-        f"📞 ስልክ: {phone}\n"
-        f"📍 ክፍለ ከተማ: {sub_city}\n"
-        f"🆔 Telegram ID: `{user.id}`\n\n"
-        f"⏳ እባክዎ ይጠብቁ፣ እያስመዘገብን ነው...",
-        parse_mode="Markdown"
-    )
-    
-    try:
-        broker_id = add_broker(user.id, name, phone, role, photo_id, sub_city)
-        
-        if broker_id:
-            await update.message.reply_text(
-                "✅ **ምዝገባዎ በስኬት ተጠናቋል!** 🎉\n\n"
-                "⏳ አድሚኑ መረጃዎን ካረጋገጠ በኋላ ማስታወቂያ ይደርስዎታል።\n\n"
-                "📋 ምዝገባዎ ከጸደቀ በኋላ '📋 የፈላጊዎች ዝርዝር' ማየት ይችላሉ።",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-            )
-            
-            if ADMIN_CHAT_ID_INT != 0:
-                admin_msg = (
-                    f"🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**\n\n"
-                    f"👤 ስም: {name}\n"
-                    f"🎭 ሚና: {role}\n"
-                    f"📞 ስልክ: {phone}\n"
-                    f"📍 ክፍለ ከተማ: {sub_city}\n"
-                    f"🆔 Telegram ID: `{user.id}`"
-                )
-                admin_kbd = InlineKeyboardMarkup([
-                    [
-                        InlineKeyboardButton("✅ አጽድቅ", callback_data=f"admin_appr_{user.id}"),
-                        InlineKeyboardButton("❌ ሰርዝ", callback_data=f"admin_reje_{user.id}")
-                    ],
-                    [InlineKeyboardButton("👤 ዝርዝር", callback_data=f"admin_view_{user.id}")]
-                ])
-                try:
-                    await context.bot.send_photo(
-                        chat_id=ADMIN_CHAT_ID_INT,
-                        photo=photo_id,
-                        caption=admin_msg,
-                        parse_mode="Markdown",
-                        reply_markup=admin_kbd
-                    )
-                    logger.info(f"Admin notification sent for broker {user.id}")
-                except Exception as e:
-                    logger.error(f"Failed to send admin approval message: {e}")
-                    await update.message.reply_text(
-                        "⚠️ ለአድሚን መላክ አልተቻለም፣ ነገር ግን ምዝገባዎ ተመዝግቧል።"
-                    )
-        else:
-            await update.message.reply_text(
-                "❌ **ምዝገባውን ማጠናቀቅ አልተቻለም!**\n\n"
-                "💡 እባክዎ የሚከተሉትን ያረጋግጡ፦\n"
-                "• መረጃዎቹ ሙሉ መሆናቸውን\n"
-                "• የበይነመረብ ግንኙነትዎን\n"
-                "• አስቀድመው ካልተመዘገቡ\n\n"
-                "🔄 እንደገና ለመሞከር '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-            )
-    except Exception as e:
-        logger.error(f"Broker registration error: {e}")
-        await update.message.reply_text(
-            f"❌ **የምዝገባ ስህተተ!**\n\n"
-            f"📝 ስህተት: {str(e)}\n\n"
-            f"💡 እባክዎ እንደገና ይሞክሩ ወይም አድሚንን ያግኙ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-    
-    return ConversationHandler.END
-    await update.message.reply_text(
-        f"📝 **የምዝገባ መረጃዎ፦**\n\n"
-        f"👤 ስም: {name}\n"
-        f"🎭 ሚና: {role}\n"
-        f"📞 ስልክ: {phone}\n"
-        f"📍 ክፍለ ከተማ: {sub_city}\n"
-        f"🆔 Telegram ID: `{user.id}`\n\n"
-        f"⏳ እባክዎ ይጠብቁ፣ እያስመዘገብን ነው...",
-        parse_mode="Markdown"
-    )
-    
-    try:
-        # Try to add broker to database
-        broker_id = add_broker(user.id, name, phone, role, photo_id, sub_city)
-        
-        if broker_id:
-            await update.message.reply_text(
-                "✅ **ምዝገባዎ በስኬት ተጠናቋል!** 🎉\n\n"
-                "⏳ አድሚኑ መረጃዎን ካረጋገጠ በኋላ ማስታወቂያ ይደርስዎታል።\n\n"
-                "📋 ምዝገባዎ ከጸደቀ በኋላ '📋 የፈላጊዎች ዝርዝር' ማየት ይችላሉ።",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-            )
-            
-            # Notify admin
-            if ADMIN_CHAT_ID_INT != 0:
-                admin_msg = (
-                    f"🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**\n\n"
-                    f"👤 ስም: {name}\n"
-                    f"🎭 ሚና: {role}\n"
-                    f"📞 ስልክ: {phone}\n"
-                    f"📍 ክፍለ ከተማ: {sub_city}\n"
-                    f"🆔 Telegram ID: `{user.id}`"
-                )
-                admin_kbd = InlineKeyboardMarkup([
-                    [
-                        InlineKeyboardButton("✅ አጽድቅ", callback_data=f"admin_appr_{user.id}"),
-                        InlineKeyboardButton("❌ ሰርዝ", callback_data=f"admin_reje_{user.id}")
-                    ],
-                    [InlineKeyboardButton("👤 ዝርዝር", callback_data=f"admin_view_{user.id}")]
-                ])
-                try:
-                    await context.bot.send_photo(
-                        chat_id=ADMIN_CHAT_ID_INT,
-                        photo=photo_id,
-                        caption=admin_msg,
-                        parse_mode="Markdown",
-                        reply_markup=admin_kbd
-                    )
-                    logger.info(f"Admin notification sent for broker {user.id}")
-                except Exception as e:
-                    logger.error(f"Failed to send admin approval message: {e}")
-                    await update.message.reply_text(
-                        "⚠️ ለአድሚን መላክ አልተቻለም፣ ነገር ግን ምዝገባዎ ተመዝግቧል።"
-                    )
-        else:
-            # If add_broker returned None
-            await update.message.reply_text(
-                "❌ **ምዝገባውን ማጠናቀቅ አልተቻለም!**\n\n"
-                "💡 እባክዎ የሚከተሉትን ያረጋግጡ፦\n"
-                "• መረጃዎቹ ሙሉ መሆናቸውን\n"
-                "• የበይነመረብ ግንኙነትዎን\n"
-                "• አስቀድመው ካልተመዘገቡ\n\n"
-                "🔄 እንደገና ለመሞከር '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-            )
-    except Exception as e:
-        logger.error(f"Broker registration error: {e}")
-        await update.message.reply_text(
-            f"❌ **የምዝገባ ስህተተ!**\n\n"
-            f"📝 ስህተት: {str(e)}\n\n"
-            f"💡 እባክዎ እንደገና ይሞክሩ ወይም አድሚንን ያግኙ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-    
-    return ConversationHandler.END
         
     photo_id = update.message.photo[-1].file_id
     role = context.user_data.get('broker_role', 'አቅራቢ')
