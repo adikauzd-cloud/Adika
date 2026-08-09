@@ -282,7 +282,29 @@ async def filter_brokers_by_subcity_callback(update: Update, context: ContextTyp
         
     await query.edit_message_text(msg, parse_mode="Markdown")
 
+# ==============================================================================
+# SECTION 4: INLINE NAVIGATION & PAGINATION HELPERS
+# ==============================================================================
+def get_nav_buttons(back_callback: str = None) -> list:
+    buttons = []
+    if back_callback:
+        buttons.append(InlineKeyboardButton("⬅️ ተመለስ", callback_data=back_callback))
+    buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
+    return buttons
 
+def build_pagination_keyboard(current_page: int, total_pages: int, prefix: str) -> InlineKeyboardMarkup:
+    nav_row = []
+    
+    if current_page > 1:
+        nav_row.append(InlineKeyboardButton("◀️ ቀዳሚ", callback_data=f"{prefix}_page_{current_page - 1}"))
+        
+    nav_row.append(InlineKeyboardButton(f"📄 {current_page}/{total_pages}", callback_data="ignore"))
+    
+    if current_page < total_pages:
+        nav_row.append(InlineKeyboardButton("ቀጣይ ▶️", callback_data=f"{prefix}_page_{current_page + 1}"))
+        
+    keyboard = [nav_row, [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]]
+    return InlineKeyboardMarkup(keyboard)
 
 # 1. DATABASE CONNECTION
 def get_db_connection():
