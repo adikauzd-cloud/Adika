@@ -185,6 +185,84 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
+# ==============================================================================
+# SECTION 1: BUYER REQUEST CARD FORMATTER
+# ==============================================================================
+def format_buyer_card(req: dict) -> str:
+    """የፈላጊዎችን ጥያቄ በፅዳት አዘጋጅቶ የሚያቀርብ ፈንክሽን"""
+    req_id = req.get('id', 'N/A')
+    main_cat = req.get('main_category', '')
+    action_type = req.get('action_type', '')
+    sub_cat = req.get('sub_category', 'ያልተጠቀሰ')
+    prop_type = req.get('property_type', 'ያልተጠቀሰ')
+    desc = req.get('description', '')
+    phone = req.get('phone', 'መረጃው አልተያያዘም')
+    
+    icon = "🚗" if main_cat == "መኪና" else "🏠"
+    
+    card = (
+        f"{icon} **[ፈላጊ - #{req_id}]**\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"📌 **ዘርፍ፦** {main_cat} ({action_type})\n"
+        f"🏷️ **ዓይነት፦** {sub_cat} | {prop_type}\n"
+        f"📝 **ዝርዝር ፍላጎት፦**\n_{desc}_\n\n"
+        f"📞 **የፈላጊው ስልክ፦** `{phone}`\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 *ደላላ ከሆኑና ይህ ንብረት በእጅዎ ካለ ከታች ያለውን አዝራር ይጫኑ።*"
+    )
+    return card
+# ==============================================================================
+# SECTION 2: SELLER ITEM CARD FORMATTER
+# ==============================================================================
+def format_seller_card(item: dict) -> str:
+    """ለሽያጭ/ኪራይ የቀረበን ንብረት አደራጅቶ የሚያቀርብ ፈንክሽን"""
+    item_id = item.get('id', 'N/A')
+    main_cat = item.get('main_category', '')
+    action_type = item.get('action_type', '')
+    sub_cat = item.get('sub_category', '-')
+    desc = item.get('description', '')
+    price = item.get('price', 'በድርድር')
+    phone = item.get('phone', '-')
+    
+    icon = "🚗" if main_cat == "መኪና" else "🏠"
+    tag = "🔴 ለሽያጭ" if action_type == "መሸጥ" else "🔵 ለኪራይ"
+    
+    card = (
+        f"{icon} **[ለገበያ የቀረበ - #{item_id}]** {tag}\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"📦 **አይነት፦** {main_cat} ({sub_cat})\n"
+        f"💰 **ዋጋ፦** `{price}`\n\n"
+        f"📋 **መግለጫ፦**\n_{desc}_\n\n"
+        f"📞 **የባለቤቱ/አቅራቢው ስልክ፦** `{phone}`\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"✨ *ለበለጠ መረጃ በስልክ ቁጥሩ በቀጥታ ይደውሉ።*"
+    )
+    return card
+# ==============================================================================
+# SECTION 3: BROKER PROFILE CARD FORMATTER
+# ==============================================================================
+def format_broker_profile(broker: dict) -> str:
+    """የደላሎችን መረጃና Rating አምሮ እንዲወጣ የሚያደርግ ፈንክሽን"""
+    name = broker.get('full_name', 'ያልተጠቀሰ')
+    role = broker.get('role_type', 'ደላላ')
+    sub_city = broker.get('sub_city', 'ያልተገለፀ')
+    phone = broker.get('phone', '-')
+    rating = broker.get('rating', 5.0)
+    
+    # የኮከብ ደረጃ ማሳያ
+    stars_count = int(round(rating))
+    stars_display = "⭐" * stars_count
+    
+    card = (
+        f"👤 **{name}** `[✔ VERIFIED]`\n"
+        f"🎭 **ሚና፦** {role}\n"
+        f"📍 **የስራ አካባቢ፦** {sub_city}\n"
+        f"📊 **ደረጃ፦** `{rating:.1f}/5.0` {stars_display}\n"
+        f"📞 **ስልክ፦** `{phone}`\n"
+        f"───────────────────"
+    )
+    return card
+
 
 # 1. DATABASE CONNECTION
 def get_db_connection():
