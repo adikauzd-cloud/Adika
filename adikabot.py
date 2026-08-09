@@ -1148,7 +1148,66 @@ async def show_buyer_confirmation(update: Update, context: ContextTypes.DEFAULT_
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
+# ==============================================================================
+# 7. BUYER FLOW - FIXED (የተስተካከለ)
+# ==============================================================================
+async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    phone = update.message.text
+    
+    if phone == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    if not validate_phone(phone):
+        await update.message.reply_text("❌ ስልክ ቁጥሩ ትክክል አይደለም! እባክዎ እንደገና ያስገቡ።")
+        return BUYER_PHONE
+    
+    main_cat = context.user_data.get('main_category', '')
+    sub_cat = context.user_data.get('sub_category', '')
+    action_type = context.user_data.get('action_type', '')
+    prop_subtype = context.user_data.get('property_subtype', '')
+    description = context.user_data.get('description', '')
+    
+    category_title = "🚗 አዲስ የመኪና ጥያቄ" if main_cat == "car" else "🏠 አዲስ የቤት/ቦታ ጥያቄ"
+    
+    full_desc = (
+        f"📌 **{category_title}**\n"
+        f"🔹 አይነት: {prop_subtype if prop_subtype else sub_cat}\n"
+        f"🔄 ፍላጎት: {action_type}\n"
+        f"📝 ዝርዝር: {description}\n"
+        f"📞 ስልክ: {phone}"
+    )
+    
+    try:
+        req_id = add_listing(user.id, user.first_name, 'BUY', main_cat, sub_cat, action_type, prop_subtype, full_desc)
+    except Exception as e:
+        logger.error(f"Error adding listing: {e}")
+        req_id = None
+    
+    if req_id:
+        await update.message.reply_text(
+            f"✅ **ጥያቄዎ በጥሩ ሁኔታ ተመዝግቧል!** (#REQ-{req_id})\n\n"
+            f"📌 ጥያቄዎ ለተረጋገጡ ደላሎች የተላከ ሲሆን፣ ንብረቱ ያላቸው ደላሎች አማራጮችን ሲልኩልዎ እዚሁ ቴሌግራም ላይ ይደርስዎታል።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        
+        notification_text = (
+            f"🔔 **{category_title}! (#REQ-{req_id})**\n\n"
+            f"{full_desc}\n\n"
+            f"👉 ይህ ንብረት በእጅዎ ካለ ከታች **'አለኝ'** የሚለውን በመጫን ለፈላጊው መረጃ ይላኩ!"
+        )
+        await notify_brokers(context, notification_text, req_id, user.id)
+    else:
+        await update.message.reply_text(
+            "❌ **ጥያቄውን መመዝገብ አልተቻለም!**\n\n"
+            "💡 እባክዎ የሚከተሉትን ያረጋግጡ፦\n"
+            "• መረጃዎቹ ሙሉ መሆናቸውን\n"
+            "• የበይነመረብ ግንኙነትዎን\n\n"
+            "🔄 እንደገና ለመሞከር '🔍 መግዛት / መከራየት' ይጫኑ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
 
+    return ConversationHandler.END
 # ==============================================================================
 # 9. BUYER CONFIRMATION HANDLERS
 # ==============================================================================
