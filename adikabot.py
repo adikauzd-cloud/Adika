@@ -1449,12 +1449,12 @@ async def delete_request_callback(update: Update, context: ContextTypes.DEFAULT_
     else:
         await query.message.reply_text("❌ ጥያቄውን ማጥፋት አልተቻለም።")
 # ==============================================================================
-# 12. VIEW REQUESTS - PROFESSIONAL DESIGN (የተሻሻለ)
+# 12. VIEW REQUESTS - PROFESSIONAL REDESIGN (የተሻሻለ)
 # ==============================================================================
 ITEMS_PER_PAGE = 5
 
 def format_listing_card(listing: Dict, idx: int) -> str:
-    """Professional compact card format with clean design"""
+    """Professional compact card with clean design"""
     try:
         listing_id = listing.get('id', 'N/A')
         main_cat = listing.get('main_category', '').upper()
@@ -1495,7 +1495,11 @@ def format_listing_card(listing: Dict, idx: int) -> str:
         location_match = re.search(r'አካባቢ:\s*([^\n]+)', description)
         location = location_match.group(1) if location_match else 'N/A'
         
-        # Clean description - remove extra details
+        # Extract property type
+        property_match = re.search(r'🔹 አይነት:\s*([^\n]+)', description)
+        property_type = property_match.group(1) if property_match else sub_cat
+        
+        # Clean description - keep only the essential
         clean_desc = description
         clean_desc = re.sub(r'📞 ስልክ:\s*[\d+]+', '', clean_desc)
         clean_desc = re.sub(r'ባጀት:\s*[\d,]+', '', clean_desc)
@@ -1504,21 +1508,22 @@ def format_listing_card(listing: Dict, idx: int) -> str:
         clean_desc = re.sub(r'📌\s*\*\*.*?\*\*', '', clean_desc)
         clean_desc = re.sub(r'🔹\s*አይነት:\s*[^\n]+', '', clean_desc)
         clean_desc = re.sub(r'🔄\s*ፍላጎት:\s*[^\n]+', '', clean_desc)
+        clean_desc = re.sub(r'📝\s*', '', clean_desc)
         clean_desc = clean_desc.strip()
         
-        if len(clean_desc) > 60:
-            clean_desc = clean_desc[:60] + "..."
+        if len(clean_desc) > 50:
+            clean_desc = clean_desc[:50] + "..."
         
-        # Build professional card
+        # Build clean professional card
         card = f"""
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-┃ #{listing_id:04d}  {emoji} {main_cat}
-┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-┃ 📌 {sub_cat if sub_cat else 'N/A'}  |  {action_type if action_type else 'N/A'}
-┃ 📅 {date_str}  |  📞 {phone}
-┃ 💰 {budget} ETB  |  📍 {location}
-┃ 📝 {clean_desc}
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+╔═══════════════════════════════════════════════
+║ #{listing_id:04d}  {emoji} {main_cat}  │  {action_type if action_type else 'N/A'}
+╠═══════════════════════════════════════════════
+║ 📌 {property_type if property_type else 'N/A'}
+║ 📍 {location if location != 'N/A' else 'N/A'}  │  💰 {budget} ETB
+║ 📞 {phone}  │  📅 {date_str}
+║ 📝 {clean_desc}
+╚═══════════════════════════════════════════════
 """
         return card
     except Exception as e:
@@ -1545,9 +1550,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             error_text = """
 ❌ **Database Error**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Unable to fetch listings. Please try again.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
             if update.message:
                 await update.message.reply_text(error_text, parse_mode="Markdown")
@@ -1561,10 +1564,8 @@ Unable to fetch listings. Please try again.
             text = """
 📭 **No Active Requests**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-All requests have been responded to or are in progress.
+All requests have been responded to.
 Check back later for new opportunities.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
             if update.message:
                 await update.message.reply_text(text, parse_mode="Markdown", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
@@ -1584,7 +1585,7 @@ Check back later for new opportunities.
         header = f"""
 📋 **Active Requests**
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-👤 {broker_name}  |  📊 {total} total  |  📄 Page {page + 1}/{total_pages}
+👤 {broker_name}  │  📊 {total} total  │  📄 Page {page + 1}/{total_pages}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
         
@@ -1593,21 +1594,21 @@ Check back later for new opportunities.
             body += format_listing_card(listing, idx)
             body += "\n"
         
-        # Build inline keyboard - one row per listing with two buttons
+        # Build inline keyboard - two buttons per row
         keyboard = []
         for listing in listings:
             l_id = listing.get('id')
             u_id = listing.get('user_chat_id')
             if l_id and u_id:
                 keyboard.append([
-                    InlineKeyboardButton(f"✅ Have - #{l_id:04d}", callback_data=f"have_item_{l_id}_{u_id}"),
-                    InlineKeyboardButton(f"❌ Delete - #{l_id:04d}", callback_data=f"delete_item_{l_id}")
+                    InlineKeyboardButton(f"✅ Have #{l_id:04d}", callback_data=f"have_item_{l_id}_{u_id}"),
+                    InlineKeyboardButton(f"❌ Delete #{l_id:04d}", callback_data=f"delete_item_{l_id}")
                 ])
         
         # Navigation buttons
         nav_buttons = []
         if page > 0:
-            nav_buttons.append(InlineKeyboardButton("◀️ Previous", callback_data=f"page_{page-1}"))
+            nav_buttons.append(InlineKeyboardButton("◀️ Prev", callback_data=f"page_{page-1}"))
         nav_buttons.append(InlineKeyboardButton(f"📄 {page+1}/{total_pages}", callback_data="page_info"))
         if offset + ITEMS_PER_PAGE < total:
             nav_buttons.append(InlineKeyboardButton("Next ▶️", callback_data=f"page_{page+1}"))
@@ -1634,9 +1635,7 @@ Check back later for new opportunities.
         error_text = """
 ❌ **Error Displaying Listings**
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Please try again or contact support.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
         if update.message:
             await update.message.reply_text(error_text, parse_mode="Markdown")
