@@ -69,6 +69,107 @@ CAR_SUB_CATEGORIES = ["🚗 የቤት መኪና", "🚚 የሥራ መኪና", "�
 # ✅ የቤት አይነቶች (ኮንዶሚኒየም ተጨምሯል)
 HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየም", "🏢 ሪል እስቴት", "🏞️ መሬት/ቦታ"]
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
+# ==============================================================================
+# SECTION 1: DATABASE INITIALIZATION
+# ==============================================================================
+def init_db():
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if DATABASE_URL:
+            # PostgreSQL Tables
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS listings (
+                    id SERIAL PRIMARY KEY,
+                    user_chat_id BIGINT NOT NULL,
+                    user_name TEXT,
+                    req_type TEXT NOT NULL,
+                    main_category TEXT NOT NULL,
+                    sub_category TEXT,
+                    action_type TEXT,
+                    property_type TEXT,
+                    description TEXT NOT NULL,
+                    price TEXT,
+                    phone TEXT,
+                    photo_id TEXT,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS brokers (
+                    id SERIAL PRIMARY KEY,
+                    chat_id BIGINT NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    role_type TEXT NOT NULL,
+                    national_id_photo TEXT,
+                    sub_city TEXT NOT NULL,
+                    rating REAL DEFAULT 5.0,
+                    total_ratings INT DEFAULT 0,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS ratings (
+                    id SERIAL PRIMARY KEY,
+                    broker_chat_id BIGINT NOT NULL,
+                    user_chat_id BIGINT NOT NULL,
+                    stars INT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+        else:
+            # SQLite Tables
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS listings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_chat_id INTEGER NOT NULL,
+                    user_name TEXT,
+                    req_type TEXT NOT NULL,
+                    main_category TEXT NOT NULL,
+                    sub_category TEXT,
+                    action_type TEXT,
+                    property_type TEXT,
+                    description TEXT NOT NULL,
+                    price TEXT,
+                    phone TEXT,
+                    photo_id TEXT,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS brokers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    role_type TEXT NOT NULL,
+                    national_id_photo TEXT,
+                    sub_city TEXT NOT NULL,
+                    rating REAL DEFAULT 5.0,
+                    total_ratings INTEGER DEFAULT 0,
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS ratings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    broker_chat_id INTEGER NOT NULL,
+                    user_chat_id INTEGER NOT NULL,
+                    stars INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+        if not DATABASE_URL:
+            conn.commit()
+            
+        logging.info("✅ Adika Database initialized with Ratings and Marketplace Support")
+        
+    except Exception as e:
+        logging.error(f"❌ Database initialization error: {e}")
+        if conn and not DATABASE_URL:
+            conn.rollback()
+    finally:
+        if conn:
+            conn.close()
 
 # ==============================================================================
 # 3. DATABASE UTILITIES (የተስተካከለ - ሙሉ ተግባራት)
