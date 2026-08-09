@@ -1583,7 +1583,7 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Build inline keyboard
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton(f"✅ Have #{req_id}", callback_data=f"have_item_{req_id}_{listing.get('user_chat_id')}"),
+                InlineKeyboardButton(f"✅ አለኝ #{req_id}", callback_data=f"have_item_{req_id}_{listing.get('user_chat_id')}"),
                 InlineKeyboardButton(f"❌ Delete #{req_id}", callback_data=f"delete_item_{req_id}")
             ]
         ])
