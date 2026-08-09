@@ -671,7 +671,7 @@ async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 13. CAR BUYING CONVERSATION - PROFESSIONAL UPDATE (የተሻሻለ)
+# 13. CAR BUYING CONVERSATION - COMPLETE (የተስተካከለ)
 # ==============================================================================
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -684,8 +684,12 @@ CAR_TYPE, CAR_MODEL, BUDGET, CONTACT = range(4)
 # Car models list
 CAR_MODELS = ["🚘 ቪትስ (Vitz)", "🚘 ኮሮላ (Corolla)", "🚘 ያሪስ (Yaris)", "🚘 ፕሪየስ (Prius)", "🚘 ሌላ አይነት"]
 
-async def start_buy_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Start car buying/renting request"""
+async def car_buy_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start car buying/renting request - entry point"""
+    context.user_data.clear()
+    context.user_data['req_type'] = 'BUY'
+    context.user_data['main_category'] = 'car'
+    
     # Create keyboard with car models
     keyboard = [[model] for model in CAR_MODELS[:-1]]  # All models except "ሌላ"
     keyboard.append([CAR_MODELS[-1]])  # "ሌላ አይነት" as separate row
@@ -713,14 +717,7 @@ async def get_car_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return CAR_TYPE
     
-    return await ask_model_year(update, context)
-
-async def ask_model_year(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ask for model year range"""
-    # If user typed custom car type, store it
-    if context.user_data.get("car_type") != update.message.text:
-        context.user_data["car_type"] = update.message.text
-    
+    # Ask for model year
     keyboard = [
         ["2000 - 2005", "2006 - 2010"],
         ["2011 - 2015", "2016 - 2024"],
@@ -787,7 +784,7 @@ async def handle_phone_choice(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     return CONTACT
 
-async def finalize_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def finalize_car_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Finalize request - save to database and confirm"""
     user = update.effective_user
     
@@ -805,10 +802,15 @@ async def finalize_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     car_type = context.user_data.get("car_type", "N/A")
     car_model = context.user_data.get("car_model", "N/A")
     budget = context.user_data.get("budget", "N/A")
+    action_type = context.user_data.get("action_type", "መግዛት")
 
     # Validate data
     if not car_type or car_type == "N/A":
-        await update.message.reply_text("❌ የመኪና አይነት አልተመዘገበም። እባክዎ እንደገና ይሞክሩ።")
+        error_text = "❌ የመኪና አይነት አልተመዘገበም። እባክዎ እንደገና ይሞክሩ።"
+        if is_callback:
+            await query.edit_message_text(error_text, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(error_text, parse_mode="Markdown")
         return ConversationHandler.END
 
     # Save to database
@@ -826,7 +828,7 @@ async def finalize_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         'BUY',
         'car',
         car_type,
-        'መግዛት' if 'መግዛት' in context.user_data.get('action_type', 'መግዛት') else 'መከራየት',
+        action_type,
         car_model,
         description
     )
@@ -874,7 +876,7 @@ async def finalize_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return ConversationHandler.END
 
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cancel_car_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel conversation"""
     await update.message.reply_text(
         "❌ ጥያቄው ተሰርዟል። በማንኛውም ጊዜ እንደገና መጀመር ይችላሉ።",
