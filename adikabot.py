@@ -1452,6 +1452,133 @@ async def delete_request_callback(update: Update, context: ContextTypes.DEFAULT_
 # ==============================================================================
 # 12. VIEW REQUESTS - CLEAN UI DESIGN (የተሻሻለ)
 # ==============================================================================
+# ==============================================================================
+# 12. VIEW REQUESTS - MAIN HANDLER (የተስተካከለ)
+# ==============================================================================
+async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Main handler for viewing requests - checks permissions and shows first page"""
+    user_id = update.effective_user.id
+    
+    # Check if user is admin
+    is_admin = (user_id == ADMIN_CHAT_ID_INT)
+    
+    # Check if user is a registered broker
+    broker = get_broker(user_id)
+    
+    # If not admin and not broker, deny access
+    if not is_admin and not broker:
+        await update.message.reply_text(
+            "⛔ ይህን ገጽ ማየት የሚችሉት የተመዘገቡ አቅራቢዎች/ደላሎች ወይም አድሚን ብቻ ናቸው!\n\n"
+            "📝 እባክዎን መጀመሪያ '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+    
+    # If broker but not approved
+    if not is_admin and broker.get('status') != 'approved':
+        await update.message.reply_text(
+            "⏳ **ምዝገባዎ ገና በአድሚን አልጸደቀም!**\n\n"
+            "⏳ ምዝገባዎ በአድሚን ሲረጋገጥ ማስታወቂያ ይደርስዎታል።\n"
+            "📞 ለተጨማሪ መረጃ ድጋፍን ይጠቀሙ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+    
+    # Set initial page and show requests
+    context.user_data['view_page'] = 1
+    await show_requests_page(update, context)
+
+# ==============================================================================
+# 12.1 DELETE REQUEST HANDLER (የተስተካከለ)
+# ==============================================================================
+async def delete_request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle delete request - only owner or admin can delete"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    is_admin = (user_id == ADMIN_CHAT_ID_INT)
+    
+    # Extract request ID from callback data
+    parts = query.data.split('_')
+    if len(parts) < 3:
+        await query.message.reply_text("❌ የተሳሳተ መረጃ ተላኳል።")
+        return
+    
+    req_id = int(parts[2])
+    
+    # Get listing details
+    listing = get_listing_by_id(req_id)
+    
+    if not listing:
+        await query.message.reply_text("❌ ጥያቄው አልተገኘም።")
+        return
+    
+    # Check permission: only admin or the user who created the request
+    if not is_admin and listing.get('user_chat_id') != user_id:
+        await query.message.reply_text("⛔ ይህን ጥያቄ የማጥፋት ፈቃድ የለዎትም!")
+        return
+    
+    # Delete the request
+    success = update_listing_status(req_id, 'deleted')
+    
+    if success:
+        # Update the message to show it's deleted
+        await query.edit_message_text(
+            f"🗑️ **ጥያቄ #{req_id:04d} ተሰርዟል**\n\n"
+            f"👤 በ: {update.effective_user.first_name}\n"
+            f"📅 ቀን: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            parse_mode="Markdown"
+        )
+        
+        # Send confirmation
+        await query.message.reply_text(
+            f"✅ **ጥያቄ #{req_id:04d} በስኬት ተሰርዟል!**",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+    else:
+        await query.message.reply_text("❌ ጥያቄውን ማጥፋት አልተቻለም።")
+
+# ==============================================================================
+# 12.2 HAVE ITEM HANDLER (የተስተካከለ)
+# ==============================================================================
+async def have_item_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'Have' button click - broker has the item"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    broker = get_broker(user_id)
+    
+    if not broker or broker.get('status') != 'approved':
+        await query.message.reply_text("⛔ ይህን ማድረግ የሚችሉት የተረጋገጡ ደላሎች/አቅራቢዎች ብቻ ናቸው!")
+        return
+    
+    # Extract request ID from callback data
+    parts = query.data.split('_')
+    if len(parts) < 2:
+        await query.message.reply_text("❌ የተሳሳተ መረጃ ተላኳል።")
+        return
+    
+    req_id = int(parts[1])
+    
+    # Get listing details
+    listing = get_listing_by_id(req_id)
+    
+    if not listing:
+        await query.message.reply_text("❌ ጥያቄው አልተገኘም።")
+        return
+    
+    # Store in context for the next step
+    context.user_data['target_req_id'] = req_id
+    context.user_data['target_buyer_id'] = listing.get('user_chat_id')
+    
+    await query.message.reply_text(
+        f"✅ **ጥያቄ #{req_id:04d}**\n\n"
+        f"✍️ **ያለዎትን ንብረት ዝርዝር መረጃ እና ዋጋ ያስገቡ፦**\n"
+        f"(ለምሳሌ፦ ቶዮታ ቪትዝ 2021፣ 30,000 KM የሄደ፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...)"
+    )
+    return BROKER_OFFER_TEXT
 ITEMS_PER_PAGE = 5
 
 def format_request_card(req):
