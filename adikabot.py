@@ -2287,19 +2287,14 @@ def main():
     app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
     app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
     app.add_handler(CallbackQueryHandler(delete_request_callback, pattern="^delete_item_"))
-
-def main():
-    # ... ሌሎች የቀደሙት ኮዶችህ ...
-
-    # SECTION 5: REGISTER HANDLERS
-    app.add_handler(MessageHandler(filters.Regex("^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
-    app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
-    app.add_handler(CallbackQueryHandler(filter_brokers_by_subcity_callback, pattern="^dir_sc_"))
-
     app.add_handler(buyer_conv)
     app.add_handler(seller_conv)
     app.add_handler(broker_conv)
     app.add_handler(broker_response_conv)
+
+app.add_handler(MessageHandler(filters.Regex("^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
+    app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
+    app.add_handler(CallbackQueryHandler(filter_brokers_by_subcity_callback, pattern="^dir_sc_"))
 
     logger.info("🚀 Adika Marketplace Bot ተጀምሯል...")
     app.run_polling()
