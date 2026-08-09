@@ -1574,113 +1574,108 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
 
 # ==============================================================================
-# 12. VIEW REQUESTS - PROFESSIONAL REDESIGN (የተሻሻለ)
+# 12. VIEW REQUESTS (የተስተካከለ)
 # ==============================================================================
-ITEMS_PER_PAGE = 5
+ITEMS_PER_PAGE = 8
 
-def format_request_card(req):
-    """Format a single request as a professional card"""
-    req_id = req.get("id")
-    req_type = req.get("category", '').upper()
-    action = req.get("action", 'N/A')
-    phone = req.get("phone", 'N/A')
-    date = req.get("date", 'N/A')
-    budget = req.get("budget", "አልተጠቀሰም")
-    details = req.get("details", "-")
-    
-    if req_type == "HOUSE":
-        sub_type = req.get("sub_type", "ቤት/ቦታ")
-        location = req.get("location", "አልተጠቀሰም")
-        return (
-            f"🏠 **#{req_id:04d} {sub_type}** ({action})\n"
-            f"📍 አካባቢ: {location}\n"
-            f"💰 በጀት: {budget} ETB\n"
-            f"📞 {phone}  │  📅 {date}\n"
-            f"📝 {details}\n"
-        )
-    elif req_type == "CAR":
-        model = req.get("model", "የቤት መኪና")
-        return (
-            f"🚗 **#{req_id:04d} {model}** ({action})\n"
-            f"💰 በጀት: {budget} ETB\n"
-            f"📞 {phone}  │  📅 {date}\n"
-            f"📝 {details}\n"
-        )
-    else:
-        return (
-            f"📌 **#{req_id:04d}** ({action})\n"
-            f"📞 {phone}  │  📅 {date}\n"
-            f"📝 {details}\n"
-        )
-
-def build_requests_message(user_name, requests_list, page, total_pages):
-    """Build the complete requests message"""
-    header = f"📋 **የፈላጊዎች ዝርዝር**\n"
-    header += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-    header += f"👤 {user_name}  │  📊 {len(requests_list)} ጥያቄዎች\n"
-    header += f"📄 ገጽ {page}/{total_pages}\n"
-    header += f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
-    
-    body = "\n" + "\n".join([format_request_card(req) for req in requests_list])
-    return header + body
-
-def build_request_buttons(requests_list, page, total_pages):
-    """Build inline keyboard with action buttons for each request"""
-    keyboard = []
-    
-    # Each request gets its own row with Have/Delete buttons
-    for req in requests_list:
-        req_id = req.get("id")
-        user_chat_id = req.get("user_chat_id")
-        icon = "🏠" if req.get("category") == "HOUSE" else "🚗" if req.get("category") == "CAR" else "📌"
+def format_listing_card(listing: Dict, idx: int) -> str:
+    """Professional compact card format with button indicator"""
+    try:
+        listing_id = listing.get('id', 'N/A')
+        main_cat = listing.get('main_category', '').upper()
+        sub_cat = listing.get('sub_category', '')
+        action_type = listing.get('action_type', '')
+        description = listing.get('description', '')
+        created_at = listing.get('created_at', '')
         
-        row = [
-            InlineKeyboardButton(f"{icon} Have #{req_id:04d}", callback_data=f"have_item_{req_id}_{user_chat_id}"),
-            InlineKeyboardButton(f"❌ Delete #{req_id:04d}", callback_data=f"delete_item_{req_id}")
-        ]
-        keyboard.append(row)
+        if created_at:
+            try:
+                if isinstance(created_at, datetime):
+                    date_str = created_at.strftime('%Y-%m-%d')
+                else:
+                    date_str = str(created_at)[:10]
+            except:
+                date_str = 'N/A'
+        else:
+            date_str = 'N/A'
+        
+        cat_emojis = {
+            'car': '🚗',
+            'house': '🏠',
+            'commercial': '🏢'
+        }
+        emoji = cat_emojis.get(listing.get('main_category', ''), '📌')
+        
+        phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
+        phone = phone_match.group(1) if phone_match else 'N/A'
+        
+        clean_desc = re.sub(r'\n📞 ስልክ:\s*[\d+]+', '', description)
+        if len(clean_desc) > 50:
+            clean_desc = clean_desc[:50] + "..."
+        
+        card = f"""
+┌─── 📌 #{listing_id} ──────────────────────
+│ {emoji} {main_cat} | {sub_cat if sub_cat else 'N/A'} | {action_type if action_type else 'N/A'}
+│ 📞 {phone} | 📅 {date_str}
+│ 📝 {clean_desc}
+└─────────────────────────────────────────
+"""
+        return card
+    except Exception as e:
+        logger.error(f"Error formatting card: {e}")
+        return f"❌ ስህተት በማሳየት ላይ: {str(e)}"
+
+async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
     
-    # Pagination row
-    pagination_row = []
-    if page > 1:
-        pagination_row.append(InlineKeyboardButton("◀️ ቀዳሚ", callback_data=f"page_{page-1}"))
-    else:
-        pagination_row.append(InlineKeyboardButton("⏹", callback_data="none"))
+    is_admin = (user_id == ADMIN_CHAT_ID_INT)
+    broker = get_broker(user_id)
     
-    pagination_row.append(InlineKeyboardButton(f"📄 {page}/{total_pages}", callback_data="none"))
+    if not is_admin and not broker:
+        await update.message.reply_text(
+            "⛔ ይህን ገጽ ማየት የሚችሉት የተመዘገቡ አቅራቢዎች/ደላሎች ወይም አድሚን ብቻ ናቸው!\n\n"
+            "📝 እባክዎን መጀመሪያ '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
     
-    if page < total_pages:
-        pagination_row.append(InlineKeyboardButton("ቀጣይ ▶️", callback_data=f"page_{page+1}"))
-    else:
-        pagination_row.append(InlineKeyboardButton("⏹", callback_data="none"))
+    if not is_admin and broker.get('status') != 'approved':
+        await update.message.reply_text(
+            "⏳ **ምዝገባዎ ገና በአድሚን አልጸደቀም!**\n\n"
+            "⏳ ምዝገባዎ በአድሚን ሲረጋገጥ ማስታወቂያ ይደርስዎታል።\n"
+            "📞 ለተጨማሪ መረጃ ድጋፍን ይጠቀሙ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
     
-    keyboard.append(pagination_row)
-    
-    # Home button
-    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
-    
-    return InlineKeyboardMarkup(keyboard)
+    context.user_data['view_page'] = 0
+    await show_requests_page(update, context)
 
 async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # Handle page navigation
         if update.callback_query and update.callback_query.data.startswith("page_"):
             page = int(update.callback_query.data.replace("page_", ""))
             context.user_data['view_page'] = page
             query = update.callback_query
             await query.answer()
         else:
-            page = context.user_data.get('view_page', 1)
+            page = context.user_data.get('view_page', 0)
         
-        offset = (page - 1) * ITEMS_PER_PAGE
+        offset = page * ITEMS_PER_PAGE
         
-        # Get listings from database
         try:
             listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
             total = count_listings()
         except Exception as e:
             logger.error(f"Database error: {e}")
-            error_text = "❌ የውሂብ ጎታ ስህተተ! እባክዎ እንደገና ይሞክሩ።"
+            error_text = f"""
+❌ **የውሂብ ጎቶ ስህተተ!**
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 ዝርዝሩን ከውሂብ ጎቶ ማግኘት አልተቻለም።
+💡 እባክዎ ቆይተው እንደገና ይሞክሩ።
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
             if update.message:
                 await update.message.reply_text(error_text, parse_mode="Markdown")
             else:
@@ -1688,11 +1683,6 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         
         total_pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
-        
-        # Ensure page is within bounds
-        if page > total_pages:
-            page = total_pages
-            context.user_data['view_page'] = page
         
         if not listings:
             text = """
@@ -1709,7 +1699,6 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 await update.callback_query.edit_message_text(text, parse_mode="Markdown")
             return
         
-        # Get user info
         user_id = update.effective_user.id
         is_admin = (user_id == ADMIN_CHAT_ID_INT)
         
@@ -1719,59 +1708,56 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             broker_data = get_broker(user_id)
             broker_name = broker_data.get('full_name', 'ደላላ') if broker_data else 'ደላላ'
         
-        # Convert listings to request format
-        requests_list = []
+        header = f"""
+📋 **የፈላጊዎች ዝርዝር**
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+👤 {broker_name} | 📊 {total} ጥያቄዎች | 📄 ገጽ {page + 1}/{total_pages}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        
+        body = ""
+        for idx, listing in enumerate(listings, 1):
+            body += format_listing_card(listing, idx)
+            body += "\n"
+        
+        keyboard = []
         for listing in listings:
-            description = listing.get('description', '')
-            
-            # Extract data from description
-            phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
-            budget_match = re.search(r'ባጀት:\s*([\d,]+)', description) or re.search(r'ዋጋ:\s*([\d,]+)', description)
-            location_match = re.search(r'አካባቢ:\s*([^\n]+)', description)
-            
-            # Get action type
-            action_match = re.search(r'🔄 ፍላጎት:\s*([^\n]+)', description)
-            action = action_match.group(1) if action_match else listing.get('action_type', 'N/A')
-            
-            # Get sub type
-            sub_type_match = re.search(r'🔹 አይነት:\s*([^\n]+)', description)
-            sub_type = sub_type_match.group(1) if sub_type_match else listing.get('sub_category', 'N/A')
-            
-            req = {
-                'id': listing.get('id'),
-                'category': listing.get('main_category', '').upper(),
-                'action': action,
-                'phone': phone_match.group(1) if phone_match else 'N/A',
-                'date': str(listing.get('created_at', ''))[:10] if listing.get('created_at') else 'N/A',
-                'budget': budget_match.group(1) if budget_match else 'አልተጠቀሰም',
-                'details': description[:100] + '...' if len(description) > 100 else description,
-                'sub_type': sub_type,
-                'location': location_match.group(1) if location_match else 'አልተጠቀሰም',
-                'user_chat_id': listing.get('user_chat_id')
-            }
-            requests_list.append(req)
+            l_id = listing.get('id')
+            u_id = listing.get('user_chat_id')
+            if l_id and u_id:
+                row = [
+                    InlineKeyboardButton(f"✅ አለኝ - #{l_id}", callback_data=f"have_item_{l_id}_{u_id}"),
+                    InlineKeyboardButton(f"❌ ሰርዝ - #{l_id}", callback_data=f"delete_item_{l_id}")
+                ]
+                keyboard.append(row)
         
-        # Build message and keyboard
-        message = build_requests_message(broker_name, requests_list, page, total_pages)
-        keyboard = build_request_buttons(requests_list, page, total_pages)
+        nav_buttons = []
+        if page > 0:
+            nav_buttons.append(InlineKeyboardButton("◀️ ቀዳሚ", callback_data=f"page_{page-1}"))
+        nav_buttons.append(InlineKeyboardButton(f"📄 {page+1}/{total_pages}", callback_data="page_info"))
+        if offset + ITEMS_PER_PAGE < total:
+            nav_buttons.append(InlineKeyboardButton("➡️ ቀጣይ", callback_data=f"page_{page+1}"))
+        nav_buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
+        keyboard.append(nav_buttons)
         
-        # Send or edit message
+        text = header + body
+        
         if update.message:
             await update.message.reply_text(
-                message,
-                reply_markup=keyboard,
+                text, 
+                reply_markup=InlineKeyboardMarkup(keyboard), 
                 parse_mode="Markdown"
             )
         else:
             await update.callback_query.edit_message_text(
-                message,
-                reply_markup=keyboard,
+                text, 
+                reply_markup=InlineKeyboardMarkup(keyboard), 
                 parse_mode="Markdown"
             )
             
     except Exception as e:
         logger.error(f"Error in show_requests_page: {e}", exc_info=True)
-        error_text = """
+        error_text = f"""
 ❌ **ስህተተ!**
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
