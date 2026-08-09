@@ -73,10 +73,14 @@ PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ
 # ==============================================================================
 # 1. IMPORT STATEMENTS (የተስተካከለ)
 # ========================================================================
-
 # ==============================================================================
 # 3. DATABASE UTILITIES (የተስተካከለ)
 # ==============================================================================
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import sqlite3
+
 def get_db_connection():
     if DATABASE_URL:
         db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1) if DATABASE_URL.startswith("postgres://") else DATABASE_URL
@@ -268,60 +272,97 @@ def get_approved_brokers():
     finally:
         if conn:
             conn.close()
-def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city):
+
+def add_listing(user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description):
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
+        query = f"""
+            INSERT INTO listings (user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description)
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+        """
+        params = (user_chat_id, user_name, req_type, main_category, sub_category, action_type, property_type, description)
         
-        cursor.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
-        existing = cursor.fetchone()
-        
-        if existing:
-            if DATABASE_URL:
-                query = f"""
-                    UPDATE brokers 
-                    SET full_name = {p}, phone = {p}, role_type = {p}, 
-                        national_id_photo = {p}, sub_city = {p}, status = 'pending'
-                    WHERE chat_id = {p}
-                    RETURNING id
-                """
-                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
-                broker_id = cursor.fetchone()[0]
-            else:
-                query = """
-                    UPDATE brokers 
-                    SET full_name = ?, phone = ?, role_type = ?, 
-                        national_id_photo = ?, sub_city = ?, status = 'pending'
-                    WHERE chat_id = ?
-                """
-                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
-                broker_id = existing[0]
-                conn.commit()
+        if DATABASE_URL:
+            cursor.execute(query + " RETURNING id", params)
+            req_id = cursor.fetchone()[0]
         else:
-            if DATABASE_URL:
-                query = f"""
-                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
-                    VALUES ({p}, {p}, {p}, {p}, {p}, {p}, 'pending')
-                    RETURNING id
-                """
-                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
-                broker_id = cursor.fetchone()[0]
-            else:
-                query = """
-                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
-                    VALUES (?, ?, ?, ?, ?, ?, 'pending')
-                """
-                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
-                broker_id = cursor.lastrowid
-                conn.commit()
+            cursor.execute(query, params)
+            req_id = cursor.lastrowid
+            conn.commit()
             
-        logger.info(f"✅ Broker registered: {full_name} (ID: {broker_id})")
-        return broker_id
+        return req_id
     except Exception as e:
-        logger.error(f"Add broker error: {e}")
+        logger.error(f"Add listing error: {e}")
         return None
+    finally:
+        if conn:
+            conn.close()
+
+def get_listings_by_category(limit=10, offset=0):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor) if DATABASE_URL else conn.cursor()
+        p = get_placeholder()
+        
+        query = f"SELECT * FROM listings WHERE status = 'pending' ORDER BY created_at DESC LIMIT {p} OFFSET {p}"
+        cursor.execute(query, (limit, offset))
+        rows = cursor.fetchall()
+        
+        return [dict(row) for row in rows]
+    except Exception as e:
+        logger.error(f"Get listings error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+def count_listings():
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM listings WHERE status = 'pending'")
+        return cursor.fetchone()[0]
+    except Exception as e:
+        logger.error(f"Count listings error: {e}")
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
+def get_listing_by_id(listing_id):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=RealDictCursor) if DATABASE_URL else conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"SELECT * FROM listings WHERE id = {p}", (listing_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"Get listing by id error: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+def update_listing_status(req_id, status):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
+        if not DATABASE_URL:
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Update listing error: {e}")
+        return False
     finally:
         if conn:
             conn.close()
