@@ -820,6 +820,71 @@ async def notify_brokers(context: ContextTypes.DEFAULT_TYPE, message_text: str, 
             logger.error(f"Failed to send notification to broker {b_id}: {e}")
 
 # ==============================================================================
+# SECTION 3: PUBLIC MARKETPLACE & BROKER DIRECTORY HANDLERS
+# ==============================================================================
+async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ተጠቃሚዎች የሚሸጡ ንብረቶችንና መኪኖችን የሚያዩበት ክፍል"""
+    items = get_public_marketplace_items(limit=10)
+    
+    if not items:
+        await update.message.reply_text(
+            "📭 **በአሁኑ ሰዓት ለሽያጭ/ኪራይ የቀረቡ ንብረቶች የሉም።**",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+
+    await update.message.reply_text("🛍️ **ለሽያጭ እና ለኪራይ የቀረቡ ንብረቶች ዝርዝር፦**", parse_mode="Markdown")
+    
+    for item in items:
+        desc = item.get('description', '')
+        photo_id = item.get('photo_id')
+        
+        if photo_id:
+            try:
+                await update.message.reply_photo(photo=photo_id, caption=desc, parse_mode="Markdown")
+            except Exception:
+                await update.message.reply_text(desc, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(desc, parse_mode="Markdown")
+
+async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የተመዘገቡ አቅራቢዎችን እና ደላሎችን ዝርዝር የሚያሳይ ክፍል"""
+    keyboard = [[InlineKeyboardButton(sc, callback_data=f"dir_sc_{sc}")] for sc in SUB_CITIES]
+    keyboard.append([InlineKeyboardButton("🌐 የሁሉም ክፍለ ከተሞች", callback_data="dir_sc_ሁሉም")])
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+    
+    await update.message.reply_text(
+        "📍 **የደላሎችና አቅራቢዎች ማውጫ**\n\nእባክዎን ማየት የሚፈልጉበትን ክፍለ ከተማ ይምረጡ፦",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+async def filter_brokers_by_subcity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    sub_city = query.data.replace("dir_sc_", "")
+    brokers = get_approved_brokers_directory(sub_city=sub_city)
+    
+    if not brokers:
+        await query.edit_message_text(f"📭 በ{sub_city} ክፍለ ከተማ የተመዘገቡ ደላሎች አልተገኙም።")
+        return
+
+    msg = f"📋 **የተረጋገጡ ደላሎች ዝርዝር ({sub_city})፦**\n━━━━━━━━━━━━━━━━━━━\n\n"
+    for b in brokers:
+        stars = "⭐" * int(b['rating'])
+        msg += (
+            f"👤 **ስም፦** {b['full_name']}\n"
+            f"🎭 **ሚና፦** {b['role_type']}\n"
+            f"📍 **ክፍለ ከተማ፦** {b['sub_city']}\n"
+            f"📞 **ስልክ፦** `{b['phone']}`\n"
+            f" ደረጃ፦ {b['rating']}/5.0 {stars}\n"
+            f"───────────────────\n"
+        )
+        
+    await query.edit_message_text(msg, parse_mode="Markdown")
+
+# ==============================================================================
 # 6. START & CANCEL HANDLERS
 # ==============================================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
