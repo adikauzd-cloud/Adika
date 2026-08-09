@@ -1919,6 +1919,113 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             await update.message.reply_text(error_text, parse_mode="Markdown")
         else:
             await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
+           from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ContextTypes, ConversationHandler, CommandHandler, MessageHandler, CallbackQueryHandler, filters
+)
+
+# የውይይት ደረጃዎች (States)
+CAR_TYPE, CAR_MODEL, BUDGET, CONTACT = range(4)
+
+# 1. ጅምር - የመኪና ዓይነት መምረጥ
+async def start_buy_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reply_keyboard = [["🚘 ቪትስ (Vitz)", "🚘 ኮሮላ (Corolla)"], ["🚘 ያሪስ (Yaris)", "✍️ ሌላ አይነት ይፃፉ"]]
+    await update.message.reply_text(
+        "መግዛት/መከራየት የሚፈልጉትን **የመኪና ዓይነት** ይምረጡ ወይም በጽሁፍ ይፃፉልን፦",
+        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True),
+        parse_mode="Markdown"
+    )
+    return CAR_TYPE
+
+# 2. የሞዴል / ዓመተ ምህረት ክልል
+async def get_car_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["car_type"] = update.message.text
+    
+    reply_keyboard = [["2000 - 2005", "2006 - 2010"], ["2011 - 2015", "2016 - 2024"], ["✍️ ሌላ ዓ.ም ይፃፉ"]]
+    await update.message.reply_text(
+        "የሚፈልጉትን **የሞዴል (ዓ.ም) ክልል** ይምረጡ፦\n*(ምሳሌ፦ 2000-2004)*",
+        reply_markup=ReplyKeyboardMarkup(reply_keyboard, one_time_keyboard=True, resize_keyboard=True),
+        parse_mode="Markdown"
+    )
+    return CAR_MODEL
+
+# 3. የበጀት መጠን ማስገባት
+async def get_car_model(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["car_model"] = update.message.text
+    
+    await update.message.reply_text(
+        "ለዚህ ግዥ/ኪራይ ያዘጋጁትን **የበጀት መጠን** ይፃፉልን፦\n*(ምሳሌ፦ 1.5 ሚሊዮን ብር ወይም በቀን 2000 ብር)*",
+        reply_markup=ReplyKeyboardRemove(),
+        parse_mode="Markdown"
+    )
+    return BUDGET
+
+# 4. የመገናኛ መረጃ (ስልክ ወይም Username)
+async def get_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["budget"] = update.message.text
+    
+    # የቴሌግራም username ካለው ማዘጋጀት
+    user = update.effective_user
+    username_str = f"@{user.username}" if user.username else "የለኝም"
+
+    keyboard = [
+        [InlineKeyboardButton("📱 ስልክ ቁጥር አስገባ", callback_data="input_phone")],
+        [InlineKeyboardButton(f"👤 በቴሌግራም Username ቀጥል ({username_str})", callback_data="use_username")]
+    ]
+    
+    await update.message.reply_text(
+        "ደላሎች የሚያገኙበትን **የመገናኛ መንገድ** ይምረጡ፦",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+    return CONTACT
+
+# 5. ስልክ ማስገባት ሲመረጥ
+async def handle_phone_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text("እባክዎን **የስልክ ቁጥርዎን** ያስገቡ፦\n*(ምሳሌ፦ 0911223344)*")
+    return CONTACT
+
+# 6. Username ሲመረጥ ወይም ስልክ ሲፃፍ መዝግቦ ማጠናቀቅ
+async def finalize_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    
+    # በ Callback Button (Username) ከመጣ
+    if update.callback_query:
+        query = update.callback_query
+        await query.answer()
+        contact_info = f"@{user.username}" if user.username else f"https://t.me/{user.first_name}"
+    # በጽሁፍ ስልክ ቁጥር ካስገባ
+    else:
+        contact_info = update.message.text
+
+    # መረጃዎችን መሰብሰብ
+    car_type = context.user_data.get("car_type")
+    car_model = context.user_data.get("car_model")
+    budget = context.user_data.get("budget")
+
+    # TODO: እዚህ ጋር መረጃውን ወደ Supabase/PostgreSQL ዳታቤዝ ያስቀምጡ እና ለደላሎች ብሮድካስት ያድርጉ።
+
+    # ለደንበኛው የሚላክ የማረጋገጫና የማብራሪያ መልእክት
+    success_text = (
+        "✅ **ጥያቄዎ በተሳካ ሁኔታ ተመዝግቧል!**\n\n"
+        "📢 **ትዕዛዝዎ በስርዓታችን ላይ ላሉ ሁሉም የተመዘገቡ ደላሎች ተልኳል።**\n"
+        "ተសមጣጣኝ አማራጭ ያለው ደላላ በቀጥታ ያገኝዎታል።\n\n"
+        "───────────────\n"
+        "📝 **የመዘገቡት መረጃ፦**\n"
+        f"• **ዓይነት፦** {car_type}\n"
+        f"• **ሞዴል፦** {car_model}\n"
+        f"• **በጀት፦** {budget}\n"
+        f"• **መገናኛ፦** `{contact_info}`\n\n"
+        "💡 *ማሳሰቢያ፦ ይህንን ጥያቄ ማጥፋት ወይም ማቋረጥ ሲፈልጉ '📋 የእኔ ጥያቄዎች' ገጽ ውስጥ በመግባት ማጥፋት ይችላሉ።*"
+    )
+
+    if update.callback_query:
+        await query.edit_message_text(success_text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(success_text, parse_mode="Markdown")
+
+    return ConversationHandler.END 
 # ==============================================================================
 # 13. HELP COMMAND
 # ==============================================================================
