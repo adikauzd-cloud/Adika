@@ -83,30 +83,8 @@ PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ
 ) = range(34)
 
 # ==============================================================================
-# 4. DATABASE UTILITIES
+# 3. DATABASE UTILITIES - FIXED (የተስተካከለ)
 # ==============================================================================
-def get_db_connection():
-    if DATABASE_URL:
-        cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
-        if cleaned_url.startswith("postgres://"):
-            cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
-        try:
-            conn = psycopg2.connect(cleaned_url)
-            conn.autocommit = True
-            return conn
-        except Exception as e:
-            logging.error(f"❌ PostgreSQL connection failed: {e}")
-            raise e
-    else:
-        import sqlite3
-        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adika_marketplace.db")
-        conn = sqlite3.connect(db_path, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
-
-def get_placeholder():
-    return "%s" if DATABASE_URL else "?"
-
 def init_db():
     conn = None
     try:
@@ -124,25 +102,10 @@ def init_db():
                     sub_category TEXT,
                     action_type TEXT,
                     property_type TEXT,
-                    car_brand TEXT,
-                    car_model TEXT,
-                    year_from INTEGER,
-                    year_to INTEGER,
-                    transmission TEXT,
-                    car_condition TEXT,
-                    budget BIGINT,
-                    negotiable BOOLEAN DEFAULT TRUE,
-                    phone TEXT,
-                    expiry_date TIMESTAMP,
                     description TEXT NOT NULL,
                     status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
-                CREATE INDEX IF NOT EXISTS idx_listings_status ON listings(status);
-                CREATE INDEX IF NOT EXISTS idx_listings_expiry ON listings(expiry_date);
-                CREATE INDEX IF NOT EXISTS idx_listings_car_brand ON listings(car_brand);
-                
                 CREATE TABLE IF NOT EXISTS brokers (
                     id SERIAL PRIMARY KEY,
                     chat_id BIGINT NOT NULL UNIQUE,
@@ -167,20 +130,9 @@ def init_db():
                     sub_category TEXT,
                     action_type TEXT,
                     property_type TEXT,
-                    car_brand TEXT,
-                    car_model TEXT,
-                    year_from INTEGER,
-                    year_to INTEGER,
-                    transmission TEXT,
-                    car_condition TEXT,
-                    budget INTEGER,
-                    negotiable BOOLEAN DEFAULT 1,
-                    phone TEXT,
-                    expiry_date TIMESTAMP,
                     description TEXT NOT NULL,
                     status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE IF NOT EXISTS brokers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
