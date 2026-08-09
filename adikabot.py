@@ -1456,7 +1456,7 @@ async def delete_request_callback(update: Update, context: ContextTypes.DEFAULT_
 # 12. VIEW REQUESTS - MAIN HANDLER (የተስተካከለ)
 # ==============================================================================
 async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Main handler for viewing requests - checks permissions and shows first page"""
+    """Main handler for viewing requests - checks permissions and shows all requests"""
     user_id = update.effective_user.id
     
     # Check if user is admin
@@ -1484,9 +1484,127 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Set initial page and show requests
-    context.user_data['view_page'] = 1
-    await show_requests_page(update, context)
+    # Get all pending requests
+    try:
+        listings = get_listings_by_category(limit=50, offset=0)
+        total = count_listings()
+    except Exception as e:
+        logger.error(f"Database error: {e}")
+        await update.message.reply_text(
+            "❌ የውሂብ ጎታ ስህተተ! እባክዎ እንደገና ይሞክሩ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+    
+    if not listings:
+        await update.message.reply_text(
+            "📭 **ምንም ንቁ ጥያቄዎች የሉም**\n\n"
+            "💡 ሁሉም ጥያቄዎች ተመልሰዋል ወይም በሂደት ላይ ናቸው።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+    
+    # Get user info
+    if is_admin:
+        broker_name = "👑 አድሚን"
+    else:
+        broker_data = get_broker(user_id)
+        broker_name = broker_data.get('full_name', 'ደላላ') if broker_data else 'ደላላ'
+    
+    # Build summary
+    summary_text = (
+        f"<b>📋 የፈላጊዎች ዝርዝር</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>{broker_name}</b>\n"
+        f"🔔 <b>ጠቅላላ፡</b> {total} ጥያቄዎች\n"
+        f"⏳ <b>ምላሽ የሚጠብቁ፡</b> {total}"
+    )
+    await update.message.reply_text(summary_text, parse_mode="HTML")
+    
+    # Send each request individually with its own buttons
+    for listing in listings:
+        req_id = listing.get('id')
+        description = listing.get('description', '')
+        main_cat = listing.get('main_category', '').upper()
+        action_type = listing.get('action_type', 'N/A')
+        created_at = listing.get('created_at', '')
+        
+        # Extract data from description
+        phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
+        budget_match = re.search(r'ባጀት:\s*([\d,]+)', description) or re.search(r'ዋጋ:\s*([\d,]+)', description)
+        location_match = re.search(r'አካባቢ:\s*([^\n]+)', description)
+        
+        # Get sub type
+        sub_type_match = re.search(r'🔹 አይነት:\s*([^\n]+)', description)
+        sub_type = sub_type_match.group(1) if sub_type_match else listing.get('sub_category', 'N/A')
+        
+        # Format date
+        if created_at:
+            try:
+                if isinstance(created_at, datetime):
+                    date_str = created_at.strftime('%Y-%m-%d')
+                else:
+                    date_str = str(created_at)[:10]
+            except:
+                date_str = 'N/A'
+        else:
+            date_str = 'N/A'
+        
+        # Determine deal type label
+        if "ሽያጭ" in action_type or "መሸጥ" in action_type:
+            price_label = f"💰 <b>ዋጋ፡</b> {budget_match.group(1) if budget_match else 'አልተጠቀሰም'}"
+            deal_type = "ሽያጭ"
+        else:
+            price_label = f"💰 <b>በጀት፡</b> {budget_match.group(1) if budget_match else 'አልተጠቀሰም'}"
+            deal_type = "ኪራይ/ግዥ"
+        
+        # Get category emoji
+        if main_cat == "CAR":
+            cat_emoji = "🚗"
+            cat_name = "መኪና"
+        elif main_cat == "HOUSE":
+            cat_emoji = "🏠"
+            cat_name = "ቤት/ቦታ"
+        else:
+            cat_emoji = "📌"
+            cat_name = main_cat
+        
+        # Build card
+        card_text = (
+            f"⏳ <b>#{req_id}. {cat_emoji} {cat_name}</b>\n"
+            f"📌 <b>አይነት፡</b> {sub_type}\n"
+            f"🔄 <b>ድርጊት፡</b> {action_type}\n"
+            f"{price_label}\n"
+            f"📍 <b>አካባቢ፡</b> {location_match.group(1) if location_match else 'አልተጠቀሰም'}\n"
+            f"👤 <b>ስልክ፡</b> <code>{phone_match.group(1) if phone_match else 'N/A'}</code>\n"
+            f"📅 <b>ቀን፡</b> {date_str}"
+        )
+        
+        # Build inline keyboard
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(f"✅ Have #{req_id}", callback_data=f"have_item_{req_id}_{listing.get('user_chat_id')}"),
+                InlineKeyboardButton(f"❌ Delete #{req_id}", callback_data=f"delete_item_{req_id}")
+            ]
+        ])
+        
+        # Send message
+        await update.message.reply_text(
+            card_text,
+            reply_markup=keyboard,
+            parse_mode="HTML"
+        )
+    
+    # Send home button at the end
+    home_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ])
+    await update.message.reply_text(
+        "━━━━━━━━━━━━━━━━━━━\n"
+        "📌 ለማየት የሚፈልጉትን ጥያቄ ይምረጡ።",
+        reply_markup=home_keyboard,
+        parse_mode="HTML"
+    )
 
 # ==============================================================================
 # 12.1 DELETE REQUEST HANDLER (የተስተካከለ)
