@@ -239,29 +239,49 @@ def format_seller_card(item: dict) -> str:
     )
     return card
 # ==============================================================================
-# SECTION 3: BROKER PROFILE CARD FORMATTER
 # ==============================================================================
-def format_broker_profile(broker: dict) -> str:
-    """የደላሎችን መረጃና Rating አምሮ እንዲወጣ የሚያደርግ ፈንክሽን"""
-    name = broker.get('full_name', 'ያልተጠቀሰ')
-    role = broker.get('role_type', 'ደላላ')
-    sub_city = broker.get('sub_city', 'ያልተገለፀ')
-    phone = broker.get('phone', '-')
-    rating = broker.get('rating', 5.0)
+# UPDATED SECTION 3: HANDLERS USING NEW CARD FORMATTERS
+# ==============================================================================
+async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የሚሸጡ ንብረቶችን በአዲሱ የካርድ ዲዛይን የሚያሳይ"""
+    items = get_public_marketplace_items(limit=10)
     
-    # የኮከብ ደረጃ ማሳያ
-    stars_count = int(round(rating))
-    stars_display = "⭐" * stars_count
+    if not items:
+        await update.message.reply_text("📭 በአሁኑ ሰዓት ለሽያጭ/ኪራይ የቀረቡ ንብረቶች የሉም።")
+        return
+
+    await update.message.reply_text("🛍️ **ለሽያጭ እና ለኪራይ የቀረቡ ንብረቶች ዝርዝር፦**", parse_mode="Markdown")
     
-    card = (
-        f"👤 **{name}** `[✔ VERIFIED]`\n"
-        f"🎭 **ሚና፦** {role}\n"
-        f"📍 **የስራ አካባቢ፦** {sub_city}\n"
-        f"📊 **ደረጃ፦** `{rating:.1f}/5.0` {stars_display}\n"
-        f"📞 **ስልክ፦** `{phone}`\n"
-        f"───────────────────"
-    )
-    return card
+    for item in items:
+        card_text = format_seller_card(item)  # አዲሱን የካርድ ዲዛይን አገናኘነው
+        photo_id = item.get('photo_id')
+        
+        if photo_id:
+            try:
+                await update.message.reply_photo(photo=photo_id, caption=card_text, parse_mode="Markdown")
+            except Exception:
+                await update.message.reply_text(card_text, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(card_text, parse_mode="Markdown")
+
+async def filter_brokers_by_subcity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የደላሎችን ዝርዝር በአዲሱ የፕሮፋይል ካርድ ዲዛይን የሚያሳይ"""
+    query = update.callback_query
+    await query.answer()
+    
+    sub_city = query.data.replace("dir_sc_", "")
+    brokers = get_approved_brokers_directory(sub_city=sub_city)
+    
+    if not brokers:
+        await query.edit_message_text(f"📭 በ{sub_city} ክፍለ ከተማ የተመዘገቡ ደላሎች አልተገኙም።")
+        return
+
+    msg = f"📋 **የተረጋገጡ ደላሎች ዝርዝር ({sub_city})፦**\n━━━━━━━━━━━━━━━━━━━\n\n"
+    for b in brokers:
+        msg += format_broker_profile(b) + "\n\n"  # አዲሱን የደላላ ፕሮፋይል ዲዛይን አገናኘነው
+        
+    await query.edit_message_text(msg, parse_mode="Markdown")
+
 
 
 # 1. DATABASE CONNECTION
