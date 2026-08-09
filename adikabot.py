@@ -1149,7 +1149,7 @@ async def show_buyer_confirmation(update: Update, context: ContextTypes.DEFAULT_
             parse_mode="Markdown"
         )
 # ==============================================================================
-# 7. BUYER FLOW - FIXED (የተስተካከለ)
+# 7. BUYER FLOW - COMPLETE FIX (የተስተካከለ)
 # ==============================================================================
 async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -1180,30 +1180,35 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     try:
         req_id = add_listing(user.id, user.first_name, 'BUY', main_cat, sub_cat, action_type, prop_subtype, full_desc)
-    except Exception as e:
-        logger.error(f"Error adding listing: {e}")
-        req_id = None
-    
-    if req_id:
-        await update.message.reply_text(
-            f"✅ **ጥያቄዎ በጥሩ ሁኔታ ተመዝግቧል!** (#REQ-{req_id})\n\n"
-            f"📌 ጥያቄዎ ለተረጋገጡ ደላሎች የተላከ ሲሆን፣ ንብረቱ ያላቸው ደላሎች አማራጮችን ሲልኩልዎ እዚሁ ቴሌግራም ላይ ይደርስዎታል።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
         
-        notification_text = (
-            f"🔔 **{category_title}! (#REQ-{req_id})**\n\n"
-            f"{full_desc}\n\n"
-            f"👉 ይህ ንብረት በእጅዎ ካለ ከታች **'አለኝ'** የሚለውን በመጫን ለፈላጊው መረጃ ይላኩ!"
-        )
-        await notify_brokers(context, notification_text, req_id, user.id)
-    else:
+        if req_id:
+            await update.message.reply_text(
+                f"✅ **ጥያቄዎ በጥሩ ሁኔታ ተመዝግቧል!** (#REQ-{req_id})\n\n"
+                f"📌 ጥያቄዎ ለተረጋገጡ ደላሎች የተላከ ሲሆን፣ ንብረቱ ያላቸው ደላሎች አማራጮችን ሲልኩልዎ እዚሁ ቴሌግራም ላይ ይደርስዎታል።",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            
+            notification_text = (
+                f"🔔 **{category_title}! (#REQ-{req_id})**\n\n"
+                f"{full_desc}\n\n"
+                f"👉 ይህ ንብረት በእጅዎ ካለ ከታች **'አለኝ'** የሚለውን በመጫን ለፈላጊው መረጃ ይላኩ!"
+            )
+            await notify_brokers(context, notification_text, req_id, user.id)
+        else:
+            await update.message.reply_text(
+                "❌ **ጥያቄውን መመዝገብ አልተቻለም!**\n\n"
+                "💡 እባክዎ የሚከተሉትን ያረጋግጡ፦\n"
+                "• መረጃዎቹ ሙሉ መሆናቸውን\n"
+                "• የበይነመረብ ግንኙነትዎን\n\n"
+                "🔄 እንደገና ለመሞከር '🔍 መግዛት / መከራየት' ይጫኑ።",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+    except Exception as e:
+        logger.error(f"Error in buyer_phone: {e}")
         await update.message.reply_text(
-            "❌ **ጥያቄውን መመዝገብ አልተቻለም!**\n\n"
-            "💡 እባክዎ የሚከተሉትን ያረጋግጡ፦\n"
-            "• መረጃዎቹ ሙሉ መሆናቸውን\n"
-            "• የበይነመረብ ግንኙነትዎን\n\n"
-            "🔄 እንደገና ለመሞከር '🔍 መግዛት / መከራየት' ይጫኑ።",
+            f"❌ **ስህተተ!**\n\n"
+            f"📝 ስህተት: {str(e)}\n\n"
+            f"💡 እባክዎ እንደገና ይሞክሩ ወይም ድጋፍን ያግኙ።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
 
