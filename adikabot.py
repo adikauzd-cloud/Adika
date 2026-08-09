@@ -855,6 +855,40 @@ buyer_conv_handler = ConversationHandler(
     ],
     allow_reentry=True
 )
+
+# ==============================================================================
+# BUYER CONVERSATION HANDLER (የተሻሻለ)
+# ==============================================================================
+buyer_conv_handler = ConversationHandler(
+    entry_points=[
+        CommandHandler('buy', buyer_start),
+        MessageHandler(filters.Regex("^🔍 መግዛት / መከራየት$"), buyer_start),
+        CallbackQueryHandler(buyer_start, pattern='^flow_buy_start$')
+    ],
+    states={
+        BUYER_MAIN: [
+            CallbackQueryHandler(buyer_category_chosen, pattern='^flow_buy_cat_')
+        ],
+        BUYER_SUB: [
+            CallbackQueryHandler(buyer_sub_chosen, pattern='^flow_buy_sub_')
+        ],
+        BUYER_ACTION: [
+            CallbackQueryHandler(buyer_action_chosen, pattern='^flow_buy_action_')
+        ],
+        BUYER_DETAILS: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_details)
+        ],
+        BUYER_CONTACT: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_contact)
+        ]
+    },
+    fallbacks=[
+        CommandHandler('start', go_home),
+        CallbackQueryHandler(go_home, pattern='^flow_home$'),
+        MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), go_home)
+    ],
+    allow_reentry=True
+)
 # ==============================================================================
 # 7. BUYER FLOW - COMPLETE FIX (የተስተካከለ)
 # ==============================================================================
