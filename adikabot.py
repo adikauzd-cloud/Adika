@@ -2215,6 +2215,41 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==============================================================================
 # 14. MAIN ENGINE (የተስተካከለ)
 # ==============================================================================
+# ==============================================================================
+# SECTION 14: MAIN ENGINE
+# ==============================================================================
+def main():
+    # 1. Initialize Database
+    init_db()
+
+    # 2. Initialize Application
+    BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # 3. Register Conversation Handlers (ካሉህ)
+    if 'request_conv' in globals():
+        app.add_handler(request_conv)
+    if 'broker_reg_conv' in globals():
+        app.add_handler(broker_reg_conv)
+    if 'broker_response_conv' in globals():
+        app.add_handler(broker_response_conv)
+
+    # 4. Register Command Handlers
+    app.add_handler(CommandHandler("start", start))
+
+    # 5. Register New Feature Handlers (Section 3 & 4)
+    app.add_handler(MessageHandler(filters.Regex("^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
+    app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
+    app.add_handler(CallbackQueryHandler(filter_brokers_by_subcity_callback, pattern="^dir_sc_"))
+
+    # 6. Start the Bot
+    logging.info("🚀 Adika Bot successfully started running...")
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
+
 def main():
     import asyncio
     # ✅ የውሂብ ጎታ ሲጀመር CREATE TABLE IF NOT EXISTS ይጠቀሙ
