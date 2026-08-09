@@ -306,6 +306,43 @@ def build_pagination_keyboard(current_page: int, total_pages: int, prefix: str) 
     keyboard = [nav_row, [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]]
     return InlineKeyboardMarkup(keyboard)
 
+# ==============================================================================
+# SECTION 5: MARKETPLACE PAGINATION CALLBACK
+# ==============================================================================
+async def marketplace_pagination_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የገበያ ቦታ ገጾችን የሚያላቅቅ Handler"""
+    query = update.callback_query
+    await query.answer()
+    
+    # ከ callback_data ላይ የገጽ ቁጥሩን መለየት (ለምሳሌ: market_page_2)
+    try:
+        page = int(query.data.split("_")[-1])
+    except ValueError:
+        page = 1
+        
+    items_per_page = 5
+    offset = (page - 1) * items_per_page
+    
+    items = get_public_marketplace_items(limit=items_per_page, offset=offset)
+    
+    if not items:
+        await query.edit_message_text("📭 በዚህ ገጽ ላይ ምንም ንብረት አልተገኘም።")
+        return
+
+    await query.message.reply_text(f"🛍️ **ለሽያጭ/ኪራይ የቀረቡ (ገጽ {page})፦**", parse_mode="Markdown")
+    
+    for item in items:
+        card_text = format_seller_card(item)
+        photo_id = item.get('photo_id')
+        
+        if photo_id:
+            try:
+                await query.message.reply_photo(photo=photo_id, caption=card_text, parse_mode="Markdown")
+            except Exception:
+                await query.message.reply_text(card_text, parse_mode="Markdown")
+        else:
+            await query.message.reply_text(card_text, parse_mode="Markdown")
+
 # 1. DATABASE CONNECTION
 def get_db_connection():
     if DATABASE_URL:
