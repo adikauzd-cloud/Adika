@@ -2335,39 +2335,31 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         else:
             await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
 # ==============================================================================
-# 13. HELP COMMAND
+# SECTION: CUSTOMER SUPPORT HANDLER
 # ==============================================================================
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    help_text = """
-❓ **እንዴት እንደሚጠቀሙ**
-
-🔍 **መግዛት ከፈለጉ:**
-• '🔍 መግዛት / መከራየት' ይምረጡ
-• ምድብ ይምረጡ (መኪና/ቤት/ንግድ)
-• ንኡስ ምድብ ይምረጡ
-• መረጃ ይሙሉ
-
-📢 **መሸጥ ከፈለጉ:**
-• '📢 መሸጥ / ማከራየት' ይምረጡ
-• ምድብ ይምረጡ
-• መረጃ ይሙሉ
-
-📝 **እንደ አቅራቢ ለመመዝገብ:**
-• '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይምረጡ
-• ሚናዎን ይምረጡ (ደላላ/አስመጪ/ባለቤት)
-• የፋይዳ መታወቂያ ፎቶ ይላኩ
-• አስተዳዳሪ ማጽደቅ ይጠብቁ
-
-📋 **የፈላጊዎች ዝርዝር:**
-• ለተመዘገቡ እና ለተጸደቁ አቅራቢዎች ብቻ
-• ንቁ ጥያቄዎችን ያሳያል
-• በገጽ ይከፋፈላል
-
-🏠 **ዋና ገጽ:**
-• ቀደም ሲል የነበረውን መልእክት ያጽዳል
-• አዲስ ሜኑ ያመጣል
-"""
-    await update.message.reply_text(help_text, parse_mode="Markdown")
+    """የደንበኞች ድጋፍ እና መመሪያ መስጫ ክፍል"""
+    help_text = (
+        "📞 **አዲካ ማርኬትፕሌስ - የደንበኞች ድጋፍ**\n"
+        "━━━━━━━━━━━━━━━━━━━\n\n"
+        "❓ **ቦቱን እንዴት መጠቀም ይቻላል?**\n\n"
+        "1️⃣ **መግዛት / መከራየት፦** የሚፈልጉትን ቤት ወይም መኪና ፍላጎት ይመዝግቡ። ጥያቄዎ ለተመዘገቡ ደላሎች ይደርሳል።\n"
+        "2️⃣ **መሸጥ / ማከራየት፦** የሚሸጡትን ንብረት መረጃ እና ፎቶ በመጫን ለገበያ ያቅርቡ።\n"
+        "3️⃣ **የደላሎች ማውጫ፦** በየክፍለ ከተማው የተረጋገጡ ደላሎችን እና የደረጃ (Rating) መረጃቸውን ይመልከቱ።\n\n"
+        "📲 **ለተጨማሪ ጥያቄ ወይም ድጋፍ፦**\n"
+        "ከታች ያለውን አዝራር በመጫን ከአስተዳዳሪው ጋር በቀጥታ መነጋገር ይችላሉ።"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("💬 ከአስተዳዳሪው ጋር ይወያዩ (Admin)", url="https://t.me/Adika_Admin")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if update.message:
+        await update.message.reply_text(help_text, reply_markup=reply_markup, parse_mode="Markdown")
+    elif update.callback_query:
+        await update.callback_query.edit_message_text(help_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 # ==============================================================================
 # SECTION 14: MAIN ENGINE (ሙሉ የተስተካከለ)
