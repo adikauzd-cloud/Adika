@@ -81,16 +81,22 @@ DB_FILE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "adika_m
 
 def get_db_connection():
     if DATABASE_URL:
-        db_url = DATABASE_URL.replace("postgres://", "postgresql://", 1) if DATABASE_URL.startswith("postgres://") else DATABASE_URL
-        conn = psycopg2.connect(db_url)
-        conn.autocommit = True
-        return conn
+        # የጥቅስ ምልክቶችን ማጽዳት
+        cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
+        
+        # postgres:// ወደ postgresql:// መያዝ አለበት
+        if cleaned_url.startswith("postgres://"):
+            cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
+            
+        try:
+            return psycopg2.connect(cleaned_url)
+        except Exception as e:
+            logging.error(f"❌ PostgreSQL connection failed: {e}")
+            # ወደ SQLite እንዳይመለስ እዚህ ጋር None ወይም Error ይመልስ
+            raise e
     else:
         import sqlite3
-        # ✅ ቋሚ መንገድ ይጠቀሙ
-        conn = sqlite3.connect(DB_FILE_PATH)
-        conn.row_factory = sqlite3.Row
-        return conn
+        return sqlite3.connect("adika_marketplace.db")
 
 def get_placeholder():
     return "%s" if DATABASE_URL else "?"
