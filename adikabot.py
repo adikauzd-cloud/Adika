@@ -589,15 +589,18 @@ def get_broker(chat_id):
         if conn:
             conn.close()
 
-# ==============================================================================
-# 4. CONVERSATION STATES (የተስተካከለ)
-# ==============================================================================
+# ==========================================
+# 4. CONVERSATION STATES
+# ==========================================
 (
-    BUYER_MAIN, BUYER_ACTION, BUYER_SUB, BUYER_PROPERTY, BUYER_DETAILS, BUYER_PHONE,
+    BUYER_CATEGORY, BUYER_ACTION, BUYER_CAR_BRAND, BUYER_CAR_MODEL,
+    BUYER_PROP_TYPE, BUYER_PROP_SUBTYPE, BUYER_PROP_DETAILS,
+    BUYER_BUDGET, BUYER_CONTACT,
     BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_SUBCITY, BROKER_NID_PHOTO,
-    SELLER_MAIN, SELLER_ACTION, SELLER_SUB, SELLER_PROPERTY, SELLER_DETAILS, SELLER_PRICE, SELLER_PHONE, SELLER_PHOTO,
+    SELLER_MAIN, SELLER_ACTION, SELLER_SUB, SELLER_PROPERTY, SELLER_DETAILS, SELLER_PRICE,
+    SELLER_PHONE, SELLER_PHOTO,
     BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO
-) = range(21)
+) = range(24)
 
 # ==============================================================================
 # 5. HELPER FUNCTIONS
