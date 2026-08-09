@@ -2213,40 +2213,104 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
 # ==============================================================================
-# 14. MAIN ENGINE (የተስተካከለ)
-# ==============================================================================
-# ==============================================================================
-# SECTION 14: MAIN ENGINE
+# SECTION 14: MAIN ENGINE (ሙሉ የተስተካከለ)
 # ==============================================================================
 def main():
-    # 1. Initialize Database
+    import asyncio
+    
+    # 1. Database Initialization & Flask Thread
     init_db()
-
-    # 2. Initialize Application
-    BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_TELEGRAM_BOT_TOKEN")
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # 3. Register Conversation Handlers (ካሉህ)
-    if 'request_conv' in globals():
-        app.add_handler(request_conv)
-    if 'broker_reg_conv' in globals():
-        app.add_handler(broker_reg_conv)
-    if 'broker_response_conv' in globals():
-        app.add_handler(broker_response_conv)
-
-    # 4. Register Command Handlers
+    threading.Thread(target=run_flask, daemon=True).start()
+    
+    # 2. Application Builder
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    # 3. Base Handlers
     app.add_handler(CommandHandler("start", start))
+    cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
+    cancel_message_handler = MessageHandler(cancel_filter, go_home)
 
-    # 5. Register New Feature Handlers (Section 3 & 4)
+    # 4. Buyer Conversation Handler
+    buyer_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🔍 መግዛት / መከራየት$"), buyer_start)],
+        states={
+            BUYER_MAIN: [CallbackQueryHandler(buyer_category_chosen, pattern="^flow_buy_cat_"), cancel_message_handler],
+            BUYER_ACTION: [CallbackQueryHandler(buyer_action_chosen, pattern="^flow_buy_action_"), cancel_message_handler],
+            BUYER_SUB: [CallbackQueryHandler(buyer_sub_chosen, pattern="^flow_buy_sub_"), CallbackQueryHandler(buyer_htype_chosen, pattern="^flow_buy_htype_"), cancel_message_handler],
+            BUYER_PROPERTY: [CallbackQueryHandler(buyer_property_chosen, pattern="^flow_buy_prop_"), cancel_message_handler],
+            BUYER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_details), cancel_message_handler],
+            BUYER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_phone), cancel_message_handler],
+        },
+        fallbacks=[CommandHandler("start", start), cancel_message_handler],
+        allow_reentry=True,
+    )
+
+    # 5. Seller Conversation Handler
+    seller_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📢 መሸጥ / ማከራየት$"), seller_start)],
+        states={
+            SELLER_MAIN: [CallbackQueryHandler(seller_category_chosen, pattern="^flow_sell_cat_"), cancel_message_handler],
+            SELLER_ACTION: [CallbackQueryHandler(seller_action_chosen, pattern="^flow_sell_action_"), cancel_message_handler],
+            SELLER_SUB: [CallbackQueryHandler(seller_sub_chosen, pattern="^flow_sell_sub_"), CallbackQueryHandler(seller_htype_chosen, pattern="^flow_sell_htype_"), cancel_message_handler],
+            SELLER_PROPERTY: [CallbackQueryHandler(seller_property_chosen, pattern="^flow_sell_prop_"), cancel_message_handler],
+            SELLER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_details), cancel_message_handler],
+            SELLER_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_price), cancel_message_handler],
+            SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_phone), cancel_message_handler],
+            SELLER_PHOTO: [MessageHandler(filters.PHOTO, seller_photo), cancel_message_handler],
+        },
+        fallbacks=[CommandHandler("start", start), cancel_message_handler],
+        allow_reentry=True,
+    )
+
+    # 6. Broker Registration Conversation Handler
+    broker_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)],
+        states={
+            BROKER_ROLE: [CallbackQueryHandler(broker_role_chosen, pattern="^role_"), cancel_message_handler],
+            BROKER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name), cancel_message_handler],
+            BROKER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone), cancel_message_handler],
+            BROKER_SUBCITY: [CallbackQueryHandler(broker_reg_subcity, pattern="^broker_sc_"), cancel_message_handler],
+            BROKER_NID_PHOTO: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, broker_reg_nid_photo), cancel_message_handler],
+        },
+        fallbacks=[CommandHandler("start", start), cancel_message_handler],
+        allow_reentry=True,
+    )
+
+    # 7. Broker Response Conversation Handler
+    broker_response_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
+        states={
+            BROKER_OFFER_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_text), cancel_message_handler],
+            BROKER_OFFER_PHOTO: [MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, broker_offer_photo), cancel_message_handler],
+        },
+        fallbacks=[CommandHandler("start", start), cancel_message_handler],
+        allow_reentry=True,
+    )
+
+    # 8. Add Message & Callback Handlers
+    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
+    app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
+    app.add_handler(MessageHandler(cancel_filter, go_home))
+    app.add_handler(CallbackQueryHandler(show_requests_page, pattern="^page_"))
+    app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
+    app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
+    app.add_handler(CallbackQueryHandler(delete_request_callback, pattern="^delete_item_"))
+    
+    # 9. Conversation Handlers Registration
+    app.add_handler(buyer_conv)
+    app.add_handler(seller_conv)
+    app.add_handler(broker_conv)
+    app.add_handler(broker_response_conv)
+
+    # 10. New Feature Handlers (Public Marketplace & Broker Directory)
     app.add_handler(MessageHandler(filters.Regex("^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
     app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
     app.add_handler(CallbackQueryHandler(filter_brokers_by_subcity_callback, pattern="^dir_sc_"))
 
-    # 6. Start the Bot
-    logging.info("🚀 Adika Bot successfully started running...")
+    # 11. Run Bot Engine
+    logger.info("🚀 Adika Marketplace Bot ተጀምሯል...")
     app.run_polling()
 
 
 if __name__ == "__main__":
     main()
-
