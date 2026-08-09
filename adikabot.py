@@ -2452,6 +2452,9 @@ def main():
     app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
     app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
     app.add_handler(CallbackQueryHandler(delete_request_callback, pattern="^delete_item_"))
+
+app.add_handler(CallbackQueryHandler(marketplace_pagination_callback, pattern="^market_page_"))
+
     
     # 9. Conversation Handlers Registration
     app.add_handler(buyer_conv)
