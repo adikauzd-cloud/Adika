@@ -671,157 +671,374 @@ async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 7. BUYER FLOW - FIXED (የተስተካከለ)
+# 7. BUYER FLOW - SIMPLIFIED FORM (የተሻሻለ)
 # ==============================================================================
-async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    phone = update.message.text
+(
+    BUYER_MAIN, BUYER_ACTION, BUYER_CAR_TYPE, BUYER_CAR_YEAR,
+    BUYER_CONDITION, BUYER_BUDGET, BUYER_CONTACT, BUYER_PHONE, 
+    BUYER_EXPIRY, BUYER_CONFIRM
+) = range(10)
+
+async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start buyer flow - ask for service type"""
+    context.user_data.clear()
+    context.user_data['req_type'] = 'BUY'
     
-    if phone == "🏠 ዋና ገጽ":
+    keyboard = [
+        [InlineKeyboardButton("🛍️ ለግዢ", callback_data="flow_buy_action_buy")],
+        [InlineKeyboardButton("🔑 ለኪራይ", callback_data="flow_buy_action_rent")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ]
+    await update.message.reply_text(
+        "🚗 **የመኪና ግዥ/ኪራይ ጥያቄ**\n\n"
+        "📌 **ደረጃ 1/7**\n"
+        "እባክዎ የሚፈልጉትን የአገልግሎት አይነት ይምረጡ፦",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return BUYER_ACTION
+
+async def buyer_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle action selection"""
+    query = update.callback_query
+    if query.data == "flow_home":
         return await go_home(update, context)
     
-    if not validate_phone(phone):
-        await update.message.reply_text("❌ ስልክ ቁጥሩ ትክክል አይደለም! እባክዎ እንደገና ያስገቡ።")
+    await query.answer()
+    action = query.data.replace("flow_buy_action_", "")
+    context.user_data['action_type'] = "መግዛት" if action == "buy" else "መከራየት"
+    
+    await query.edit_message_text(
+        f"✅ የአገልግሎት አይነት: {context.user_data['action_type']}\n\n"
+        "📌 **ደረጃ 2/7**\n"
+        "✍️ **የመኪና ብራንድ እና ሞዴል** ያስገቡ፦\n\n"
+        "💡 ምሳሌ: ቶዮታ ቪትስ 2020",
+        parse_mode="Markdown"
+    )
+    return BUYER_CAR_TYPE
+
+async def buyer_car_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle car type input"""
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    context.user_data['car_type'] = update.message.text
+    
+    # Ask for year range
+    keyboard = [
+        [InlineKeyboardButton("2000 - 2005", callback_data="year_2000-2005")],
+        [InlineKeyboardButton("2006 - 2010", callback_data="year_2006-2010")],
+        [InlineKeyboardButton("2011 - 2015", callback_data="year_2011-2015")],
+        [InlineKeyboardButton("2016 - 2020", callback_data="year_2016-2020")],
+        [InlineKeyboardButton("2021 - 2024", callback_data="year_2021-2024")],
+        [InlineKeyboardButton("✍️ ሌላ አስገባ", callback_data="year_other")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ]
+    await update.message.reply_text(
+        f"✅ መኪና: {context.user_data['car_type']}\n\n"
+        "📌 **ደረጃ 3/7**\n"
+        "የተሰራበትን ዘመን ክልል ይምረጡ፦",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return BUYER_CAR_YEAR
+
+async def buyer_car_year(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle year selection"""
+    query = update.callback_query
+    if query.data == "flow_home":
+        return await go_home(update, context)
+    
+    await query.answer()
+    year = query.data.replace("year_", "")
+    
+    if year == "other":
+        await query.edit_message_text(
+            "✍️ **የሚፈልጉትን የዘመን ክልል** ይፃፉልን፦\n(ምሳሌ: 1995-2000)",
+            parse_mode="Markdown"
+        )
+        return BUYER_CAR_YEAR
+    
+    context.user_data['car_year'] = year
+    
+    # Ask for condition
+    keyboard = [
+        [InlineKeyboardButton("🆕 አዲስ", callback_data="cond_new")],
+        [InlineKeyboardButton("🔧 የሰራ", callback_data="cond_used")],
+        [InlineKeyboardButton("🔀 ልዩነት የለውም", callback_data="cond_any")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ]
+    await query.edit_message_text(
+        f"✅ መኪና: {context.user_data['car_type']}\n"
+        f"✅ ዘመን: {year}\n\n"
+        "📌 **ደረጃ 4/7**\n"
+        "የሚፈልጉትን የመኪና ሁኔታ ይምረጡ፦",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return BUYER_CONDITION
+
+async def buyer_condition(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle condition selection"""
+    query = update.callback_query
+    if query.data == "flow_home":
+        return await go_home(update, context)
+    
+    await query.answer()
+    cond = query.data.replace("cond_", "")
+    cond_names = {"new": "አዲስ", "used": "የሰራ", "any": "ልዩነት የለውም"}
+    context.user_data['condition'] = cond_names.get(cond, cond)
+    
+    await query.edit_message_text(
+        f"✅ መኪና: {context.user_data['car_type']}\n"
+        f"✅ ዘመን: {context.user_data['car_year']}\n"
+        f"✅ ሁኔታ: {context.user_data['condition']}\n\n"
+        "📌 **ደረጃ 5/7**\n"
+        "💰 **የበጀት መጠን ያስገቡ** (በብር)\n\n"
+        "💡 ምሳሌ: 1,500,000\n\n"
+        "✍️ ቁጥር ብቻ ያስገቡ",
+        parse_mode="Markdown"
+    )
+    return BUYER_BUDGET
+
+async def buyer_budget(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle budget input"""
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    if not validate_price(update.message.text):
+        await update.message.reply_text(
+            "❌ **የተሳሳተ ቁጥር!**\n\n"
+            "💡 እባክዎ ትክክለኛ የበጀት መጠን ያስገቡ፦\n"
+            "• ቁጥር ብቻ (ምሳሌ: 1500000)\n"
+            "• ኮማ ወይም ሌላ ምልክት ሳይጠቀሙ",
+            reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
+        )
+        return BUYER_BUDGET
+    
+    context.user_data['budget'] = update.message.text
+    
+    # Auto-fill username
+    user = update.effective_user
+    username = f"@{user.username}" if user.username else "የለም"
+    
+    keyboard = [
+        [InlineKeyboardButton(f"👤 በዚህ Username ቀጥል ({username})", callback_data="contact_username")],
+        [InlineKeyboardButton("📱 ስልክ ቁጥር አስገባ", callback_data="contact_phone")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ]
+    await update.message.reply_text(
+        f"✅ መኪና: {context.user_data['car_type']}\n"
+        f"✅ ዘመን: {context.user_data['car_year']}\n"
+        f"✅ ሁኔታ: {context.user_data['condition']}\n"
+        f"✅ በጀት: {context.user_data['budget']} ብር\n\n"
+        "📌 **ደረጃ 6/7**\n"
+        "📞 **የመገናኛ መንገድ**\n\n"
+        "ደላሎች የሚያገኙበትን መንገድ ይምረጡ፦",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return BUYER_CONTACT
+
+async def buyer_contact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle contact selection"""
+    query = update.callback_query
+    if query.data == "flow_home":
+        return await go_home(update, context)
+    
+    await query.answer()
+    
+    if query.data == "contact_username":
+        user = update.effective_user
+        contact = f"@{user.username}" if user.username else f"https://t.me/{user.first_name}"
+        context.user_data['contact'] = contact
+        return await buyer_show_expiry(update, context)
+    else:
+        await query.edit_message_text(
+            "📱 **የስልክ ቁጥር ያስገቡ፦**\n\n"
+            "💡 ምሳሌ: 0911223344\n\n"
+            "✍️ ቁጥሩን ብቻ ያስገቡ",
+            parse_mode="Markdown"
+        )
+        return BUYER_PHONE
+
+async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle phone input"""
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    if not validate_phone(update.message.text):
+        await update.message.reply_text(
+            "❌ **የተሳሳተ የስልክ ቁጥር!**\n\n"
+            "📱 ትክክለኛ የስልክ ቁጥር ያስገቡ፦\n"
+            "• 0911223344 (ለኢትዮጵያ)\n"
+            "• +251911223344 (ከውጭ)",
+            reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
+        )
         return BUYER_PHONE
     
-    main_cat = context.user_data.get('main_category', '')
-    sub_cat = context.user_data.get('sub_category', '')
-    action_type = context.user_data.get('action_type', '')
-    prop_subtype = context.user_data.get('property_subtype', '')
-    description = context.user_data.get('description', '')
+    context.user_data['contact'] = update.message.text
+    return await buyer_show_expiry(update, context)
+
+async def buyer_show_expiry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show expiry options"""
+    keyboard = [
+        [InlineKeyboardButton("📅 ለ 7 ቀናት", callback_data="expiry_7")],
+        [InlineKeyboardButton("📅 ለ 15 ቀናት", callback_data="expiry_15")],
+        [InlineKeyboardButton("📅 ለ 30 ቀናት (1 ወር)", callback_data="expiry_30")],
+        [InlineKeyboardButton("📅 ለ 90 ቀናት (3 ወር)", callback_data="expiry_90")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ]
     
-    category_title = "🚗 አዲስ የመኪና ጥያቄ" if main_cat == "car" else "🏠 አዲስ የቤት/ቦታ ጥያቄ"
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            "📌 **ደረጃ 7/7**\n"
+            "⏰ **የጥያቄ የአገልግሎት ጊዜ**\n\n"
+            "ጥያቄዎ በስርዓቱ ላይ ለምን ያህል ጊዜ እንዲቆይ ይፈልጋሉ?\n\n"
+            "💡 ከዚያ በኋላ ጥያቄዎ በራስ-ሰር ይጠፋል።",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            "📌 **ደረጃ 7/7**\n"
+            "⏰ **የጥያቄ የአገልግሎት ጊዜ**\n\n"
+            "ጥያቄዎ በስርዓቱ ላይ ለምን ያህል ጊዜ እንዲቆይ ይፈልጋሉ?\n\n"
+            "💡 ከዚያ በኋላ ጥያቄዎ በራስ-ሰር ይጠፋል።",
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+    return BUYER_EXPIRY
+
+async def buyer_expiry(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle expiry selection and show confirmation"""
+    query = update.callback_query
+    if query.data == "flow_home":
+        return await go_home(update, context)
     
+    await query.answer()
+    days = query.data.replace("expiry_", "")
+    day_names = {"7": "7 ቀናት", "15": "15 ቀናት", "30": "30 ቀናት (1 ወር)", "90": "90 ቀናት (3 ወር)"}
+    context.user_data['expiry'] = day_names.get(days, "7 ቀናት")
+    context.user_data['expiry_days'] = int(days)
+    
+    # Show confirmation
+    confirmation = (
+        "📋 **የጥያቄ ማረጋገጫ**\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"🔄 **አገልግሎት:** {context.user_data.get('action_type', 'N/A')}\n"
+        f"🚗 **መኪና:** {context.user_data.get('car_type', 'N/A')}\n"
+        f"📅 **ዘመን:** {context.user_data.get('car_year', 'N/A')}\n"
+        f"🔧 **ሁኔታ:** {context.user_data.get('condition', 'N/A')}\n"
+        f"💰 **በጀት:** {context.user_data.get('budget', 'N/A')} ብር\n"
+        f"📞 **መገናኛ:** {context.user_data.get('contact', 'N/A')}\n"
+        f"⏰ **የሚቆይበት ጊዜ:** {context.user_data.get('expiry', 'N/A')}\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "✅ ሁሉም መረጃዎች ትክክል ከሆኑ 'አረጋግጥ' ይጫኑ።"
+    )
+    
+    keyboard = [
+        [InlineKeyboardButton("✅ አረጋግጥ", callback_data="confirm_yes")],
+        [InlineKeyboardButton("✏️ አርም", callback_data="confirm_no")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ]
+    
+    await query.edit_message_text(
+        confirmation,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return BUYER_CONFIRM
+
+async def buyer_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle confirmation and save"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "confirm_no":
+        await query.edit_message_text(
+            "✏️ **ተመልሰው ይሞሉ**\n\n"
+            "እባክዎ እንደገና ለመጀመር '🔍 መግዛት / መከራየት' ይጫኑ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+    
+    if query.data == "flow_home":
+        return await go_home(update, context)
+    
+    # Save to database
+    user = update.effective_user
+    
+    # Build description
     full_desc = (
-        f"📌 **{category_title}**\n"
-        f"🔹 አይነት: {prop_subtype if prop_subtype else sub_cat}\n"
-        f"🔄 ፍላጎት: {action_type}\n"
-        f"📝 ዝርዝር: {description}\n"
-        f"📞 ስልክ: {phone}"
+        f"🚗 **የመኪና ጥያቄ**\n"
+        f"🔄 ፍላጎት: {context.user_data.get('action_type', 'N/A')}\n"
+        f"🏷️ መኪና: {context.user_data.get('car_type', 'N/A')}\n"
+        f"📅 ዘመን: {context.user_data.get('car_year', 'N/A')}\n"
+        f"🔧 ሁኔታ: {context.user_data.get('condition', 'N/A')}\n"
+        f"💰 በጀት: {context.user_data.get('budget', 'N/A')} ብር\n"
+        f"📞 ስልክ: {context.user_data.get('contact', 'N/A')}\n"
+        f"⏰ የሚቆይበት ጊዜ: {context.user_data.get('expiry', 'N/A')}"
     )
     
     try:
-        req_id = add_listing(user.id, user.first_name, 'BUY', main_cat, sub_cat, action_type, prop_subtype, full_desc)
+        req_id = add_listing(
+            user.id,
+            user.first_name,
+            'BUY',
+            'car',
+            context.user_data.get('car_type', 'N/A'),
+            context.user_data.get('action_type', 'N/A'),
+            context.user_data.get('condition', 'N/A'),
+            full_desc
+        )
     except Exception as e:
         logger.error(f"Error adding listing: {e}")
         req_id = None
     
     if req_id:
-        await update.message.reply_text(
-            f"✅ **ጥያቄዎ በጥሩ ሁኔታ ተመዝግቧል!** (#REQ-{req_id})\n\n"
-            f"📌 ጥያቄዎ ለተረጋገጡ ደላሎች የተላከ ሲሆን፣ ንብረቱ ያላቸው ደላሎች አማራጮችን ሲልኩልዎ እዚሁ ቴሌግራም ላይ ይደርስዎታል።",
+        success_text = (
+            "✅ **ጥያቄዎ በተሳካ ሁኔታ ተመዝግቧል!**\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🆔 **የጥያቄ ቁጥር:** `#{req_id}`\n"
+            "📌 **ሁኔታ:** በመጠበቅ ላይ (Pending)\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "📢 **ማሳወቂያ**\n"
+            "ትዕዛዝዎ ለሁሉም የተመዘገቡ ደላሎች ተልኳል።\n"
+            "ተስማሚ አማራጭ ያለው ደላላ በቀጥታ ያገኝዎታል።\n\n"
+            "📝 **ያስገቡት መረጃ**\n"
+            f"• 🚗 መኪና: {context.user_data.get('car_type', 'N/A')}\n"
+            f"• 📅 ዘመን: {context.user_data.get('car_year', 'N/A')}\n"
+            f"• 🔧 ሁኔታ: {context.user_data.get('condition', 'N/A')}\n"
+            f"• 💰 በጀት: {context.user_data.get('budget', 'N/A')} ብር\n"
+            f"• 📞 መገናኛ: {context.user_data.get('contact', 'N/A')}\n"
+            f"• ⏰ የሚቆይበት: {context.user_data.get('expiry', 'N/A')}\n\n"
+            "💡 **ማሳሰቢያ**\n"
+            "• ጥያቄዎን ማጥፋት ከፈለጉ '📋 የፈላጊዎች ዝርዝር' ውስጥ በመግባት ማጥፋት ይችላሉ።\n"
+            f"• ጥያቄዎ ከ{context.user_data.get('expiry', 'N/A')} በኋላ በራስ-ሰር ይጠፋል።"
+        )
+        await query.edit_message_text(
+            success_text,
+            parse_mode="Markdown",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
+        # Notify brokers
         notification_text = (
-            f"🔔 **{category_title}! (#REQ-{req_id})**\n\n"
+            f"🔔 **አዲስ የመኪና ጥያቄ! (#REQ-{req_id})**\n\n"
             f"{full_desc}\n\n"
-            f"👉 ይህ ንብረት በእጅዎ ካለ ከታች **'አለኝ'** የሚለውን በመጫን ለፈላጊው መረጃ ይላኩ!"
+            f"👉 ይህን መኪና በእጅዎ ካለ 'አለኝ' የሚለውን በመጫን ለፈላጊው መረጃ ይላኩ!"
         )
         await notify_brokers(context, notification_text, req_id, user.id)
     else:
-        await update.message.reply_text(
+        await query.edit_message_text(
             "❌ **ጥያቄውን መመዝገብ አልተቻለም!**\n\n"
-            "💡 እባክዎ የሚከተሉትን ያረጋግጡ፦\n"
-            "• መረጃዎቹ ሙሉ መሆናቸውን\n"
-            "• የበይነመረብ ግንኙነትዎን\n\n"
-            "🔄 እንደገና ለመሞከር '🔍 መግዛት / መከራየት' ይጫኑ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            "💡 እባክዎ እንደገና ይሞክሩ ወይም ድጋፍን ያግኙ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
         )
-
-    return ConversationHandler.END
-
-# ==============================================================================
-# 8. BROKER RESPONSE FLOW (የተስተካከለ)
-# ==============================================================================
-async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
     
-    user_id = query.from_user.id
-    broker = get_broker(user_id)
-    
-    if not broker or broker.get('status') != 'approved':
-        await query.message.reply_text("⛔ ይህን ማድረግ የሚችሉት በአድሚን የተረጋገጡ ደላሎች/አቅራቢዎች ብቻ ናቸው!")
-        return ConversationHandler.END
-        
-    parts = query.data.split('_')
-    if len(parts) < 3:
-        await query.message.reply_text("❌ የተሳሳተ መረጃ ተላኳል።")
-        return ConversationHandler.END
-        
-    req_id = parts[2]
-    buyer_id = parts[3]
-    
-    context.user_data['target_req_id'] = req_id
-    context.user_data['target_buyer_id'] = buyer_id
-    
-    await query.message.reply_text(
-        f"✅ **ጥያቄ #{req_id}**\n\n"
-        f"✍️ **ያለዎትን ንብረት ዝርዝር መረጃ እና ዋጋ ያስገቡ፦**\n"
-        f"(ለምሳሌ፦ ቶዮታ ቪትዝ 2021፣ 30,000 KM የሄደ፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...)"
-    )
-    return BROKER_OFFER_TEXT
-
-async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "🏠 ዋና ገጽ":
-        return await go_home(update, context)
-        
-    context.user_data['offer_text'] = update.message.text
-    await update.message.reply_text(
-        "📸 **የንብረቱን ፎቶ ይላኩ፦**\n(ፎቶ ከሌልዎት 'ፎቶ የለውም' ብለው ይጻፉ)"
-    )
-    return BROKER_OFFER_PHOTO
-
-async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    buyer_id = int(context.user_data.get('target_buyer_id'))
-    req_id = context.user_data.get('target_req_id')
-    offer_text = context.user_data.get('offer_text')
-    broker_name = update.effective_user.first_name
-    
-    broker = get_broker(update.effective_user.id)
-    broker_phone = broker.get('phone', '') if broker else ''
-    
-    # ✅ የጥያቄውን ሁኔታ ወደ 'responded' አይለውጡ - በዝርዝር ውስጥ እንዲቀመጥ ለማድረግ
-    # update_listing_status(int(req_id), 'responded')  # ይህን አስወግዱ
-    
-    message_to_buyer = (
-        f"🎉 **ለጥያቄዎ (#REQ-{req_id}) አዲስ የቀረበ አማራጭ አለ!**\n\n"
-        f"👤 **ደላላ/አቅራቢ፦** {broker_name}\n"
-        f"📞 **ስልክ:** {broker_phone}\n"
-        f"📝 **የንብረቱ ዝርዝር፦**\n{offer_text}\n\n"
-        f"💡 *ከፈለጉ ደውለው መገበያየት ይችላሉ!*"
-    )
-    
-    try:
-        if update.message.photo:
-            photo_id = update.message.photo[-1].file_id
-            await context.bot.send_photo(
-                chat_id=buyer_id,
-                photo=photo_id,
-                caption=message_to_buyer,
-                parse_mode="Markdown"
-            )
-        else:
-            await context.bot.send_message(
-                chat_id=buyer_id,
-                text=message_to_buyer,
-                parse_mode="Markdown"
-            )
-            
-        await update.message.reply_text(
-            "✅ **መረጃዎ ለፈላጊው በስኬት ተልኳል!**\n\n"
-            "📌 ጥያቄው በ'📋 የፈላጊዎች ዝርዝር' ውስጥ እንደበፊቱ ይቀመጣል።\n"
-            "🗑️ ለማጥፋት '❌ ሰርዝ' የሚለውን ይጫኑ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-    except Exception as e:
-        logger.error(f"Failed to send offer to buyer: {e}")
-        await update.message.reply_text(
-            "❌ መረጃውን ለፈላጊው መላክ አልተቻለም።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-        
     return ConversationHandler.END
 
 # ==============================================================================
