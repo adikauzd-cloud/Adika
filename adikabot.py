@@ -22,13 +22,19 @@ from telegram.ext import (
 # ==============================================================================
 # 0. FLASK WEB SERVER & WEBAPP ROUTES
 # ==============================================================================
+import os
+import asyncio
+from flask import Flask, request, jsonify, render_template_string
+
 web_app = Flask(__name__)
 
-# WebApp HTML Template
+# SELLER WEBAPP HTML TEMPLATE
 SELLER_FORM_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
@@ -72,6 +78,56 @@ SELLER_FORM_HTML = """
 </html>
 """
 
+# BUYER WEBAPP HTML TEMPLATE
+BUYER_FORM_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-4">
+    <div class="max-w-md mx-auto bg-white p-6 rounded-xl shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-center">የሚፈልጉትን ንብረት ይዘርዝሩ</h2>
+        <form id="buyerForm" class="space-y-4">
+            <select id="category" class="w-full p-2 border rounded">
+                <option value="መኪና">መኪና</option>
+                <option value="ቤት">ቤት</option>
+            </select>
+            <input type="text" id="budget" placeholder="ባጀት (በብር)" class="w-full p-2 border rounded" required>
+            <textarea id="details" placeholder="ዝርዝር ፍላጎት" class="w-full p-2 border rounded" required></textarea>
+            <input type="tel" id="phone" placeholder="ስልክ ቁጥር" class="w-full p-2 border rounded" required>
+            <button type="submit" class="w-full bg-green-600 text-white p-2 rounded font-bold">ጥያቄውን ይላኩ</button>
+        </form>
+    </div>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+        
+        document.getElementById('buyerForm').onsubmit = (e) => {
+            e.preventDefault();
+            const data = {
+                user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "unknown",
+                category: document.getElementById('category').value,
+                budget: document.getElementById('budget').value,
+                details: document.getElementById('details').value,
+                phone: document.getElementById('phone').value
+            };
+            
+            fetch('/api/submit-request', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            }).then(() => tg.close());
+        };
+    </script>
+</body>
+</html>
+"""
+
 @web_app.route('/')
 def home():
     return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
@@ -80,11 +136,55 @@ def home():
 def seller_form():
     return render_template_string(SELLER_FORM_HTML)
 
+@web_app.route('/buyer-form')
+def buyer_form():
+    return render_template_string(BUYER_FORM_HTML)
+
 @web_app.route('/api/submit-listing', methods=['POST'])
 def submit_listing():
     data = request.json
     print(f"New Listing Received: {data}")
     return jsonify({"status": "success"})
+
+@web_app.route('/api/submit-request', methods=['POST'])
+def submit_request():
+    data = request.json
+    user_id = data.get('user_id')
+    category = data.get('category', 'መኪና')
+    budget = data.get('budget', '')
+    details = data.get('details', '')
+    phone = data.get('phone', '')
+
+    if not user_id or user_id == "unknown":
+        return jsonify({"status": "error", "message": "User ID አልተገኘም"}), 400
+
+    full_desc = (
+        f"📌 **አዲስ የ{category} ጥያቄ (በ WebApp የተሞላ)**\n"
+        f"💰 በጀት: {budget} ብር\n"
+        f"📝 ዝርዝር: {details}\n"
+        f"📞 ስልክ: {phone}"
+    )
+
+    req_id = add_listing(user_id, "WebApp User", 'BUY', category, '', 'መግዛት', '', full_desc)
+
+    if req_id:
+        notification_text = (
+            f"🔔 **አዲስ የ{category} ጥያቄ! (#REQ-{req_id})**\n\n"
+            f"{full_desc}\n\n"
+            f"👉 ይህ ንብረት በእጅዎ ካለ ከታች **'አለኝ'** የሚለውን በመጫን ለፈላጊው መረጃ ይላኩ!"
+        )
+        
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(notify_brokers(bot_app, notification_text, req_id, user_id))
+            loop.close()
+        except Exception as e:
+            print(f"Error notifying brokers: {e}")
+
+        return jsonify({"status": "success", "req_id": req_id})
+    
+    return jsonify({"status": "error", "message": "መረጃውን መመዝገብ አልተቻለም"}), 500
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
