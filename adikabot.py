@@ -264,19 +264,28 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+import os
+import re
+import logging
+import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
+
+logger = logging.getLogger(__name__)
+
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
+DB_FILE = "adika_marketplace.db"
+
 # ==============================================================================
 # 2. CONSTANTS & KEYBOARDS
 # ==============================================================================
-# ==============================================================================
-# SECTION 4: UPDATED MAIN KEYBOARD
-# ==============================================================================
+
 MAIN_KEYBOARD = [
     ["🔍 መግዛት / መከራየት", "📢 መሸጥ / ማከራየት"],
     ["🛍️ የገበያ ቦታ (የሚሸጡ)", "📋 የፈላጊዎች ዝርዝር"],
     ["👥 የደላሎች/አቅራቢዎች ማውጫ", "📝 እንደ አቅራቢ/ደላላ መመዝገብ"],
     ["📞 ድጋፍ", "🏠 ዋና ገጽ"]
 ]
-
 
 # ✅ 11 ክፍለ ከተሞች
 SUB_CITIES = [
@@ -290,9 +299,32 @@ CAR_SUB_CATEGORIES = ["🚗 የቤት መኪና", "🚚 የሥራ መኪና", "�
 # ✅ የቤት አይነቶች (ኮንዶሚኒየም ተጨምሯል)
 HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየም", "🏢 ሪል እስቴት", "🏞️ መሬት/ቦታ"]
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
+
+# ==============================================================================
+# HELPER FUNCTIONS
+# ==============================================================================
+
+def validate_phone(phone: str) -> bool:
+    """Validate Ethiopian phone number formats (09..., 07..., +251...)"""
+    pattern = r"^(?:\+251|0)[79]\d{8}$"
+    return bool(re.match(pattern, phone.strip()))
+
+
+def get_db_connection():
+    """Create and return connection for PostgreSQL (if URL exists) or SQLite"""
+    if DATABASE_URL:
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        conn.autocommit = True
+        return conn
+    else:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        return conn
+
 # ==============================================================================
 # SECTION 1: DATABASE INITIALIZATION
 # ==============================================================================
+
 def init_db():
     conn = None
     try:
@@ -338,6 +370,14 @@ def init_db():
                     stars INT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS broker_offers (
+                    id SERIAL PRIMARY KEY,
+                    request_id INTEGER NOT NULL,
+                    broker_id BIGINT NOT NULL,
+                    description TEXT,
+                    photo_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
             """)
         else:
             # SQLite Tables
@@ -378,6 +418,14 @@ def init_db():
                     stars INTEGER NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+                CREATE TABLE IF NOT EXISTS broker_offers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_id INTEGER NOT NULL,
+                    broker_id INTEGER NOT NULL,
+                    description TEXT,
+                    photo_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
             """)
         if not DATABASE_URL:
             conn.commit()
@@ -393,14 +441,130 @@ def init_db():
             conn.close()
 
 # ==============================================================================
-# 3. DATABASE UTILITIES (የተስተካከለ - ሙሉ ተግባራት)
+# SECTION 3: DATABASE UTILITIES & OPERATIONS
 # ==============================================================================
-import os
-import logging
-import psycopg2
-from psycopg2.extras import RealDictCursor
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+def add_broker(chat_id: int, full_name: str, phone: str, role_type: str, national_id_photo: str, sub_city: str):
+    """Insert or update a broker record"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        if DATABASE_URL:
+            cursor.execute("""
+                INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                VALUES (%s, %s, %s, %s, %s, %s, 'pending')
+                ON CONFLICT (chat_id) DO UPDATE SET
+                    full_name = EXCLUDED.full_name,
+                    phone = EXCLUDED.phone,
+                    role_type = EXCLUDED.role_type,
+                    national_id_photo = EXCLUDED.national_id_photo,
+                    sub_city = EXCLUDED.sub_city,
+                    status = 'pending';
+            """, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
+        else:
+            cursor.execute("""
+                INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending')
+                ON CONFLICT(chat_id) DO UPDATE SET
+                    full_name = excluded.full_name,
+                    phone = excluded.phone,
+                    role_type = excluded.role_type,
+                    national_id_photo = excluded.national_id_photo,
+                    sub_city = excluded.sub_city,
+                    status = 'pending';
+            """, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
+            conn.commit()
+        return True
+    except Exception as e:
+        logging.error(f"Database error in add_broker: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_broker(chat_id: int):
+    """Fetch broker details by chat_id"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        param = (%s,) if DATABASE_URL else (?,)
+        cursor.execute("SELECT * FROM brokers WHERE chat_id = " + param[0], (chat_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    except Exception as e:
+        logging.error(f"Database error in get_broker: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
+
+
+def update_broker_status(chat_id: int, status: str) -> bool:
+    """Update approval status of a broker ('approved', 'rejected', 'pending')"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("UPDATE brokers SET status = %s WHERE chat_id = %s", (status.lower(), chat_id))
+        else:
+            cursor.execute("UPDATE brokers SET status = ? WHERE chat_id = ?", (status.lower(), chat_id))
+            conn.commit()
+        return True
+    except Exception as e:
+        logging.error(f"Database error in update_broker_status: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def save_broker_offer(request_id: int, broker_id: int, description: str, photo_id: str = None) -> bool:
+    """Save a broker's response/offer for a listing request"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        if DATABASE_URL:
+            cursor.execute("""
+                INSERT INTO broker_offers (request_id, broker_id, description, photo_id)
+                VALUES (%s, %s, %s, %s)
+            """, (request_id, broker_id, description, photo_id))
+        else:
+            cursor.execute("""
+                INSERT INTO broker_offers (request_id, broker_id, description, photo_id)
+                VALUES (?, ?, ?, ?)
+            """, (request_id, broker_id, description, photo_id))
+            conn.commit()
+        return True
+    except Exception as e:
+        logging.error(f"Database error in save_broker_offer: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_listing_by_id(listing_id: int):
+    """Fetch a single listing by its ID"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        param = (%s,) if DATABASE_URL else (?,)
+        cursor.execute("SELECT * FROM listings WHERE id = " + param[0], (listing_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    except Exception as e:
+        logging.error(f"Database error in get_listing_by_id: {e}")
+        return None
+    finally:
+        if conn:
+            conn.close()
 # ==============================================================================
 # SECTION 1: BUYER REQUEST CARD FORMATTER
 # ==============================================================================
