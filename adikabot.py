@@ -246,7 +246,7 @@ def submit_listing():
     phone = data.get("phone", "")
 
     try:
-        # 1. መረጃውን ወደ ዳታቤዝ ማስገባት
+        # 1. ወደ ዳታቤዝ ማስገባት
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
@@ -259,34 +259,46 @@ def submit_listing():
         )
         item_id = cursor.fetchone()['id']
         conn.commit()
+
+        # 2. የተመዘገቡ ደላሎችን ID ከዳታቤዝ ማውጣት
+        cursor.execute("SELECT user_id FROM brokers WHERE user_id IS NOT NULL;")
+        brokers = cursor.fetchall()
         cursor.close()
         conn.close()
 
-        # 2. ለተጠቃሚው ማረጋገጫ በቴሌግራም መላክ (የብቻው try-except)
-        if BOT_TOKEN and user_id:
+        # 3. ለደላሎች መልእክት ማዘጋጀት
+        broker_notice = (
+            f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ በ WebApp ተለቋል! [#{item_id}]**\n\n"
+            f"📦 **ምድብ፦** {category}\n"
+            f"💰 **ዋጋ፦** {price} ብር\n"
+            f"📝 **መግለጫ፦** {description}\n"
+            f"📞 **ስልክ፦** `{phone}`"
+        )
+
+        import urllib.request
+        import json
+
+        # ለሁሉም ደላሎች በየተራ መልእክቱን መላክ
+        for broker in brokers:
+            b_id = broker.get('user_id')
+            if b_id:
+                try:
+                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                    payload = json.dumps({"chat_id": b_id, "text": broker_notice, "parse_mode": "Markdown"}).encode('utf-8')
+                    req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+                    urllib.request.urlopen(req, timeout=3)
+                except Exception as err:
+                    logger.error(f"Failed sending to broker {b_id}: {err}")
+
+        # ለለቀቀው ሰው ማረጋገጫ መላክ
+        if user_id:
             try:
-                import urllib.request
-                import json
-                
-                notify_text = (
-                    f"📢 **አዲስ ንብረት በስኬት መዝግበዋል! [#{item_id}]**\n\n"
-                    f"📦 **ምድብ፦** {category}\n"
-                    f"💰 **ዋጋ፦** {price} ብር\n"
-                    f"📝 **መግለጫ፦** {description}\n"
-                    f"📞 **ስልክ፦** `{phone}`"
-                )
-                
-                telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                payload = json.dumps({
-                    "chat_id": user_id,
-                    "text": notify_text,
-                    "parse_mode": "Markdown"
-                }).encode('utf-8')
-                
-                req = urllib.request.Request(telegram_url, data=payload, headers={'Content-Type': 'application/json'})
-                urllib.request.urlopen(req, timeout=5)
-            except Exception as notify_err:
-                logger.error(f"Telegram notification error: {notify_err}")
+                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                payload = json.dumps({"chat_id": user_id, "text": f"✅ ንብረትዎ በስኬት ተመዝግቧል!\n\n{broker_notice}", "parse_mode": "Markdown"}).encode('utf-8')
+                req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
+                urllib.request.urlopen(req, timeout=3)
+            except Exception:
+                pass
 
         return jsonify({"status": "success", "item_id": item_id})
 
