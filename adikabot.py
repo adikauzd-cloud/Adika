@@ -2385,18 +2385,27 @@ def register_broker_handlers(application):
         CallbackQueryHandler(nohave_item_callback, pattern=r"^nohave_item_")
     )
 # ==============================================================================
-# 11. ADMIN APPROVAL HANDLERS
+# 11. ADMIN APPROVAL HANDLERS (የአድሚን ማፅደቂያ እና ማኔጅመንት)
 # ==============================================================================
+
+from telegram import ReplyKeyboardMarkup, Update
+from telegram.ext import CallbackQueryHandler, ContextTypes
+
 
 async def admin_approve_broker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Approve a broker registration request"""
     query = update.callback_query
     await query.answer()
 
+    # Security check: Admin only
+    if update.effective_user.id != ADMIN_CHAT_ID_INT:
+        await query.answer("⛔ ይህን ማድረግ የሚችሉት አድሚን ብቻ ናቸው!", show_alert=True)
+        return
+
     broker_telegram_id = int(query.data.replace("admin_appr_", ""))
 
     # Update broker status in database
-    success = update_broker_status(broker_telegram_id, status="APPROVED")
+    success = update_broker_status(broker_telegram_id, status="approved")
 
     if success:
         await query.edit_message_caption(
@@ -2410,12 +2419,13 @@ async def admin_approve_broker(update: Update, context: ContextTypes.DEFAULT_TYP
                 chat_id=broker_telegram_id,
                 text=(
                     "🎉 **እንኳን ደስ አለዎት!**\n\n"
-                    "የደላላ/አቅራቢ ምዝገባዎ በአድሚን ፀድቋል።"
+                    "የደላላ/አቅራቢ ምዝገባዎ በአድሚን ፀድቋል።\n"
                     "አሁን '📋 የፈላጊዎች ዝርዝር' በመጫን መስራት መጀመር ይችላሉ።"
                 ),
                 reply_markup=ReplyKeyboardMarkup(
                     MAIN_KEYBOARD, resize_keyboard=True
                 ),
+                parse_mode="Markdown",
             )
         except Exception as e:
             logger.error(
@@ -2430,10 +2440,15 @@ async def admin_reject_broker(update: Update, context: ContextTypes.DEFAULT_TYPE
     query = update.callback_query
     await query.answer()
 
+    # Security check: Admin only
+    if update.effective_user.id != ADMIN_CHAT_ID_INT:
+        await query.answer("⛔ ይህን ማድረግ የሚችሉት አድሚን ብቻ ናቸው!", show_alert=True)
+        return
+
     broker_telegram_id = int(query.data.replace("admin_reje_", ""))
 
     # Update status in database
-    success = update_broker_status(broker_telegram_id, status="REJECTED")
+    success = update_broker_status(broker_telegram_id, status="rejected")
 
     if success:
         await query.edit_message_caption(
@@ -2449,6 +2464,7 @@ async def admin_reject_broker(update: Update, context: ContextTypes.DEFAULT_TYPE
                     "❌ **የምዝገባ ጥያቄዎ ውድቅ ተደርጓል!**\n\n"
                     "እባክዎን ትክክለኛ መረጃ እና መታወቂያ በመጠቀም እንደገና ይመዝገቡ።"
                 ),
+                parse_mode="Markdown",
             )
         except Exception as e:
             logger.error(
@@ -2463,39 +2479,31 @@ async def admin_view_broker(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
 
+    # Security check: Admin only
+    if update.effective_user.id != ADMIN_CHAT_ID_INT:
+        await query.answer("⛔ ይህን ማድረግ የሚችሉት አድሚን ብቻ ናቸው!", show_alert=True)
+        return
+
     broker_telegram_id = int(query.data.replace("admin_view_", ""))
     broker_info = get_broker(broker_telegram_id)
 
     if broker_info:
         msg = (
-            f"👤 **የአቅራቢ/ደላላ ዝርዝር መረጃ**\n\n"
-            f"• ስም: {broker_info.get('full_name')}\n"
-            f"• ሚና: {broker_info.get('role')}\n"
-            f"• ስልክ: {broker_info.get('phone')}\n"
-            f"• ክፍለ ከተማ: {broker_info.get('sub_city')}\n"
-            f"• ሁኔታ: {broker_info.get('status')}\n"
-            f"• Telegram ID: `{broker_telegram_id}`"
+            f"👤 <b>የአቅራቢ/ደላላ ዝርዝር መረጃ</b>\n\n"
+            f"• <b>ስም:</b> {broker_info.get('full_name', 'N/A')}\n"
+            f"• <b>ሚና:</b> {broker_info.get('role', 'N/A')}\n"
+            f"• <b>ስልክ:</b> {broker_info.get('phone', 'N/A')}\n"
+            f"• <b>ክፍለ ከተማ:</b> {broker_info.get('sub_city', 'N/A')}\n"
+            f"• <b>ሁኔታ:</b> {broker_info.get('status', 'N/A')}\n"
+            f"• <b>Telegram ID:</b> <code>{broker_telegram_id}</code>"
         )
-        await query.message.reply_text(msg, parse_mode="Markdown")
+        await query.message.reply_text(msg, parse_mode="HTML")
     else:
         await query.message.reply_text("❌ የደላላው መረጃ አልተገኘም።")
 
 
-def register_admin_approval_handlers(application):
-    """Register admin approval callback handlers"""
-    application.add_handler(
-        CallbackQueryHandler(admin_approve_broker, pattern=r"^admin_appr_")
-    )
-    application.add_handler(
-        CallbackQueryHandler(admin_reject_broker, pattern=r"^admin_reje_")
-    )
-    application.add_handler(
-        CallbackQueryHandler(admin_view_broker, pattern=r"^admin_view_")
-    )
 async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    Master callback router for admin approval actions (^admin_)
-    """
+    """Master callback router for admin approval actions (^admin_)"""
     query = update.callback_query
     data = query.data
 
@@ -2505,6 +2513,13 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
         await admin_reject_broker(update, context)
     elif data.startswith("admin_view_"):
         await admin_view_broker(update, context)
+
+
+def register_admin_approval_handlers(application):
+    """Register admin approval callback handlers"""
+    application.add_handler(
+        CallbackQueryHandler(admin_approval_callback, pattern=r"^admin_")
+    )
 # ==============================================================================
 # 12.5 DELETE REQUEST HANDLER (አዲስ ተጨምሯል)
 # ==============================================================================
