@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any
 from datetime import datetime  # ✅ date አያስፈልግም
 import psycopg2
 from psycopg2.extras import RealDictCursor
-from flask import Flask
+from flask import Flask, render_template_string, request, jsonify  # ✅ render_template_string, request, jsonify ተጨምረዋል
 from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -18,14 +18,73 @@ from telegram.ext import (
     ConversationHandler,
     filters,
 )
+
 # ==============================================================================
-# 0. FLASK WEB SERVER
+# 0. FLASK WEB SERVER & WEBAPP ROUTES
 # ==============================================================================
 web_app = Flask(__name__)
+
+# WebApp HTML Template
+SELLER_FORM_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-4">
+    <div class="max-w-md mx-auto bg-white p-6 rounded-xl shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-center">ንብረት ለገበያ ያቅርቡ</h2>
+        <form id="listingForm" class="space-y-4">
+            <select id="category" class="w-full p-2 border rounded">
+                <option value="መኪና">መኪና</option>
+                <option value="ቤት">ቤት</option>
+            </select>
+            <input type="text" id="price" placeholder="ዋጋ (በብር)" class="w-full p-2 border rounded" required>
+            <textarea id="description" placeholder="ዝርዝር መግለጫ" class="w-full p-2 border rounded" required></textarea>
+            <input type="tel" id="phone" placeholder="ስልክ ቁጥር" class="w-full p-2 border rounded" required>
+            <button type="submit" class="w-full bg-blue-600 text-white p-2 rounded font-bold">መረጃውን ይላኩ</button>
+        </form>
+    </div>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+        
+        document.getElementById('listingForm').onsubmit = (e) => {
+            e.preventDefault();
+            const data = {
+                user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "unknown",
+                category: document.getElementById('category').value,
+                price: document.getElementById('price').value,
+                description: document.getElementById('description').value,
+                phone: document.getElementById('phone').value
+            };
+            
+            fetch('/api/submit-listing', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            }).then(() => tg.close());
+        };
+    </script>
+</body>
+</html>
+"""
 
 @web_app.route('/')
 def home():
     return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
+
+@web_app.route('/seller-form')
+def seller_form():
+    return render_template_string(SELLER_FORM_HTML)
+
+@web_app.route('/api/submit-listing', methods=['POST'])
+def submit_listing():
+    data = request.json
+    print(f"New Listing Received: {data}")
+    return jsonify({"status": "success"})
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
