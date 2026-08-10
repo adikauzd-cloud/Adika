@@ -1495,10 +1495,17 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ ጥያቄውን መመዝገብ አልተቻለም። እባክዎ እንደገና ይሞክሩ።")
 
     return ConversationHandler.END
+import logging
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import ContextTypes, ConversationHandler
+
+logger = logging.getLogger(__name__)
+
 # ==============================================================================
 # 8. BROKER RESPONSE FLOW (የተስተካከለ)
 # ==============================================================================
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle broker clicking 'Have Item' button"""
     query = update.callback_query
     await query.answer()
     
@@ -1510,12 +1517,22 @@ async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_T
         return ConversationHandler.END
         
     parts = query.data.split('_')
-    if len(parts) < 3:
+    if len(parts) < 2:
         await query.message.reply_text("❌ የተሳሳተ መረጃ ተላኳል።")
         return ConversationHandler.END
         
-    req_id = parts[2]
-    buyer_id = parts[3]
+    req_id = parts[1]
+    
+    # buyer_id ከ callback_data ካለ ወይም ከ database መውሰድ
+    buyer_id = parts[2] if len(parts) >= 3 else None
+    if not buyer_id:
+        listing = get_listing_by_id(int(req_id)) if req_id.isdigit() else None
+        if listing:
+            buyer_id = listing.get('user_chat_id')
+
+    if not buyer_id:
+        await query.message.reply_text("❌ የፈላጊው መረጃ አልተገኘም።")
+        return ConversationHandler.END
     
     context.user_data['target_req_id'] = req_id
     context.user_data['target_buyer_id'] = buyer_id
@@ -1523,31 +1540,47 @@ async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_T
     await query.message.reply_text(
         f"✅ **ጥያቄ #{req_id}**\n\n"
         f"✍️ **ያለዎትን ንብረት ዝርዝር መረጃ እና ዋጋ ያስገቡ፦**\n"
-        f"(ለምሳሌ፦ ቶዮታ ቪትዝ 2021፣ 30,000 KM የሄደ፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...)"
+        f"(ለምሳሌ፦ ቶዮታ ቪትዝ 2021፣ 30,000 KM የሄደ፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...)",
+        parse_mode="Markdown"
     )
     return BROKER_OFFER_TEXT
 
+
 async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text == "🏠 ዋና ገጽ":
+    """Receive offer description text from broker"""
+    text = update.message.text
+    
+    if text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
         
-    context.user_data['offer_text'] = update.message.text
+    context.user_data['offer_text'] = text
+    
     await update.message.reply_text(
-        "📸 **የንብረቱን ፎቶ ይላኩ፦**\n(ፎቶ ከሌልዎት 'ፎቶ የለውም' ብለው ይጻፉ)"
+        "📸 **የንብረቱን ፎቶ ይላኩ፦**\n(ፎቶ ከሌልዎት 'ፎቶ የለውም' ብለው ይጻፉ)",
+        parse_mode="Markdown"
     )
     return BROKER_OFFER_PHOTO
 
+
 async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    buyer_id = int(context.user_data.get('target_buyer_id'))
+    """Receive offer photo (or text skip) and deliver offer to buyer"""
+    raw_buyer_id = context.user_data.get('target_buyer_id')
     req_id = context.user_data.get('target_req_id')
     offer_text = context.user_data.get('offer_text')
-    broker_name = update.effective_user.first_name
     
-    broker = get_broker(update.effective_user.id)
-    broker_phone = broker.get('phone', '') if broker else ''
+    if not raw_buyer_id or not req_id or not offer_text:
+        await update.message.reply_text(
+            "❌ የሂደት ስህተት ተከሰቷል። እባክዎ እንደገና ይሞክሩ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return ConversationHandler.END
+        
+    buyer_id = int(raw_buyer_id)
+    broker_user = update.effective_user
+    broker_name = broker_user.first_name or "ደላላ/አቅራቢ"
     
-    # ✅ የጥያቄውን ሁኔታ ወደ 'responded' አይለውጡ - በዝርዝር ውስጥ እንዲቀመጥ ለማድረግ
-    # update_listing_status(int(req_id), 'responded')  # ይህን አስወግዱ
+    broker = get_broker(broker_user.id)
+    broker_phone = broker.get('phone', 'አልተጠቀሰም') if broker else 'አልተጠቀሰም'
     
     message_to_buyer = (
         f"🎉 **ለጥያቄዎ (#REQ-{req_id}) አዲስ የቀረበ አማራጭ አለ!**\n\n"
@@ -1558,6 +1591,7 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     
     try:
+        # ፎቶ ከተላከ በፎቶ፤ ካልተላከ በጽሁፍ ብቻ ይላካል
         if update.message.photo:
             photo_id = update.message.photo[-1].file_id
             await context.bot.send_photo(
@@ -1575,17 +1609,22 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
         await update.message.reply_text(
             "✅ **መረጃዎ ለፈላጊው በስኬት ተልኳል!**\n\n"
-            "📌 ጥያቄው በ'📋 የፈላጊዎች ዝርዝር' ውስጥ እንደበፊቱ ይቀመጣል።\n"
-            "🗑️ ለማጥፋት '❌ ሰርዝ' የሚለውን ይጫኑ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            "📌 ጥያቄው በ'📋 የፈላጊዎች ዝርዝር' ውስጥ እንደበፊቱ ይቀመጣል።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
         )
     except Exception as e:
-        logger.error(f"Failed to send offer to buyer: {e}")
+        logger.error(f"Failed to send offer to buyer {buyer_id}: {e}")
         await update.message.reply_text(
             "❌ መረጃውን ለፈላጊው መላክ አልተቻለም።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
+    # Context መረጃዎችን ማጽዳት
+    context.user_data.pop('target_req_id', None)
+    context.user_data.pop('target_buyer_id', None)
+    context.user_data.pop('offer_text', None)
+    
     return ConversationHandler.END
 
 # ==============================================================================
