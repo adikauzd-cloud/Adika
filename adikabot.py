@@ -140,50 +140,71 @@ def webapp_seller_form():
 def webapp_buyer_form():
     return render_template_string(BUYER_FORM_HTML)
 
+import urllib.request
+import json
+
 @web_app.route('/api/submit-listing', methods=['POST'])
 def submit_listing():
     data = request.json
-    print(f"New Listing Received: {data}")
-    return jsonify({"status": "success"})
-@web_app.route('/api/submit-request', methods=['POST'], endpoint='api_submit_request')
-def api_submit_request():
-    data = request.json
-    user_id = data.get('user_id')
-    category = data.get('category', 'መኪና')
-    budget = data.get('budget', '')
-    details = data.get('details', '')
-    phone = data.get('phone', '')
+    if not data:
+        return jsonify({"status": "error", "message": "No data"}), 400
 
-    if not user_id or user_id == "unknown":
-        return jsonify({"status": "error", "message": "User ID አልተገኘም"}), 400
+    # 1. user_id ን በጥንቃቄ ወደ integer መቀየር
+    raw_user_id = data.get("user_id")
+    try:
+        user_id = int(raw_user_id) if raw_user_id and str(raw_user_id).isdigit() else None
+    except Exception:
+        user_id = None
 
-    full_desc = (
-        f"📌 **አዲስ የ{category} ጥያቄ (በ WebApp የተሞላ)**\n"
-        f"💰 በጀት: {budget} ብር\n"
-        f"📝 ዝርዝር: {details}\n"
-        f"📞 ስልክ: {phone}"
-    )
+    category = data.get("category", "ያልተጠቀሰ")
+    price = data.get("price", "በድርድር")
+    description = data.get("description", "")
+    phone = data.get("phone", "")
 
-    req_id = add_listing(user_id, "WebApp User", 'BUY', category, '', 'መግዛት', '', full_desc)
+    try:
+        # 2. ወደ ዳታቤዝ ማስገባት
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO marketplace_items (user_id, main_category, price, description, phone, created_at)
+            VALUES (%s, %s, %s, %s, %s, NOW())
+            RETURNING id;
+            """,
+            (user_id, category, price, description, phone)
+        )
+        item_id = cursor.fetchone()['id']
+        conn.commit()
+        cursor.close()
+        conn.close()
 
-    if req_id:
-        notification_text = (
-            f"🔔 **አዲስ የ{category} ጥያቄ! (#REQ-{req_id})**\n\n"
-            f"{full_desc}\n\n"
-            f"👉 ይህ ንብረት በእጅዎ ካለ ከታች **'አለኝ'** የሚለውን በመጫን ለፈላጊው መረጃ ይላኩ!"
+        # 3. ለደላሎች/አድሚን ማስታወቂያ በ Telegram API በቀጥታ መላክ
+        # (ማስታወሻ፦ ADMIN_CHAT_ID ወይም የደላሎች Group ID ካለህ እዚህ ይተካል)
+        notify_text = (
+            f"📢 **አዲስ ንብረት ለገበያ ቀርቧል! [#{item_id}]**\n\n"
+            f"📦 **ምድብ፦** {category}\n"
+            f"💰 **ዋጋ፦** {price} ብር\n"
+            f"📝 **መግለጫ፦** {description}\n"
+            f"📞 **ስልክ፦** `{phone}`"
         )
         
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(notify_brokers(bot_app, notification_text, req_id, user_id))
-            loop.close()
-        except Exception as e:
-            print(f"Error notifying brokers: {e}")
+        # ቦቱ መልእክቱን እንዲልክ የ Telegram HTTP API ጥሪ ማድረግ
+        if BOT_TOKEN and user_id:
+            telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+            payload = json.dumps({
+                "chat_id": user_id,  # ለለቀቀው ሰው ማረጋገጫ ይልካል
+                "text": f"✅ ንብረትዎ በስኬት ተመዝግቧል!\n\n{notify_text}",
+                "parse_mode": "Markdown"
+            }).encode('utf-8')
+            
+            req = urllib.request.Request(telegram_url, data=payload, headers={'Content-Type': 'application/json'})
+            urllib.request.urlopen(req)
 
-        return jsonify({"status": "success", "req_id": req_id})
-    
-    return jsonify({"status": "error", "message": "መረጃውን መመዝገብ አልተቻለም"}), 500
+        return jsonify({"status": "success", "item_id": item_id})
+
+    except Exception as e:
+        logger.error(f"Error saving webapp listing: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
