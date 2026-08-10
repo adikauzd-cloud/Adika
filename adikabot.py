@@ -1,12 +1,12 @@
 # ==============================================================================
-# ADIKA MARKETPLACE TELEGRAM BOT - REFACTORED VERSION (FIXED)
+# SECTION 1: IMPORTS & CONFIGURATION
 # ==============================================================================
 
 import logging
 import os
 import re
 import asyncio
-import threading  # ✅ ተጨምሯል
+import threading  # ✅ ተጨምሯል - ለFlask በተናጥል ክር ለማስኬድ
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -28,7 +28,7 @@ from telegram.ext import (
 )
 
 # ==============================================================================
-# 1. CONFIGURATION
+# CONFIGURATION
 # ==============================================================================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -46,7 +46,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
 # ==============================================================================
 # 2. CONSTANTS & KEYBOARDS
 # ==============================================================================
