@@ -1681,8 +1681,21 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ ጥያቄውን መመዝገብ አልተቻለም። እባክዎ እንደገና ይሞክሩ።")
 
     return ConversationHandler.END
+import logging
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import (
+    ContextTypes,
+    ConversationHandler,
+)
+
+logger = logging.getLogger(__name__)
+
+# State Constants
+BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO = range(2)
+
+
 # ==============================================================================
-# 12. BROKER OFFER CALLBACKS (የተስተካከለ እና ሙሉ)
+# BROKER OFFER FLOW (የደላሎች "አለኝ" ምላሽ ሂደት)
 # ==============================================================================
 
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1834,7 +1847,6 @@ async def nohave_item_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         f"💡 ሌላ አዲስ ጥያቄ ለማየት '📋 የፈላጊዎች ዝርዝር' የሚለውን ይጫኑ።",
         parse_mode="Markdown"
     )
-
 # ==============================================================================
 # 9. SELLER FLOW (መሸጥ / ማከራየት) - የተስተካከለ
 # ==============================================================================
