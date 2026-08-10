@@ -2307,8 +2307,15 @@ async def delete_request_callback(update: Update, context: ContextTypes.DEFAULT_
     else:
         await query.message.reply_text("❌ ጥያቄውን ማጥፋት አልተቻለም።")
 
+import re
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram.ext import ContextTypes
+
+ITEMS_PER_PAGE = 5
+
 # ==============================================================================
-# 12.2 HAVE ITEM HANDLER (የተስተካከለ)
+# 12.2 HAVE ITEM HANDLER
 # ==============================================================================
 async def have_item_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle 'Have' button click - broker has the item"""
@@ -2344,10 +2351,11 @@ async def have_item_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.message.reply_text(
         f"✅ **ጥያቄ #{req_id:04d}**\n\n"
         f"✍️ **ያለዎትን ንብረት ዝርዝር መረጃ እና ዋጋ ያስገቡ፦**\n"
-        f"(ለምሳሌ፦ ቶዮታ ቪትዝ 2021፣ 30,000 KM የሄደ፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...)"
+        f"(ለምሳሌ፦ ቶዮታ ቪትዝ 2021፣ 30,000 KM የሄደ፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...)",
+        parse_mode="Markdown"
     )
     return BROKER_OFFER_TEXT
-ITEMS_PER_PAGE = 5
+
 
 def format_request_card(req):
     """Format a single request as a clean professional card"""
@@ -2384,14 +2392,17 @@ def format_request_card(req):
             f"📝 {details}\n"
         )
 
-def build_requests_message(user_name, requests_list, page, total_pages):
+
+def build_requests_message(user_name, requests_list, page, total_pages, total_count=0):
     """Build the complete requests message"""
+    total = total_count if total_count > 0 else len(requests_list)
     header = f"📋 **የፈላጊዎች ዝርዝር** | 👤 {user_name}\n"
     header += f"━━━━━━━━━━━━━━━━━━━━━━\n"
-    header += f"🔹 ገጽ {page}/{total_pages} (ጠቅላላ፡ {len(requests_list)} ጥያቄዎች)\n\n"
+    header += f"🔹 ገጽ {page}/{total_pages} (ጠቅላላ፡ {total} ጥያቄዎች)\n\n"
     
     body = "\n".join([format_request_card(req) for req in requests_list])
     return header + body
+
 
 def build_request_buttons(requests_list, page, total_pages):
     """Build inline keyboard with action buttons for each request"""
@@ -2428,6 +2439,7 @@ def build_request_buttons(requests_list, page, total_pages):
     
     return InlineKeyboardMarkup(keyboard)
 
+
 async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Display requests with clean UI"""
     try:
@@ -2448,10 +2460,10 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             total = count_listings()
         except Exception as e:
             logger.error(f"Database error: {e}")
-            error_text = "❌ የውሂብ ጎታ ስህተተ! እባክዎ እንደገና ይሞክሩ።"
+            error_text = "❌ የውሂብ ጎታ ስህተት! እባክዎ እንደገና ይሞክሩ።"
             if update.message:
                 await update.message.reply_text(error_text, parse_mode="Markdown")
-            else:
+            elif update.callback_query:
                 await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
             return
         
@@ -2461,6 +2473,8 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if page > total_pages:
             page = total_pages
             context.user_data['view_page'] = page
+            offset = (page - 1) * ITEMS_PER_PAGE
+            listings = get_listings_by_category(limit=ITEMS_PER_PAGE, offset=offset)
         
         if not listings:
             text = """
@@ -2472,7 +2486,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
 """
             if update.message:
                 await update.message.reply_text(text, parse_mode="Markdown", reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True))
-            else:
+            elif update.callback_query:
                 await update.callback_query.edit_message_text(text, parse_mode="Markdown")
             return
         
@@ -2492,7 +2506,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             description = listing.get('description', '')
             
             # Extract data from description
-            phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
+            phone_match = re.search(r'📞 ስልክ:\s*([\d\+]+)', description)
             budget_match = re.search(r'ባጀት:\s*([\d,]+)', description) or re.search(r'ዋጋ:\s*([\d,]+)', description)
             location_match = re.search(r'አካባቢ:\s*([^\n]+)', description)
             
@@ -2510,7 +2524,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             # Clean details
             clean_desc = description
-            clean_desc = re.sub(r'📞 ስልክ:\s*[\d+]+', '', clean_desc)
+            clean_desc = re.sub(r'📞 ስልክ:\s*[\d\+]+', '', clean_desc)
             clean_desc = re.sub(r'ባጀት:\s*[\d,]+', '', clean_desc)
             clean_desc = re.sub(r'ዋጋ:\s*[\d,]+', '', clean_desc)
             clean_desc = re.sub(r'አካባቢ:\s*[^\n]+', '', clean_desc)
@@ -2539,7 +2553,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
             requests_list.append(req)
         
         # Build message and keyboard
-        message = build_requests_message(broker_name, requests_list, page, total_pages)
+        message = build_requests_message(broker_name, requests_list, page, total_pages, total_count=total)
         keyboard = build_request_buttons(requests_list, page, total_pages)
         
         # Send or edit message
@@ -2549,7 +2563,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 reply_markup=keyboard,
                 parse_mode="Markdown"
             )
-        else:
+        elif update.callback_query:
             await update.callback_query.edit_message_text(
                 message,
                 reply_markup=keyboard,
@@ -2559,7 +2573,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
     except Exception as e:
         logger.error(f"Error in show_requests_page: {e}", exc_info=True)
         error_text = """
-❌ **ስህተተ!**
+❌ **ስህተት!**
 
 ━━━━━━━━━━━━━━━━━━━━━━
 ዝርዝሩን ማሳየት አልተቻለም።
@@ -2567,7 +2581,7 @@ async def show_requests_page(update: Update, context: ContextTypes.DEFAULT_TYPE)
 """
         if update.message:
             await update.message.reply_text(error_text, parse_mode="Markdown")
-        else:
+        elif update.callback_query:
             await update.callback_query.edit_message_text(error_text, parse_mode="Markdown")
 # ==============================================================================
 # SECTION: CUSTOMER SUPPORT HANDLER
