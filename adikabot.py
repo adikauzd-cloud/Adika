@@ -1693,13 +1693,12 @@ logger = logging.getLogger(__name__)
 # State Constants
 BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO = range(2)
 
-
 # ==============================================================================
-# BROKER OFFER FLOW (የደላሎች "አለኝ" ምላሽ ሂደት)
+# 11. BROKER OFFER FLOW (የደላሎች "አለኝ" ምላሽ ሂደት)
 # ==============================================================================
 
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle broker clicking 'Have Item' button"""
+    """Handle broker clicking 'Have Item' / 'አለኝ' button"""
     query = update.callback_query
     await query.answer()
     
@@ -1707,7 +1706,10 @@ async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_T
     broker = get_broker(user_id)
     
     if not broker or broker.get('status') != 'approved':
-        await query.message.reply_text("⛔ ይህን ማድረግ የሚችሉት በአድሚን የተረጋገጡ ደላሎች/አቅራቢዎች ብቻ ናቸው!")
+        await query.message.reply_text(
+            "⛔ **ይህን ማድረግ የሚችሉት በአድሚን የተረጋገጡ ደላሎች/አቅራቢዎች ብቻ ናቸው!**",
+            parse_mode="Markdown"
+        )
         return ConversationHandler.END
         
     parts = query.data.split('_')
@@ -1722,7 +1724,7 @@ async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_T
     if not buyer_id:
         listing = get_listing_by_id(int(req_id)) if req_id.isdigit() else None
         if listing:
-            buyer_id = listing.get('user_chat_id')
+            buyer_id = listing.get('user_chat_id') or listing.get('user_id')
 
     if not buyer_id:
         await query.message.reply_text("❌ የፈላጊው መረጃ አልተገኘም።")
@@ -1735,6 +1737,7 @@ async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_T
         f"✅ **ጥያቄ #{req_id}**\n\n"
         f"✍️ **ያለዎትን ንብረት ዝርዝር መረጃ እና ዋጋ ያስገቡ፦**\n"
         f"(ለምሳሌ፦ ቶዮታ ቪትዝ 2021፣ 30,000 KM የሄደ፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...)",
+        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True),
         parse_mode="Markdown"
     )
     return BROKER_OFFER_TEXT
@@ -1750,7 +1753,8 @@ async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['offer_text'] = text
     
     await update.message.reply_text(
-        "📸 **የንብረቱን ፎቶ ይላኩ፦**\n(ፎቶ ከሌልዎት 'ፎቶ የለውም' ብለው ይጻፉ)",
+        "📸 **የንብረቱን ፎቶ ይላኩ፦**\n\n(ፎቶ ከሌልዎት 'ፎቶ የለውም' ብለው ይጻፉ)",
+        reply_markup=ReplyKeyboardMarkup([["ፎቶ የለውም"], ["🏠 ዋና ገጽ"]], resize_keyboard=True),
         parse_mode="Markdown"
     )
     return BROKER_OFFER_PHOTO
@@ -1758,6 +1762,9 @@ async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Receive offer photo (or text skip) and deliver offer to buyer"""
+    if update.message and update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+
     raw_buyer_id = context.user_data.get('target_buyer_id')
     req_id = context.user_data.get('target_req_id')
     offer_text = context.user_data.get('offer_text')
@@ -1779,14 +1786,18 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
     message_to_buyer = (
         f"🎉 **ለጥያቄዎ (#REQ-{req_id}) አዲስ የቀረበ አማራጭ አለ!**\n\n"
         f"👤 **ደላላ/አቅራቢ፦** {broker_name}\n"
-        f"📞 **ስልክ:** {broker_phone}\n"
+        f"📞 **ስልክ፦** {broker_phone}\n"
         f"📝 **የንብረቱ ዝርዝር፦**\n{offer_text}\n\n"
         f"💡 *ከፈለጉ ደውለው መገበያየት ይችላሉ!*"
     )
     
     try:
-        if update.message and update.message.photo:
-            photo_id = update.message.photo[-1].file_id
+        photo_id = update.message.photo[-1].file_id if (update.message and update.message.photo) else None
+        
+        # ኦፈሩን በዳታቤዝ ውስጥ መዝግቦ መያዝ
+        save_broker_offer(req_id, broker_user.id, offer_text, photo_id)
+
+        if photo_id:
             await context.bot.send_photo(
                 chat_id=buyer_id,
                 photo=photo_id,
@@ -1813,7 +1824,6 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
-    # Context መረጃዎችን ማጽዳት
     context.user_data.pop('target_req_id', None)
     context.user_data.pop('target_buyer_id', None)
     context.user_data.pop('offer_text', None)
