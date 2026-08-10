@@ -89,7 +89,65 @@ def submit_listing():
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host="0.0.0.0", port=port)
+# ==============================================================================
+# BUYER WEBAPP FORM & ROUTE
+# ==============================================================================
+BUYER_FORM_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-4">
+    <div class="max-w-md mx-auto bg-white p-6 rounded-xl shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-center">የሚፈልጉትን ንብረት ይግለጹ</h2>
+        <form id="buyerForm" class="space-y-4">
+            <select id="category" class="w-full p-2 border rounded">
+                <option value="መኪና">መኪና</option>
+                <option value="ቤት">ቤት</option>
+            </select>
+            <input type="text" id="budget" placeholder="የተመደበ በጀት (በብር)" class="w-full p-2 border rounded" required>
+            <textarea id="details" placeholder="የሚፈልጉት ንብረት ዝርዝር መግለጫ" class="w-full p-2 border rounded" required></textarea>
+            <input type="tel" id="phone" placeholder="ስልክ ቁጥር" class="w-full p-2 border rounded" required>
+            <button type="submit" class="w-full bg-green-600 text-white p-2 rounded font-bold">ጥያቄውን ይላኩ</button>
+        </form>
+    </div>
 
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+        
+        document.getElementById('buyerForm').onsubmit = (e) => {
+            e.preventDefault();
+            const data = {
+                user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "unknown",
+                category: document.getElementById('category').value,
+                budget: document.getElementById('budget').value,
+                details: document.getElementById('details').value,
+                phone: document.getElementById('phone').value
+            };
+            
+            fetch('/api/submit-request', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            }).then(() => tg.close());
+        };
+    </script>
+</body>
+</html>
+"""
+
+@web_app.route('/buyer-form')
+def buyer_form():
+    return render_template_string(BUYER_FORM_HTML)
+
+@web_app.route('/api/submit-request', methods=['POST'])
+def submit_request():
+    data = request.json
+    print(f"New Buyer Request Received: {data}")
+    return jsonify({"status": "success"})
 # ==============================================================================
 # 1. CONFIGURATION & LOGGING
 # ==============================================================================
