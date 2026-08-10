@@ -1497,13 +1497,24 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 import logging
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ContextTypes, ConversationHandler
+from telegram.ext import (
+    ContextTypes,
+    ConversationHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    CommandHandler,
+    filters,
+)
 
 logger = logging.getLogger(__name__)
 
+# State Constants
+BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO = range(2)
+
 # ==============================================================================
-# 8. BROKER RESPONSE FLOW (የተስተካከለ)
+# 8. BROKER RESPONSE FLOW (የተስተካከለ እና ሙሉ)
 # ==============================================================================
+
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle broker clicking 'Have Item' button"""
     query = update.callback_query
@@ -1591,7 +1602,6 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     
     try:
-        # ፎቶ ከተላከ በፎቶ፤ ካልተላከ በጽሁፍ ብቻ ይላካል
         if update.message.photo:
             photo_id = update.message.photo[-1].file_id
             await context.bot.send_photo(
@@ -1626,6 +1636,66 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.pop('offer_text', None)
     
     return ConversationHandler.END
+
+
+async def nohave_item_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'Not Have' button click - broker doesn't have the item"""
+    query = update.callback_query
+    
+    user_id = query.from_user.id
+    broker = get_broker(user_id)
+    
+    if not broker or broker.get('status') != 'approved':
+        await query.answer("⛔ ይህን ማድረግ የሚችሉት በአድሚን የተረጋገጡ ደላሎች/አቅራቢዎች ብቻ ናቸው!", show_alert=True)
+        return
+
+    parts = query.data.split('_')
+    if len(parts) < 2:
+        await query.answer("❌ የተሳሳተ መረጃ ተላኳል።", show_alert=True)
+        return
+
+    req_id = parts[1]
+    await query.answer(f"ℹ️ ጥያቄ #{req_id} አልፎታል።", show_alert=False)
+
+    formatted_req_id = f"#{int(req_id):04d}" if req_id.isdigit() else f"#{req_id}"
+
+    await query.message.reply_text(
+        f"ℹ️ **ጥያቄ {formatted_req_id} አልፎታል።**\n\n"
+        f"💡 ሌላ አዲስ ጥያቄ ለማየት '📋 የፈላጊዎች ዝርዝር' የሚለውን ይጫኑ።",
+        parse_mode="Markdown"
+    )
+
+# ==============================================================================
+# CONVERSATION HANDLER & REGISTRATIONS
+# ==============================================================================
+
+# 1. ConversationHandler Setup
+broker_offer_conv_handler = ConversationHandler(
+    entry_points=[
+        CallbackQueryHandler(broker_have_item_click, pattern=r"^have_item_")
+    ],
+    states={
+        BROKER_OFFER_TEXT: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_text)
+        ],
+        BROKER_OFFER_PHOTO: [
+            MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), broker_offer_photo)
+        ],
+    },
+    fallbacks=[
+        MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), go_home),
+        CommandHandler("cancel", go_home),
+    ],
+    per_message=False,
+)
+
+# 2. Application/Dispatcher ላይ መመዝገቢያ (በ main logic ውስጥ የሚጨመር)
+def register_broker_response_handlers(application):
+    """Register broker response handlers to application"""
+    application.add_handler(broker_offer_conv_handler)
+    application.add_handler(
+        CallbackQueryHandler(nohave_item_callback, pattern=r"^nohave_item_")
+    )
 
 # ==============================================================================
 # 9. SELLER FLOW (መሸጥ / ማከራየት) - የተስተካከለ
