@@ -1464,10 +1464,26 @@ async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     return ConversationHandler.END
 
+import logging
+from telegram import Update, ReplyKeyboardMarkup, InlineKeyboardMarkup, InlineKeyboardButton, WebAppInfo
+from telegram.ext import (
+    ContextTypes,
+    ConversationHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    CommandHandler,
+    filters,
+)
+
+logger = logging.getLogger(__name__)
+
+# State Constants
+BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO = range(2)
+
+
 # ==============================================================================
 # 7. BUYER FLOW (ፈላጊ) - የተሻሻለ (Web App Integration)
 # ==============================================================================
-from telegram import WebAppInfo
 
 async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -1489,6 +1505,7 @@ async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
     return BUYER_MAIN
+
 
 async def buyer_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1521,6 +1538,7 @@ async def buyer_category_chosen(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return BUYER_ACTION
 
+
 async def buyer_sub_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.data == "flow_home":
@@ -1541,6 +1559,7 @@ async def buyer_sub_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
     return BUYER_ACTION
+
 
 async def buyer_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1567,6 +1586,7 @@ async def buyer_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return BUYER_PROPERTY
 
+
 async def buyer_property_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.data == "flow_home":
@@ -1584,7 +1604,8 @@ async def buyer_property_chosen(update: Update, context: ContextTypes.DEFAULT_TY
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-    return BUYER_SUB
+    return BUYER_HTYPE
+
 
 async def buyer_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1601,6 +1622,7 @@ async def buyer_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     return BUYER_DETAILS
 
+
 async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
@@ -1611,6 +1633,7 @@ async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
     )
     return BUYER_PHONE
+
 
 async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -1658,22 +1681,6 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ ጥያቄውን መመዝገብ አልተቻለም። እባክዎ እንደገና ይሞክሩ።")
 
     return ConversationHandler.END
-import logging
-from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import (
-    ContextTypes,
-    ConversationHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    CommandHandler,
-    filters,
-)
-
-logger = logging.getLogger(__name__)
-
-# State Constants
-BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO = range(2)
-
 # ==============================================================================
 # 12. BROKER OFFER CALLBACKS (የተስተካከለ እና ሙሉ)
 # ==============================================================================
