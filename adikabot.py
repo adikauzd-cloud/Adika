@@ -2551,8 +2551,15 @@ async def delete_request_callback(update: Update, context: ContextTypes.DEFAULT_
         await query.message.reply_text("❌ ጥያቄውን ማጥፋት አልተቻለም።")
 
 # ==============================================================================
-# 12. VIEW REQUESTS - MAIN HANDLER (የተስተካከለ)
+# 12. VIEW REQUESTS - MAIN HANDLER & SEARCH
 # ==============================================================================
+
+import re
+from datetime import datetime
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update
+from telegram.ext import ContextTypes, ConversationHandler
+
+
 async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Main handler for viewing requests - checks permissions and shows all requests"""
     user_id = update.effective_user.id
@@ -2578,7 +2585,8 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "⏳ **ምዝገባዎ ገና በአድሚን አልጸደቀም!**\n\n"
             "⏳ ምዝገባዎ በአድሚን ሲረጋገጥ ማስታወቂያ ይደርስዎታል።\n"
             "📞 ለተጨማሪ መረጃ ድጋፍን ይጠቀሙ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
         )
         return
     
@@ -2589,7 +2597,7 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"Database error: {e}")
         await update.message.reply_text(
-            "❌ የውሂብ ጎታ ስህተተ! እባክዎ እንደገና ይሞክሩ።",
+            "❌ የውሂብ ጎታ ስህተት! እባክዎ እንደገና ይሞክሩ።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return
@@ -2598,7 +2606,8 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "📭 **ምንም ንቁ ጥያቄዎች የሉም**\n\n"
             "💡 ሁሉም ጥያቄዎች ተመልሰዋል ወይም በሂደት ላይ ናቸው።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
         )
         return
     
@@ -2623,13 +2632,14 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for listing in listings:
         req_id = listing.get('id')
         description = listing.get('description', '')
-        main_cat = listing.get('main_category', '').upper()
+        main_cat = str(listing.get('main_category', '')).upper()
         action_type = listing.get('action_type', 'N/A')
         created_at = listing.get('created_at', '')
+        user_chat_id = listing.get('user_chat_id') or listing.get('user_id')
         
-        # Extract data from description
+        # Extract data from description using regex
         phone_match = re.search(r'📞 ስልክ:\s*([\d+]+)', description)
-        budget_match = re.search(r'ባጀት:\s*([\d,]+)', description) or re.search(r'ዋጋ:\s*([\d,]+)', description)
+        budget_match = re.search(r'(?:ባጀት|ዋጋ):\s*([\d,]+)', description)
         location_match = re.search(r'አካባቢ:\s*([^\n]+)', description)
         
         # Get sub type
@@ -2643,18 +2653,18 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     date_str = created_at.strftime('%Y-%m-%d')
                 else:
                     date_str = str(created_at)[:10]
-            except:
+            except Exception:
                 date_str = 'N/A'
         else:
             date_str = 'N/A'
         
         # Determine deal type label
         if "ሽያጭ" in action_type or "መሸጥ" in action_type:
-            price_label = f"💰 <b>ዋጋ፡</b> {budget_match.group(1) if budget_match else 'አልተጠቀሰም'}"
-            deal_type = "ሽያጭ"
+            price_val = budget_match.group(1) if budget_match else 'አልተጠቀሰም'
+            price_label = f"💰 <b>ዋጋ፡</b> {price_val}"
         else:
-            price_label = f"💰 <b>በጀት፡</b> {budget_match.group(1) if budget_match else 'አልተጠቀሰም'}"
-            deal_type = "ኪራይ/ግዥ"
+            price_val = budget_match.group(1) if budget_match else 'አልተጠቀሰም'
+            price_label = f"💰 <b>በጀት፡</b> {price_val}"
         
         # Get category emoji
         if main_cat == "CAR":
@@ -2665,26 +2675,38 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cat_name = "ቤት/ቦታ"
         else:
             cat_emoji = "📌"
-            cat_name = main_cat
+            cat_name = main_cat if main_cat else "ጠቅላላ"
         
         # Build card
+        phone_val = phone_match.group(1) if phone_match else 'N/A'
+        loc_val = location_match.group(1) if location_match else 'አልተጠቀሰም'
+        
         card_text = (
             f"⏳ <b>#{req_id}. {cat_emoji} {cat_name}</b>\n"
             f"📌 <b>አይነት፡</b> {sub_type}\n"
             f"🔄 <b>ድርጊት፡</b> {action_type}\n"
             f"{price_label}\n"
-            f"📍 <b>አካባቢ፡</b> {location_match.group(1) if location_match else 'አልተጠቀሰም'}\n"
-            f"👤 <b>ስልክ፡</b> <code>{phone_match.group(1) if phone_match else 'N/A'}</code>\n"
+            f"📍 <b>አካባቢ፡</b> {loc_val}\n"
+            f"👤 <b>ስልክ፡</b> <code>{phone_val}</code>\n"
             f"📅 <b>ቀን፡</b> {date_str}"
         )
         
-        # Build inline keyboard
-        keyboard = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton(f"✅ አለኝ #{req_id}", callback_data=f"have_item_{req_id}_{listing.get('user_chat_id')}"),
+        # Build inline keyboard buttons
+        keyboard_buttons = [
+            InlineKeyboardButton(f"✅ አለኝ #{req_id}", callback_data=f"have_item_{req_id}_{user_chat_id}")
+        ]
+        
+        # Add delete button if admin
+        if is_admin:
+            keyboard_buttons.append(
                 InlineKeyboardButton(f"❌ Delete #{req_id}", callback_data=f"delete_item_{req_id}")
-            ]
-        ])
+            )
+        else:
+            keyboard_buttons.append(
+                InlineKeyboardButton(f"❌ አልፎኛል #{req_id}", callback_data=f"nohave_item_{req_id}")
+            )
+            
+        keyboard = InlineKeyboardMarkup([keyboard_buttons])
         
         # Send message
         await update.message.reply_text(
@@ -2703,7 +2725,6 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=home_keyboard,
         parse_mode="HTML"
     )
-
 # ==============================================================================
 # 12.1 DELETE REQUEST HANDLER (የተስተካከለ)
 # ==============================================================================
