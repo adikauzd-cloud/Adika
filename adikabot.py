@@ -2151,7 +2151,10 @@ async def broker_role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
     role = role_map.get(query.data, "አቅራቢ")
     context.user_data['broker_role'] = role
     
-    await query.edit_message_text(f"👤 **ምዝገባ፦ {role}**\n\n1️⃣ ሙሉ ስምዎን ያስገቡ፦")
+    await query.edit_message_text(
+        f"👤 **ምዝገባ፦ {role}**\n\n1️⃣ ሙሉ ስምዎን ያስገቡ፦",
+        parse_mode="Markdown"
+    )
     return BROKER_NAME
 
 
@@ -2161,7 +2164,10 @@ async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await go_home(update, context)
         
     context.user_data['broker_name'] = update.message.text
-    await update.message.reply_text("2️⃣ የስልክ ቁጥርዎን ያስገቡ፦")
+    await update.message.reply_text(
+        "2️⃣ **የስልክ ቁጥርዎን ያስገቡ፦**",
+        parse_mode="Markdown"
+    )
     return BROKER_PHONE
 
 
@@ -2178,7 +2184,11 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [[InlineKeyboardButton(sc, callback_data=f"broker_sc_{sc}")] for sc in SUB_CITIES]
     keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
-    await update.message.reply_text("3️⃣ የሚሰሩበትን ክፍለ ከተማ ይምረጡ፦", reply_markup=InlineKeyboardMarkup(keyboard))
+    await update.message.reply_text(
+        "3️⃣ **የሚሰሩበትን ክፍለ ከተማ ይምረጡ፦**",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
     return BROKER_SUBCITY
 
 
@@ -2194,7 +2204,8 @@ async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     await query.edit_message_text(
         "4️⃣ **የፋይዳ (National ID) ወይም የነዋሪነት መታወቂያ ፎቶ ያንሱና ይላኩ፦**\n\n"
-        "💡 *ይህ ለማረጋገጫ ብቻ ነው*"
+        "💡 *ይህ ለማረጋገጫ ብቻ ነው*",
+        parse_mode="Markdown"
     )
     return BROKER_NID_PHOTO
 
@@ -2210,7 +2221,8 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(
             "❌ **እባክዎ የመታወቂያዎን ፎቶ ይላኩ!**\n\n"
             "📸 ፎቶውን ከቴሌግራም ፋይል አባሪ አማራጭ በመጠቀም ይላኩ።\n"
-            "✏️ ጽሁፍ አይቀበልም።"
+            "✏️ ጽሁፍ አይቀበልም።",
+            parse_mode="Markdown"
         )
         return BROKER_NID_PHOTO
         
@@ -2221,7 +2233,8 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             f"👤 ስም: {existing_broker.get('full_name')}\n"
             f"📊 ሁኔታ: {existing_broker.get('status')}\n\n"
             "📌 ለውጥ ለማድረግ እባክዎን አድሚንን ያግኙ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
         )
         return ConversationHandler.END
         
@@ -2249,7 +2262,8 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             "✅ **ምዝገባዎ በስኬት ተጠናቋል!** 🎉\n\n"
             "⏳ አድሚኑ መረጃዎን ካረጋገጠ በኋላ ማስታወቂያ ይደርስዎታል።\n\n"
             "📋 ምዝገባዎ ከጸደቀ በኋላ '📋 የፈላጊዎች ዝርዝር' ማየት ይችላሉ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
         )
         
         if ADMIN_CHAT_ID_INT != 0:
@@ -2290,10 +2304,12 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             "• የበይነመረብ ግንኙነትዎን\n"
             "• አስቀድመው ካልተመዘገቡ\n\n"
             "🔄 እንደገና ለመሞከር '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
         )
         
     return ConversationHandler.END
+
 
 # ==============================================================================
 # CONVERSATION HANDLERS & REGISTRATIONS SETUP
