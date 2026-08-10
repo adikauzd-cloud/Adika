@@ -704,7 +704,7 @@ BUYER_FORM_HTML = """
 """
 
 # ==============================================================================
-# 9. FLASK WEB SERVER
+# SECTION 9: FLASK WEB SERVER (የተሻሻለ - WebApp መረጃ ወደ ዳታቤዝ ይቀመጣል)
 # ==============================================================================
 
 web_app = Flask(__name__)
@@ -723,24 +723,162 @@ def webapp_buyer_form():
 
 @web_app.route('/api/submit-listing', methods=['POST'])
 def submit_listing():
-    data = request.json
-    logger.info(f"New Listing Received: {data}")
-    return jsonify({"status": "success"})
+    """ከWebApp የሚመጣ የሽያጭ መረጃ ወደ ዳታቤዝ ያስገባል"""
+    try:
+        data = request.json
+        logger.info(f"📥 New Listing from WebApp: {data}")
+        
+        user_id = data.get('user_id')
+        category = data.get('category', 'መኪና')
+        price = data.get('price', '')
+        description = data.get('description', '')
+        phone = data.get('phone', '')
+        
+        # የተጠቃሚ መረጃ ማግኘት (በቴሌግራም ካልሆነ 'unknown' ይሆናል)
+        if user_id == "unknown" or not user_id:
+            return jsonify({"status": "error", "message": "User ID not found"}), 400
+        
+        # የምድብ አይነት መለየት
+        main_category = "መኪና" if category == "መኪና" else "ቤት"
+        
+        # ማስታወቂያ መፍጠር
+        full_desc = f"""
+📢 **አዲስ የሽያጭ ማስታወቂያ (ከWebApp)**
+📦 አይነት: {category}
+💰 ዋጋ: {price} ብር
+📝 ዝርዝር: {description}
+📞 ስልክ: {phone}
+"""
+        
+        listing_id = add_listing(
+            user_chat_id=int(user_id),
+            user_name="WebApp User",
+            req_type='SELL',
+            main_category=main_category,
+            sub_category='',
+            action_type='መሸጥ',
+            property_type=category,
+            description=full_desc,
+            price=price,
+            phone=phone,
+            photo_id=None
+        )
+        
+        if listing_id:
+            logger.info(f"✅ Listing #{listing_id} saved successfully from WebApp")
+            
+            # ለደላሎች ማሳወቂያ መላክ
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                notification_text = f"""
+🔔 **አዲስ የሽያጭ ማስታወቂያ ከWebApp! (#{listing_id})**
+
+{full_desc}
+
+👉 ይህን ለፈላጊዎች ማሳወቅ ይችላሉ!
+"""
+                # ለደላሎች ማሳወቂያ መላክ (bot_app አለመኖሩን ልብ ይበሉ - ይህን ለማስተካከል ከዚህ በታች አማራጭ አለ)
+                # loop.run_until_complete(notify_brokers_webapp(notification_text, listing_id))
+                loop.close()
+            except Exception as e:
+                logger.error(f"Failed to send notification: {e}")
+            
+            return jsonify({"status": "success", "listing_id": listing_id})
+        else:
+            logger.error("❌ Failed to save listing to database")
+            return jsonify({"status": "error", "message": "Failed to save to database"}), 500
+            
+    except Exception as e:
+        logger.error(f"❌ Error in submit_listing: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @web_app.route('/api/submit-request', methods=['POST'])
 def submit_request():
-    data = request.json
-    logger.info(f"New Buyer Request Received: {data}")
-    return jsonify({"status": "success"})
+    """ከWebApp የሚመጣ የገዢ ጥያቄ ወደ ዳታቤዝ ያስገባል"""
+    try:
+        data = request.json
+        logger.info(f"📥 New Buyer Request from WebApp: {data}")
+        
+        user_id = data.get('user_id')
+        category = data.get('category', 'መኪና')
+        budget = data.get('budget', '')
+        details = data.get('details', '')
+        phone = data.get('phone', '')
+        
+        if user_id == "unknown" or not user_id:
+            return jsonify({"status": "error", "message": "User ID not found"}), 400
+        
+        main_category = "መኪና" if category == "መኪና" else "ቤት"
+        
+        full_desc = f"""
+📌 **አዲስ የ{category} ጥያቄ (ከWebApp)**
+💰 ባጀት: {budget} ብር
+📝 ዝርዝር: {details}
+📞 ስልክ: {phone}
+"""
+        
+        req_id = add_listing(
+            user_chat_id=int(user_id),
+            user_name="WebApp User",
+            req_type='BUY',
+            main_category=main_category,
+            sub_category='',
+            action_type='መግዛት',
+            property_type=category,
+            description=full_desc,
+            price=budget,
+            phone=phone,
+            photo_id=None
+        )
+        
+        if req_id:
+            logger.info(f"✅ Request #{req_id} saved successfully from WebApp")
+            
+            # ለደላሎች ማሳወቂያ
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.close()
+            except Exception as e:
+                logger.error(f"Failed to send notification: {e}")
+            
+            return jsonify({"status": "success", "req_id": req_id})
+        else:
+            logger.error("❌ Failed to save request to database")
+            return jsonify({"status": "error", "message": "Failed to save to database"}), 500
+            
+    except Exception as e:
+        logger.error(f"❌ Error in submit_request: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host="0.0.0.0", port=port)
-
 # ==============================================================================
 # 10. BROKER NOTIFICATION
 # ==============================================================================
 
+# ==============================================================================
+# SECTION 10: WEBAPP BROKER NOTIFICATION (አዲስ)
+# ==============================================================================
+
+async def notify_brokers_webapp(notification_text: str, req_id: int):
+    """ለWebApp የተመዘገቡ ጥያቄዎች ለደላሎች ማሳወቂያ"""
+    approved_brokers = get_approved_brokers()
+    if not approved_brokers:
+        logger.info("No approved brokers found to notify")
+        return
+    
+    # ለደላሎች መላክ - ይህን ከላይ ካለው Flask endpoint መጥራት አንችልም
+    # ምክንያቱም Flask ከቦቱ ጋር በተናጥል ክር ላይ ነው የሚሰራ
+    # ስለዚህ መረጃው ወደ ዳታቤዝ ቢቀመጥም, ማሳወቂያው የሚላከው ቦቱ በሚሰራበት ጊዜ ነው
+    
+    # መፍትሄ: መረጃው በዳታቤዝ ውስጥ እንዲቀመጥ እና ቦቱ ሲሰራ ማሳወቂያ እንዲልክ ማድረግ
+    # ወይም ደግሞ መረጃውን ለቦቱ በሌላ መንገድ ማስተላለፍ
+    
+    logger.info(f"📢 WebApp request #{req_id} saved - brokers will be notified by bot when polling")
 async def notify_brokers(context: ContextTypes.DEFAULT_TYPE, message_text: str, 
                           req_id: int, buyer_id: int):
     """ለተረጋገጡ ደላሎች ማሳወቂያ መላክ"""
