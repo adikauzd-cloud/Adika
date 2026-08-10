@@ -18,7 +18,92 @@ from telegram.ext import (
     ConversationHandler,
     filters,
 )
+# ==============================================================================
+# 0. FLASK WEB SERVER & HTML TEMPLATE
+# ==============================================================================
 
+SELLER_FORM_HTML = """
+<!DOCTYPE html>
+<html lang="am">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-4">
+    <div class="max-w-md mx-auto bg-white p-6 rounded-xl shadow-md">
+        <h2 class="text-xl font-bold mb-4 text-center text-gray-800">ንብረት ለገበያ ያቅርቡ</h2>
+        <form id="listingForm" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">ምድብ</label>
+                <select id="category" class="w-full p-2 border rounded-lg bg-gray-50">
+                    <option value="መኪና">መኪና</option>
+                    <option value="ቤት">ቤት / ቦታ</option>
+                    <option value="የሥራ ቦታ">የሥራ ቦታ / ንግድ</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">ዋጋ (በብር)</label>
+                <input type="text" id="price" placeholder="ምሳሌ፦ 2,500,000" class="w-full p-2 border rounded-lg bg-gray-50" required>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">ዝርዝር መግለጫ</label>
+                <textarea id="description" rows="3" placeholder="ስለ ንብረቱ ተጨማሪ መረጃ ያስገቡ..." class="w-full p-2 border rounded-lg bg-gray-50" required></textarea>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">ስልክ ቁጥር</label>
+                <input type="tel" id="phone" placeholder="0911......" class="w-full p-2 border rounded-lg bg-gray-50" required>
+            </div>
+            <button type="submit" id="submitBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg font-bold transition">መረጃውን ይላኩ</button>
+        </form>
+    </div>
+
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
+        
+        document.getElementById('listingForm').onsubmit = (e) => {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.innerText = "እየተላከ ነው...";
+
+            const data = {
+                user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null,
+                category: document.getElementById('category').value,
+                price: document.getElementById('price').value,
+                description: document.getElementById('description').value,
+                phone: document.getElementById('phone').value
+            };
+            
+            fetch('https://adika-vrkk.onrender.com/api/submit-listing', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            })
+            .then(res => res.json())
+            .then(resData => {
+                if(resData.status === "success") {
+                    alert("✅ መረጃው በስኬት ተልኳል!");
+                    tg.close();
+                } else {
+                    alert("❌ ስህተት፦ " + (resData.message || "መረጃውን መላክ አልተቻለም"));
+                    submitBtn.disabled = false;
+                    submitBtn.innerText = "መረጃውን ይላኩ";
+                }
+            })
+            .catch(err => {
+                alert("❌ ከአገልጋዩ ጋር ማገናኘት አልተቻለም። እባክዎ ኢንተርኔትዎን ያረጋግጡ።");
+                submitBtn.disabled = false;
+                submitBtn.innerText = "መረጃውን ይላኩ";
+            });
+        };
+    </script>
+</body>
+</html>
+"""
 # ==============================================================================
 # 0. FLASK WEB SERVER & WEBAPP ROUTES
 # ==============================================================================
