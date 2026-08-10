@@ -1,8 +1,12 @@
+# ==============================================================================
+# ADIKA MARKETPLACE TELEGRAM BOT - REFACTORED VERSION (FIXED)
+# ==============================================================================
 
 import logging
 import os
 import re
 import asyncio
+import threading  # ✅ ተጨምሯል
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -65,7 +69,7 @@ HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየ�
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
 
 # ==============================================================================
-# 3. CONVERSATION STATES (ሁሉም በአንድ ቦታ)
+# 3. CONVERSATION STATES
 # ==============================================================================
 
 (
@@ -78,7 +82,7 @@ PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ
 ) = range(23)
 
 # ==============================================================================
-# 4. DATABASE CONNECTION (የተዋሃደ - አንድ ጊዜ ብቻ)
+# 4. DATABASE CONNECTION
 # ==============================================================================
 
 def get_db_connection():
@@ -106,11 +110,11 @@ def get_placeholder():
     return "%s" if DATABASE_URL else "?"
 
 # ==============================================================================
-# 5. DATABASE INITIALIZATION (የተዋሃደ)
+# 5. DATABASE INITIALIZATION
 # ==============================================================================
 
 def init_db():
-    """የዳታቤዝ ሰንጠረዦችን መፍጠር - አንድ ጊዜ ብቻ"""
+    """የዳታቤዝ ሰንጠረዦችን መፍጠር"""
     conn = None
     try:
         conn = get_db_connection()
@@ -191,7 +195,7 @@ def init_db():
 
 def add_broker(chat_id: int, full_name: str, phone: str, role_type: str, 
                national_id_photo: str, sub_city: str) -> Optional[int]:
-    """ደላላ መመዝገብ - የተዋሃደ"""
+    """ደላላ መመዝገብ"""
     conn = None
     try:
         conn = get_db_connection()
@@ -549,7 +553,7 @@ def add_broker_rating(broker_chat_id: int, user_chat_id: int, stars: int) -> boo
             conn.close()
 
 # ==============================================================================
-# 7. VALIDATION FUNCTIONS (የተዋሃዱ)
+# 7. VALIDATION FUNCTIONS
 # ==============================================================================
 
 def validate_phone(phone: str) -> bool:
@@ -605,7 +609,7 @@ def format_broker_profile(broker: Dict) -> str:
 """
 
 # ==============================================================================
-# 8. WEBAPP TEMPLATES (የተለዩ)
+# 8. WEBAPP TEMPLATES
 # ==============================================================================
 
 SELLER_FORM_HTML = """
@@ -805,7 +809,7 @@ async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 12. BUYER HANDLERS (የተስተካከሉ)
+# 12. BUYER HANDLERS
 # ==============================================================================
 
 async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1000,7 +1004,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 13. SELLER HANDLERS (የተስተካከሉ)
+# 13. SELLER HANDLERS
 # ==============================================================================
 
 async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
