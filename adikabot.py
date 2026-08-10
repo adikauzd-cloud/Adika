@@ -1,12 +1,12 @@
 # ==============================================================================
-# SECTION 1: IMPORTS & CONFIGURATION
+# ADIKA MARKETPLACE TELEGRAM BOT - REFACTORED VERSION (FIXED)
 # ==============================================================================
 
 import logging
 import os
 import re
 import asyncio
-import threading  # ✅ ተጨምሯል - ለFlask በተናጥል ክር ለማስኬድ
+import threading  # ✅ ተጨምሯል
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -28,7 +28,7 @@ from telegram.ext import (
 )
 
 # ==============================================================================
-# CONFIGURATION
+# 1. CONFIGURATION
 # ==============================================================================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -46,6 +46,7 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
 # ==============================================================================
 # 2. CONSTANTS & KEYBOARDS
 # ==============================================================================
@@ -189,15 +190,14 @@ def init_db():
             conn.close()
 
 # ==============================================================================
-# SECTION 6: DATABASE OPERATIONS (የተሻሻለ - የተስተካከለ ስህተት አያያዝ)
+# 6. DATABASE OPERATIONS (የተዋሃዱ - ድግግሞሽ የለም)
 # ==============================================================================
 
 def add_broker(chat_id: int, full_name: str, phone: str, role_type: str, 
                national_id_photo: str, sub_city: str) -> Optional[int]:
-    """ደላላ መመዝገብ - የተሻሻለ"""
+    """ደላላ መመዝገብ"""
     conn = None
     try:
-        logger.info(f"📝 Adding broker: chat_id={chat_id}, name={full_name}")
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
@@ -207,50 +207,40 @@ def add_broker(chat_id: int, full_name: str, phone: str, role_type: str,
         existing = cursor.fetchone()
         
         if existing:
-            if DATABASE_URL:
-                query = f"""
-                    UPDATE brokers 
-                    SET full_name = {p}, phone = {p}, role_type = {p}, 
-                        national_id_photo = {p}, sub_city = {p}, status = 'pending'
-                    WHERE chat_id = {p}
-                    RETURNING id
-                """
-                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
-                broker_id = cursor.fetchone()[0]
-            else:
-                query = """
-                    UPDATE brokers 
-                    SET full_name = ?, phone = ?, role_type = ?, 
-                        national_id_photo = ?, sub_city = ?, status = 'pending'
-                    WHERE chat_id = ?
-                """
-                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
-                broker_id = existing[0]
-                conn.commit()
+            query = f"""
+                UPDATE brokers 
+                SET full_name = {p}, phone = {p}, role_type = {p}, 
+                    national_id_photo = {p}, sub_city = {p}, status = 'pending'
+                WHERE chat_id = {p}
+                RETURNING id
+            """ if DATABASE_URL else """
+                UPDATE brokers 
+                SET full_name = ?, phone = ?, role_type = ?, 
+                    national_id_photo = ?, sub_city = ?, status = 'pending'
+                WHERE chat_id = ?
+            """
+            params = (full_name, phone, role_type, national_id_photo, sub_city, chat_id)
+            cursor.execute(query, params)
+            broker_id = existing[0] if not DATABASE_URL else cursor.fetchone()[0]
         else:
-            if DATABASE_URL:
-                query = f"""
-                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
-                    VALUES ({p}, {p}, {p}, {p}, {p}, {p}, 'pending')
-                    RETURNING id
-                """
-                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
-                broker_id = cursor.fetchone()[0]
-            else:
-                query = """
-                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
-                    VALUES (?, ?, ?, ?, ?, ?, 'pending')
-                """
-                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
-                broker_id = cursor.lastrowid
-                conn.commit()
+            query = f"""
+                INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, 'pending')
+                RETURNING id
+            """ if DATABASE_URL else """
+                INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                VALUES (?, ?, ?, ?, ?, ?, 'pending')
+            """
+            params = (chat_id, full_name, phone, role_type, national_id_photo, sub_city)
+            cursor.execute(query, params)
+            broker_id = cursor.lastrowid if not DATABASE_URL else cursor.fetchone()[0]
         
-        logger.info(f"✅ Broker added/updated with ID: {broker_id}")
+        if not DATABASE_URL:
+            conn.commit()
+            
         return broker_id
     except Exception as e:
-        logger.error(f"❌ Add broker error: {e}", exc_info=True)
-        if conn:
-            conn.rollback()
+        logger.error(f"Add broker error: {e}")
         return None
     finally:
         if conn:
@@ -267,7 +257,7 @@ def get_broker(chat_id: int) -> Optional[Dict]:
         row = cursor.fetchone()
         return dict(row) if row else None
     except Exception as e:
-        logger.error(f"❌ Get broker error: {e}", exc_info=True)
+        logger.error(f"Get broker error: {e}")
         return None
     finally:
         if conn:
@@ -283,10 +273,9 @@ def update_broker_status(chat_id: int, status: str) -> bool:
         cursor.execute(f"UPDATE brokers SET status = {p} WHERE chat_id = {p}", (status, chat_id))
         if not DATABASE_URL:
             conn.commit()
-        logger.info(f"✅ Broker {chat_id} status updated to: {status}")
         return True
     except Exception as e:
-        logger.error(f"❌ Update broker status error: {e}", exc_info=True)
+        logger.error(f"Update broker status error: {e}")
         return False
     finally:
         if conn:
@@ -300,11 +289,9 @@ def get_approved_brokers() -> List[int]:
         cursor = conn.cursor()
         cursor.execute("SELECT chat_id FROM brokers WHERE status = 'approved'")
         rows = cursor.fetchall()
-        result = [dict(row)['chat_id'] for row in rows]
-        logger.info(f"✅ Found {len(result)} approved brokers")
-        return result
+        return [dict(row)['chat_id'] for row in rows]
     except Exception as e:
-        logger.error(f"❌ Get approved brokers error: {e}", exc_info=True)
+        logger.error(f"Get approved brokers error: {e}")
         return []
     finally:
         if conn:
@@ -314,67 +301,40 @@ def add_listing(user_chat_id: int, user_name: str, req_type: str,
                 main_category: str, sub_category: str, action_type: str,
                 property_type: str, description: str, price: str = None,
                 phone: str = None, photo_id: str = None) -> Optional[int]:
-    """አዲስ ጥያቄ/ማስታወቂያ መመዝገብ - የተሻሻለ"""
+    """አዲስ ጥያቄ/ማስታወቂያ መመዝገብ"""
     conn = None
     try:
-        logger.info(f"📝 Adding listing: user={user_chat_id}, type={req_type}, category={main_category}")
-        
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
         
-        # ሰንጠረዥ መኖሩን አረጋግጥ (SQLite ላይ)
-        if not DATABASE_URL:
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='listings'")
-            if not cursor.fetchone():
-                logger.warning("⚠️ Table 'listings' not found! Creating...")
-                init_db()
-                # እንደገና ሞክር
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='listings'")
-                if not cursor.fetchone():
-                    logger.error("❌ Failed to create listings table!")
-                    return None
-        
-        # ✅ የተስተካከለ INSERT query
-        if DATABASE_URL:
-            query = f"""
-                INSERT INTO listings 
-                (user_chat_id, user_name, req_type, main_category, sub_category, 
-                 action_type, property_type, description, price, phone, photo_id)
-                VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
-                RETURNING id
-            """
-        else:
-            query = """
-                INSERT INTO listings 
-                (user_chat_id, user_name, req_type, main_category, sub_category, 
-                 action_type, property_type, description, price, phone, photo_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """
+        query = f"""
+            INSERT INTO listings 
+            (user_chat_id, user_name, req_type, main_category, sub_category, 
+             action_type, property_type, description, price, phone, photo_id)
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+            RETURNING id
+        """ if DATABASE_URL else """
+            INSERT INTO listings 
+            (user_chat_id, user_name, req_type, main_category, sub_category, 
+             action_type, property_type, description, price, phone, photo_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
         
         params = (user_chat_id, user_name, req_type, main_category, sub_category,
                   action_type, property_type, description, price, phone, photo_id)
         
-        logger.info(f"🔍 Executing INSERT with params: user={user_chat_id}, type={req_type}")
         cursor.execute(query, params)
         
         if DATABASE_URL:
             listing_id = cursor.fetchone()[0]
-            conn.commit()
         else:
             listing_id = cursor.lastrowid
             conn.commit()
-        
-        logger.info(f"✅ Listing #{listing_id} created successfully!")
+            
         return listing_id
-        
     except Exception as e:
-        logger.error(f"❌ Add listing error: {e}", exc_info=True)
-        if conn:
-            try:
-                conn.rollback()
-            except:
-                pass
+        logger.error(f"Add listing error: {e}")
         return None
     finally:
         if conn:
@@ -404,11 +364,9 @@ def get_listings_by_category(limit: int = 10, offset: int = 0, req_type: str = N
             cursor.execute(query, (limit, offset))
             
         rows = cursor.fetchall()
-        result = [dict(row) for row in rows]
-        logger.info(f"✅ Retrieved {len(result)} listings")
-        return result
+        return [dict(row) for row in rows]
     except Exception as e:
-        logger.error(f"❌ Get listings error: {e}", exc_info=True)
+        logger.error(f"Get listings error: {e}")
         return []
     finally:
         if conn:
@@ -420,19 +378,13 @@ def count_listings(req_type: str = None) -> int:
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        p = get_placeholder()
-        
         if req_type:
-            query = f"SELECT COUNT(*) FROM listings WHERE status = 'pending' AND req_type = {p}"
-            cursor.execute(query, (req_type,))
+            cursor.execute("SELECT COUNT(*) FROM listings WHERE status = 'pending' AND req_type = %s", (req_type,))
         else:
             cursor.execute("SELECT COUNT(*) FROM listings WHERE status = 'pending'")
-        
-        count = cursor.fetchone()[0]
-        logger.info(f"✅ Total listings: {count}")
-        return count
+        return cursor.fetchone()[0]
     except Exception as e:
-        logger.error(f"❌ Count listings error: {e}", exc_info=True)
+        logger.error(f"Count listings error: {e}")
         return 0
     finally:
         if conn:
@@ -449,7 +401,7 @@ def get_listing_by_id(listing_id: int) -> Optional[Dict]:
         row = cursor.fetchone()
         return dict(row) if row else None
     except Exception as e:
-        logger.error(f"❌ Get listing by id error: {e}", exc_info=True)
+        logger.error(f"Get listing by id error: {e}")
         return None
     finally:
         if conn:
@@ -465,10 +417,9 @@ def update_listing_status(listing_id: int, status: str) -> bool:
         cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, listing_id))
         if not DATABASE_URL:
             conn.commit()
-        logger.info(f"✅ Listing {listing_id} status updated to: {status}")
         return True
     except Exception as e:
-        logger.error(f"❌ Update listing error: {e}", exc_info=True)
+        logger.error(f"Update listing error: {e}")
         return False
     finally:
         if conn:
@@ -498,11 +449,9 @@ def get_public_marketplace_items(main_category: str = None, limit: int = 10, off
             cursor.execute(query, (limit, offset))
             
         rows = cursor.fetchall()
-        result = [dict(row) for row in rows]
-        logger.info(f"✅ Retrieved {len(result)} marketplace items")
-        return result
+        return [dict(row) for row in rows]
     except Exception as e:
-        logger.error(f"❌ Get public marketplace items error: {e}", exc_info=True)
+        logger.error(f"Get public marketplace items error: {e}")
         return []
     finally:
         if conn:
@@ -532,11 +481,9 @@ def get_approved_brokers_directory(sub_city: str = None) -> List[Dict]:
             cursor.execute(query)
             
         rows = cursor.fetchall()
-        result = [dict(row) for row in rows]
-        logger.info(f"✅ Found {len(result)} approved brokers in directory")
-        return result
+        return [dict(row) for row in rows]
     except Exception as e:
-        logger.error(f"❌ Get approved brokers directory error: {e}", exc_info=True)
+        logger.error(f"Get approved brokers directory error: {e}")
         return []
     finally:
         if conn:
@@ -561,10 +508,9 @@ def save_broker_offer(request_id: int, broker_id: int, description: str, photo_i
         cursor.execute(query, (request_id, broker_id, description, photo_id))
         if not DATABASE_URL:
             conn.commit()
-        logger.info(f"✅ Broker offer saved: request={request_id}, broker={broker_id}")
         return True
     except Exception as e:
-        logger.error(f"❌ Save broker offer error: {e}", exc_info=True)
+        logger.error(f"Save broker offer error: {e}")
         return False
     finally:
         if conn:
@@ -598,10 +544,9 @@ def add_broker_rating(broker_chat_id: int, user_chat_id: int, stars: int) -> boo
         
         if not DATABASE_URL:
             conn.commit()
-        logger.info(f"✅ Broker rating added: {broker_chat_id} -> {stars} stars")
         return True
     except Exception as e:
-        logger.error(f"❌ Add broker rating error: {e}", exc_info=True)
+        logger.error(f"Add broker rating error: {e}")
         return False
     finally:
         if conn:
@@ -758,9 +703,8 @@ BUYER_FORM_HTML = """
 </body>
 </html>
 """
-
 # ==============================================================================
-# SECTION 9: FLASK WEB SERVER (የተሻሻለ - ዝርዝር የስህተት መልእክት)
+# 9. FLASK WEB SERVER
 # ==============================================================================
 
 web_app = Flask(__name__)
@@ -779,138 +723,91 @@ def webapp_buyer_form():
 
 @web_app.route('/api/submit-listing', methods=['POST'])
 def submit_listing():
-    """ከWebApp የሚመጣ የሽያጭ መረጃ ወደ ዳታቤዝ ያስገባል"""
-    try:
-        data = request.json
-        logger.info(f"📥 New Listing from WebApp: {data}")
-        
-        user_id = data.get('user_id')
-        category = data.get('category', 'መኪና')
-        price = data.get('price', '')
-        description = data.get('description', '')
-        phone = data.get('phone', '')
-        
-        # የተጠቃሚ መረጃ ማግኘት
-        if user_id == "unknown" or not user_id:
-            return jsonify({"status": "error", "message": "User ID not found"}), 400
-        
-        # የምድብ አይነት መለየት
-        main_category = "መኪና" if category == "መኪና" else "ቤት"
-        
-        # ማስታወቂያ መፍጠር
-        full_desc = f"""
-📢 **አዲስ የሽያጭ ማስታወቂያ (ከWebApp)**
-📦 አይነት: {category}
-💰 ዋጋ: {price} ብር
+    data = request.json
+    logger.info(f"New Listing Received: {data}")
+    
+    if not data:
+        return jsonify({"status": "error", "message": "No data provided"}), 400
+
+    user_id = data.get('user_id', 0)
+    category = data.get('category', '')
+    price = data.get('price', '')
+    description = data.get('description', '')
+    phone = data.get('phone', '')
+
+    full_desc = f"""
+📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ (ከWeb Form)!**
 📝 ዝርዝር: {description}
+💰 ዋጋ: {price} ብር
 📞 ስልክ: {phone}
 """
-        
-        logger.info(f"💾 Saving to database: user={user_id}, category={main_category}")
-        
-        listing_id = add_listing(
-            user_chat_id=int(user_id),
-            user_name="WebApp User",
-            req_type='SELL',
-            main_category=main_category,
-            sub_category='',
-            action_type='መሸጥ',
-            property_type=category,
-            description=full_desc,
-            price=price,
-            phone=phone,
-            photo_id=None
-        )
-        
-        if listing_id:
-            logger.info(f"✅ Listing #{listing_id} saved successfully from WebApp")
-            return jsonify({"status": "success", "listing_id": listing_id})
-        else:
-            logger.error("❌ Failed to save listing - add_listing returned None")
-            return jsonify({"status": "error", "message": "Database insert failed - check logs"}), 500
-            
-    except Exception as e:
-        logger.error(f"❌ Error in submit_listing: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
+    # ዳታቤዝ ውስጥ ማስገባት
+    req_id = add_listing(
+        user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
+        user_name="Web App User",
+        req_type='SELL',
+        main_category=category,
+        sub_category="",
+        action_type="መሸጥ",
+        property_type="",
+        description=full_desc,
+        price=price,
+        phone=phone
+    )
+
+    if req_id:
+        return jsonify({"status": "success", "id": req_id})
+    return jsonify({"status": "error"}), 500
+
 
 @web_app.route('/api/submit-request', methods=['POST'])
 def submit_request():
-    """ከWebApp የሚመጣ የገዢ ጥያቄ ወደ ዳታቤዝ ያስገባል"""
-    try:
-        data = request.json
-        logger.info(f"📥 New Buyer Request from WebApp: {data}")
-        
-        user_id = data.get('user_id')
-        category = data.get('category', 'መኪና')
-        budget = data.get('budget', '')
-        details = data.get('details', '')
-        phone = data.get('phone', '')
-        
-        if user_id == "unknown" or not user_id:
-            return jsonify({"status": "error", "message": "User ID not found"}), 400
-        
-        main_category = "መኪና" if category == "መኪና" else "ቤት"
-        
-        full_desc = f"""
-📌 **አዲስ የ{category} ጥያቄ (ከWebApp)**
+    data = request.json
+    logger.info(f"New Buyer Request Received: {data}")
+    
+    if not data:
+        return jsonify({"status": "error", "message": "No data provided"}), 400
+
+    user_id = data.get('user_id', 0)
+    category = data.get('category', '')
+    budget = data.get('budget', '')
+    details = data.get('details', '')
+    phone = data.get('phone', '')
+
+    full_desc = f"""
+📌 **አዲስ ጥያቄ (ከWeb Form)**
+🔹 አይነት: {category}
 💰 ባጀት: {budget} ብር
 📝 ዝርዝር: {details}
 📞 ስልክ: {phone}
 """
-        
-        logger.info(f"💾 Saving request: user={user_id}, category={main_category}")
-        
-        req_id = add_listing(
-            user_chat_id=int(user_id),
-            user_name="WebApp User",
-            req_type='BUY',
-            main_category=main_category,
-            sub_category='',
-            action_type='መግዛት',
-            property_type=category,
-            description=full_desc,
-            price=budget,
-            phone=phone,
-            photo_id=None
-        )
-        
-        if req_id:
-            logger.info(f"✅ Request #{req_id} saved successfully from WebApp")
-            return jsonify({"status": "success", "req_id": req_id})
-        else:
-            logger.error("❌ Failed to save request - add_listing returned None")
-            return jsonify({"status": "error", "message": "Database insert failed - check logs"}), 500
-            
-    except Exception as e:
-        logger.error(f"❌ Error in submit_request: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
+    # ዳታቤዝ ውስጥ ማስገባት
+    req_id = add_listing(
+        user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
+        user_name="Web App User",
+        req_type='BUY',
+        main_category=category,
+        sub_category="",
+        action_type="መግዛት",
+        property_type="",
+        description=full_desc,
+        price=budget,
+        phone=phone
+    )
+
+    if req_id:
+        return jsonify({"status": "success", "id": req_id})
+    return jsonify({"status": "error"}), 500
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
-    web_app.run(host="0.0.0.0", port=port, debug=True)
+    web_app.run(host="0.0.0.0", port=port)
+
+
 # ==============================================================================
 # 10. BROKER NOTIFICATION
 # ==============================================================================
 
-# ==============================================================================
-# SECTION 10: WEBAPP BROKER NOTIFICATION (አዲስ)
-# ==============================================================================
-
-async def notify_brokers_webapp(notification_text: str, req_id: int):
-    """ለWebApp የተመዘገቡ ጥያቄዎች ለደላሎች ማሳወቂያ"""
-    approved_brokers = get_approved_brokers()
-    if not approved_brokers:
-        logger.info("No approved brokers found to notify")
-        return
-    
-    # ለደላሎች መላክ - ይህን ከላይ ካለው Flask endpoint መጥራት አንችልም
-    # ምክንያቱም Flask ከቦቱ ጋር በተናጥል ክር ላይ ነው የሚሰራ
-    # ስለዚህ መረጃው ወደ ዳታቤዝ ቢቀመጥም, ማሳወቂያው የሚላከው ቦቱ በሚሰራበት ጊዜ ነው
-    
-    # መፍትሄ: መረጃው በዳታቤዝ ውስጥ እንዲቀመጥ እና ቦቱ ሲሰራ ማሳወቂያ እንዲልክ ማድረግ
-    # ወይም ደግሞ መረጃውን ለቦቱ በሌላ መንገድ ማስተላለፍ
-    
-    logger.info(f"📢 WebApp request #{req_id} saved - brokers will be notified by bot when polling")
 async def notify_brokers(context: ContextTypes.DEFAULT_TYPE, message_text: str, 
                           req_id: int, buyer_id: int):
     """ለተረጋገጡ ደላሎች ማሳወቂያ መላክ"""
