@@ -704,7 +704,7 @@ BUYER_FORM_HTML = """
 """
 
 # ==============================================================================
-# SECTION 9: FLASK WEB SERVER (የተሻሻለ - WebApp መረጃ ወደ ዳታቤዝ ይቀመጣል)
+# SECTION 9: FLASK WEB SERVER (የተሻሻለ - ዝርዝር የስህተት መልእክት)
 # ==============================================================================
 
 web_app = Flask(__name__)
@@ -734,7 +734,7 @@ def submit_listing():
         description = data.get('description', '')
         phone = data.get('phone', '')
         
-        # የተጠቃሚ መረጃ ማግኘት (በቴሌግራም ካልሆነ 'unknown' ይሆናል)
+        # የተጠቃሚ መረጃ ማግኘት
         if user_id == "unknown" or not user_id:
             return jsonify({"status": "error", "message": "User ID not found"}), 400
         
@@ -749,6 +749,8 @@ def submit_listing():
 📝 ዝርዝር: {description}
 📞 ስልክ: {phone}
 """
+        
+        logger.info(f"💾 Saving to database: user={user_id}, category={main_category}")
         
         listing_id = add_listing(
             user_chat_id=int(user_id),
@@ -766,32 +768,13 @@ def submit_listing():
         
         if listing_id:
             logger.info(f"✅ Listing #{listing_id} saved successfully from WebApp")
-            
-            # ለደላሎች ማሳወቂያ መላክ
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                notification_text = f"""
-🔔 **አዲስ የሽያጭ ማስታወቂያ ከWebApp! (#{listing_id})**
-
-{full_desc}
-
-👉 ይህን ለፈላጊዎች ማሳወቅ ይችላሉ!
-"""
-                # ለደላሎች ማሳወቂያ መላክ (bot_app አለመኖሩን ልብ ይበሉ - ይህን ለማስተካከል ከዚህ በታች አማራጭ አለ)
-                # loop.run_until_complete(notify_brokers_webapp(notification_text, listing_id))
-                loop.close()
-            except Exception as e:
-                logger.error(f"Failed to send notification: {e}")
-            
             return jsonify({"status": "success", "listing_id": listing_id})
         else:
-            logger.error("❌ Failed to save listing to database")
-            return jsonify({"status": "error", "message": "Failed to save to database"}), 500
+            logger.error("❌ Failed to save listing - add_listing returned None")
+            return jsonify({"status": "error", "message": "Database insert failed - check logs"}), 500
             
     except Exception as e:
-        logger.error(f"❌ Error in submit_listing: {e}")
+        logger.error(f"❌ Error in submit_listing: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @web_app.route('/api/submit-request', methods=['POST'])
@@ -819,6 +802,8 @@ def submit_request():
 📞 ስልክ: {phone}
 """
         
+        logger.info(f"💾 Saving request: user={user_id}, category={main_category}")
+        
         req_id = add_listing(
             user_chat_id=int(user_id),
             user_name="WebApp User",
@@ -835,27 +820,18 @@ def submit_request():
         
         if req_id:
             logger.info(f"✅ Request #{req_id} saved successfully from WebApp")
-            
-            # ለደላሎች ማሳወቂያ
-            try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.close()
-            except Exception as e:
-                logger.error(f"Failed to send notification: {e}")
-            
             return jsonify({"status": "success", "req_id": req_id})
         else:
-            logger.error("❌ Failed to save request to database")
-            return jsonify({"status": "error", "message": "Failed to save to database"}), 500
+            logger.error("❌ Failed to save request - add_listing returned None")
+            return jsonify({"status": "error", "message": "Database insert failed - check logs"}), 500
             
     except Exception as e:
-        logger.error(f"❌ Error in submit_request: {e}")
+        logger.error(f"❌ Error in submit_request: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
-    web_app.run(host="0.0.0.0", port=port)
+    web_app.run(host="0.0.0.0", port=port, debug=True)
 # ==============================================================================
 # 10. BROKER NOTIFICATION
 # ==============================================================================
