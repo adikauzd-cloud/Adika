@@ -147,9 +147,8 @@ import json
 def submit_listing():
     data = request.json
     if not data:
-        return jsonify({"status": "error", "message": "No data"}), 400
+        return jsonify({"status": "error", "message": "ምንም መረጃ አልተላከም"}), 400
 
-    # 1. user_id ን በጥንቃቄ ወደ integer መቀየር
     raw_user_id = data.get("user_id")
     try:
         user_id = int(raw_user_id) if raw_user_id and str(raw_user_id).isdigit() else None
@@ -162,7 +161,7 @@ def submit_listing():
     phone = data.get("phone", "")
 
     try:
-        # 2. ወደ ዳታቤዝ ማስገባት
+        # 1. መረጃውን ወደ ዳታቤዝ ማስገባት
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
@@ -178,27 +177,31 @@ def submit_listing():
         cursor.close()
         conn.close()
 
-        # 3. ለደላሎች/አድሚን ማስታወቂያ በ Telegram API በቀጥታ መላክ
-        # (ማስታወሻ፦ ADMIN_CHAT_ID ወይም የደላሎች Group ID ካለህ እዚህ ይተካል)
-        notify_text = (
-            f"📢 **አዲስ ንብረት ለገበያ ቀርቧል! [#{item_id}]**\n\n"
-            f"📦 **ምድብ፦** {category}\n"
-            f"💰 **ዋጋ፦** {price} ብር\n"
-            f"📝 **መግለጫ፦** {description}\n"
-            f"📞 **ስልክ፦** `{phone}`"
-        )
-        
-        # ቦቱ መልእክቱን እንዲልክ የ Telegram HTTP API ጥሪ ማድረግ
+        # 2. ለተጠቃሚው ማረጋገጫ በቴሌግራም መላክ (የብቻው try-except)
         if BOT_TOKEN and user_id:
-            telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-            payload = json.dumps({
-                "chat_id": user_id,  # ለለቀቀው ሰው ማረጋገጫ ይልካል
-                "text": f"✅ ንብረትዎ በስኬት ተመዝግቧል!\n\n{notify_text}",
-                "parse_mode": "Markdown"
-            }).encode('utf-8')
-            
-            req = urllib.request.Request(telegram_url, data=payload, headers={'Content-Type': 'application/json'})
-            urllib.request.urlopen(req)
+            try:
+                import urllib.request
+                import json
+                
+                notify_text = (
+                    f"📢 **አዲስ ንብረት በስኬት መዝግበዋል! [#{item_id}]**\n\n"
+                    f"📦 **ምድብ፦** {category}\n"
+                    f"💰 **ዋጋ፦** {price} ብር\n"
+                    f"📝 **መግለጫ፦** {description}\n"
+                    f"📞 **ስልክ፦** `{phone}`"
+                )
+                
+                telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                payload = json.dumps({
+                    "chat_id": user_id,
+                    "text": notify_text,
+                    "parse_mode": "Markdown"
+                }).encode('utf-8')
+                
+                req = urllib.request.Request(telegram_url, data=payload, headers={'Content-Type': 'application/json'})
+                urllib.request.urlopen(req, timeout=5)
+            except Exception as notify_err:
+                logger.error(f"Telegram notification error: {notify_err}")
 
         return jsonify({"status": "success", "item_id": item_id})
 
