@@ -397,12 +397,16 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 DB_FILE = "adika_marketplace.db"
 
+from telegram import KeyboardButton, WebAppInfo
+
 # ==============================================================================
 # 2. CONSTANTS & KEYBOARDS
 # ==============================================================================
 
+WEB_APP_URL = "https://adika-vrkk.onrender.com/seller-form"
+
 MAIN_KEYBOARD = [
-    ["🔍 መግዛት / መከራየት", "📢 መሸጥ / ማከራየት"],
+    ["🔍 መግዛት / መከራየት", KeyboardButton("📢 መሸጥ / ማከራየት", web_app=WebAppInfo(url=WEB_APP_URL))],
     ["🛍️ የገበያ ቦታ (የሚሸጡ)", "📋 የፈላጊዎች ዝርዝር"],
     ["👥 የደላሎች/አቅራቢዎች ማውጫ", "📝 እንደ አቅራቢ/ደላላ መመዝገብ"],
     ["📞 ድጋፍ", "🏠 ዋና ገጽ"]
