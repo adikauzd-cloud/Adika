@@ -427,7 +427,6 @@ def init_db():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-        if not DATABASE_URL:
             conn.commit()
             
         logging.info("✅ Adika Database initialized with Ratings and Marketplace Support")
@@ -491,8 +490,8 @@ def get_broker(chat_id: int):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        param = (%s,) if DATABASE_URL else (?,)
-        cursor.execute("SELECT * FROM brokers WHERE chat_id = " + param[0], (chat_id,))
+        query = "SELECT * FROM brokers WHERE chat_id = %s" if DATABASE_URL else "SELECT * FROM brokers WHERE chat_id = ?"
+        cursor.execute(query, (chat_id,))
         row = cursor.fetchone()
         return dict(row) if row else None
     except Exception as e:
@@ -555,8 +554,8 @@ def get_listing_by_id(listing_id: int):
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        param = (%s,) if DATABASE_URL else (?,)
-        cursor.execute("SELECT * FROM listings WHERE id = " + param[0], (listing_id,))
+        query = "SELECT * FROM listings WHERE id = %s" if DATABASE_URL else "SELECT * FROM listings WHERE id = ?"
+        cursor.execute(query, (listing_id,))
         row = cursor.fetchone()
         return dict(row) if row else None
     except Exception as e:
