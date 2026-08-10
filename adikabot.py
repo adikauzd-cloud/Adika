@@ -132,12 +132,12 @@ BUYER_FORM_HTML = """
 def home():
     return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
 
-@web_app.route('/seller-form')
-def seller_form():
+@web_app.route('/seller-form', endpoint='webapp_seller_form')
+def webapp_seller_form():
     return render_template_string(SELLER_FORM_HTML)
 
-@web_app.route('/buyer-form')
-def buyer_form():
+@web_app.route('/buyer-form', endpoint='webapp_buyer_form')
+def webapp_buyer_form():
     return render_template_string(BUYER_FORM_HTML)
 
 @web_app.route('/api/submit-listing', methods=['POST'])
