@@ -1847,11 +1847,34 @@ async def nohave_item_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         f"💡 ሌላ አዲስ ጥያቄ ለማየት '📋 የፈላጊዎች ዝርዝር' የሚለውን ይጫኑ።",
         parse_mode="Markdown"
     )
+import logging
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update, WebAppInfo
+from telegram.ext import (
+    ContextTypes,
+    ConversationHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    CommandHandler,
+    filters,
+)
+
+logger = logging.getLogger(__name__)
+
+# State Constants
+(
+    BROKER_ROLE,
+    BROKER_NAME,
+    BROKER_PHONE,
+    BROKER_SUBCITY,
+    BROKER_NID_PHOTO,
+    BROKER_OFFER_TEXT,
+    BROKER_OFFER_PHOTO,
+) = range(7)
+
+
 # ==============================================================================
 # 9. SELLER FLOW (መሸጥ / ማከራየት) - የተስተካከለ
 # ==============================================================================
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update, WebAppInfo
-from telegram.ext import ContextTypes, ConversationHandler
 
 async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -1873,6 +1896,7 @@ async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
     return SELLER_MAIN
+
 
 async def seller_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1905,6 +1929,7 @@ async def seller_category_chosen(update: Update, context: ContextTypes.DEFAULT_T
         )
         return SELLER_ACTION
 
+
 async def seller_sub_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.data == "flow_home":
@@ -1925,6 +1950,7 @@ async def seller_sub_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
     return SELLER_ACTION
+
 
 async def seller_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1951,6 +1977,7 @@ async def seller_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         return SELLER_PROPERTY
 
+
 async def seller_property_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     if query.data == "flow_home":
@@ -1968,7 +1995,8 @@ async def seller_property_chosen(update: Update, context: ContextTypes.DEFAULT_T
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-    return SELLER_SUB
+    return SELLER_HTYPE
+
 
 async def seller_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -1985,6 +2013,7 @@ async def seller_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     return SELLER_DETAILS
 
+
 async def seller_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
@@ -1995,6 +2024,7 @@ async def seller_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode="Markdown"
     )
     return SELLER_PRICE
+
 
 async def seller_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🏠 ዋና ገጽ":
@@ -2008,6 +2038,7 @@ async def seller_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("📞 **የስልክ ቁጥርዎን ያስገቡ፦**", parse_mode="Markdown")
     return SELLER_PHONE
 
+
 async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
@@ -2019,6 +2050,7 @@ async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['phone'] = update.message.text
     await update.message.reply_text("📸 **የንብረቱን ፎቶ ይላኩ (ወይም 'ዝለል' የሚለውን ይጻፉ)፦**", parse_mode="Markdown")
     return SELLER_PHOTO
+
 
 async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -2078,31 +2110,6 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     return ConversationHandler.END
-
-import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
-from telegram.ext import (
-    ContextTypes,
-    ConversationHandler,
-    CallbackQueryHandler,
-    MessageHandler,
-    CommandHandler,
-    filters,
-)
-
-logger = logging.getLogger(__name__)
-
-# State Constants
-(
-    BROKER_ROLE,
-    BROKER_NAME,
-    BROKER_PHONE,
-    BROKER_SUBCITY,
-    BROKER_NID_PHOTO,
-    BROKER_OFFER_TEXT,
-    BROKER_OFFER_PHOTO,
-) = range(7)
-
 # ==============================================================================
 # 10. BROKER REGISTRATION (የተስተካከለ)
 # ==============================================================================
