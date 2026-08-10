@@ -114,14 +114,14 @@ def get_placeholder():
 # ==============================================================================
 
 def init_db():
-    """የዳታቤዝ ሰንጠረዦችን መፍጠር"""
+    """የዳታቤዝ ሰንጠረዦችን መፍጠር - የተስተካከለ"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Common tables for both PostgreSQL and SQLite
-        tables = """
+        tables = [
+            """
             CREATE TABLE IF NOT EXISTS listings (
                 id SERIAL PRIMARY KEY,
                 user_chat_id BIGINT NOT NULL,
@@ -138,6 +138,8 @@ def init_db():
                 status TEXT DEFAULT 'pending',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            """,
+            """
             CREATE TABLE IF NOT EXISTS brokers (
                 id SERIAL PRIMARY KEY,
                 chat_id BIGINT NOT NULL UNIQUE,
@@ -151,6 +153,8 @@ def init_db():
                 status TEXT DEFAULT 'pending',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            """,
+            """
             CREATE TABLE IF NOT EXISTS ratings (
                 id SERIAL PRIMARY KEY,
                 broker_chat_id BIGINT NOT NULL,
@@ -158,6 +162,8 @@ def init_db():
                 stars INT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            """,
+            """
             CREATE TABLE IF NOT EXISTS broker_offers (
                 id SERIAL PRIMARY KEY,
                 request_id INTEGER NOT NULL,
@@ -166,14 +172,14 @@ def init_db():
                 photo_id TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
-        """
+            """
+        ]
         
-        # SQLite doesn't support SERIAL, so we need to adapt
-        if not DATABASE_URL:
-            tables = tables.replace("SERIAL", "INTEGER")
-            tables = tables.replace("BIGINT", "INTEGER")
-        
-        cursor.execute(tables)
+        for statement in tables:
+            if not DATABASE_URL:
+                statement = statement.replace("SERIAL PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT")
+                statement = statement.replace("BIGINT", "INTEGER")
+            cursor.execute(statement)
         
         if not DATABASE_URL:
             conn.commit()
@@ -1030,11 +1036,11 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ ስልክ ቁጥሩ ትክክል አይደለም! እባክዎ እንደገና ያስገቡ።")
         return BUYER_PHONE
     
-    main_cat = context.user_data.get('main_category', '')
-    sub_cat = context.user_data.get('sub_category', '')
-    action_type = context.user_data.get('action_type', '')
-    prop_subtype = context.user_data.get('property_subtype', '')
-    description = context.user_data.get('description', '')
+    main_cat = context.user_data.get('main_category') or 'አልተጠቀሰም'
+    sub_cat = context.user_data.get('sub_category') or ''
+    action_type = context.user_data.get('action_type') or 'መግዛት'
+    prop_subtype = context.user_data.get('property_subtype') or ''
+    description = context.user_data.get('description') or ''
     
     full_desc = f"""
 📌 **አዲስ የ{main_cat} ጥያቄ**
@@ -1045,8 +1051,16 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 """
     
     req_id = add_listing(
-        user.id, user.first_name, 'BUY', main_cat, sub_cat, 
-        action_type, prop_subtype, full_desc, phone=phone
+        user.id, 
+        user.first_name or "ባለቤት", 
+        'BUY', 
+        main_cat, 
+        sub_cat, 
+        action_type, 
+        prop_subtype, 
+        full_desc, 
+        "አልተጠቀሰም", 
+        phone
     )
     
     if req_id:
@@ -1068,6 +1082,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ ጥያቄውን መመዝገብ አልተቻለም።")
 
     return ConversationHandler.END
+
 
 # ==============================================================================
 # 13. SELLER HANDLERS
