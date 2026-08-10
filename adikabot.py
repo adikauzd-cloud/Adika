@@ -2171,68 +2171,113 @@ def register_broker_handlers(application):
         CallbackQueryHandler(nohave_item_callback, pattern=r"^nohave_item_")
     )
 # ==============================================================================
-# 11. ADMIN APPROVAL HANDLER
+# 11. ADMIN APPROVAL HANDLERS
 # ==============================================================================
-async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def admin_approve_broker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Approve a broker registration request"""
     query = update.callback_query
     await query.answer()
-    
-    data = query.data
-    
-    if data.startswith("admin_appr_"):
-        target_id = int(data.replace("admin_appr_", ""))
-        update_broker_status(target_id, 'approved')
-        
+
+    broker_telegram_id = int(query.data.replace("admin_appr_", ""))
+
+    # Update broker status in database
+    success = update_broker_status(broker_telegram_id, status="APPROVED")
+
+    if success:
         await query.edit_message_caption(
-            caption=query.message.caption + "\n\n✅ **ሁኔታ፦ በስኬት ጸድቋል (Approved)**",
-            parse_mode="Markdown"
+            caption=f"{query.message.caption}\n\n✅ **ሁኔታ፦ ተፀድቋል (Approved)**",
+            parse_mode="Markdown",
         )
-        
+
+        # Notify the broker
         try:
             await context.bot.send_message(
-                chat_id=target_id,
-                text="🎉 **እንኳን ደስ አለዎት!** የምዝገባ ጥያቄዎ በአድሚን ጸድቋል።\n\n"
-                     "📋 አሁን '📋 የፈላጊዎች ዝርዝር' በመጠቀም ጥያቄዎችን ማየት ይችላሉ።",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                chat_id=broker_telegram_id,
+                text=(
+                    "🎉 **እንኳን ደስ አለዎት!**\n\n"
+                    "የደላላ/አቅራቢ ምዝገባዎ በአድሚን ፀድቋል።"
+                    "አሁን '📋 የፈላጊዎች ዝርዝር' በመጫን መስራት መጀመር ይችላሉ።"
+                ),
+                reply_markup=ReplyKeyboardMarkup(
+                    MAIN_KEYBOARD, resize_keyboard=True
+                ),
             )
         except Exception as e:
-            logger.error(f"Could not notify approved user: {e}")
-            
-    elif data.startswith("admin_reje_"):
-        target_id = int(data.replace("admin_reje_", ""))
-        update_broker_status(target_id, 'rejected')
-        
+            logger.error(
+                f"Failed to send approval notification to {broker_telegram_id}: {e}"
+            )
+    else:
+        await query.message.reply_text("❌ የደላላውን ሁኔታ መቀየር አልተቻለም።")
+
+
+async def admin_reject_broker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reject a broker registration request"""
+    query = update.callback_query
+    await query.answer()
+
+    broker_telegram_id = int(query.data.replace("admin_reje_", ""))
+
+    # Update status in database
+    success = update_broker_status(broker_telegram_id, status="REJECTED")
+
+    if success:
         await query.edit_message_caption(
-            caption=query.message.caption + "\n\n❌ **ሁኔታ፦ ተሰርዟል (Rejected)**",
-            parse_mode="Markdown"
+            caption=f"{query.message.caption}\n\n❌ **ሁኔታ፦ ተሰርዟል (Rejected)**",
+            parse_mode="Markdown",
         )
-        
+
+        # Notify the broker
         try:
             await context.bot.send_message(
-                chat_id=target_id,
-                text="❌ የምዝገባ ጥያቄዎ ተሰርዟል።\n\n"
-                     "ለተጨማሪ መረጃ እባክዎን አድሚንን ያግኙ።",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+                chat_id=broker_telegram_id,
+                text=(
+                    "❌ **የምዝገባ ጥያቄዎ ውድቅ ተደርጓል!**\n\n"
+                    "እባክዎን ትክክለኛ መረጃ እና መታወቂያ በመጠቀም እንደገና ይመዝገቡ።"
+                ),
             )
         except Exception as e:
-            logger.error(f"Could not notify rejected user: {e}")
-            
-    elif data.startswith("admin_view_"):
-        target_id = int(data.replace("admin_view_", ""))
-        broker = get_broker(target_id)
-        if broker:
-            view_text = (
-                f"👤 **የአቅራቢው ዝርዝር**\n\n"
-                f"🆔 ID: {broker.get('id')}\n"
-                f"👤 ስም: {broker.get('full_name')}\n"
-                f"🎭 ሚና: {broker.get('role_type')}\n"
-                f"📞 ስልክ: {broker.get('phone')}\n"
-                f"📍 ክፍለ ከተማ: {broker.get('sub_city')}\n"
-                f"🆔 Telegram ID: {broker.get('chat_id')}\n"
-                f"📅 የተመዘገበ: {broker.get('created_at')}\n"
-                f"📊 ሁኔታ: {broker.get('status')}"
+            logger.error(
+                f"Failed to send rejection notification to {broker_telegram_id}: {e}"
             )
-            await query.message.reply_text(view_text, parse_mode="Markdown")
+    else:
+        await query.message.reply_text("❌ የደላላውን ሁኔታ መቀየር አልተቻለም።")
+
+
+async def admin_view_broker(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """View detailed info of a broker"""
+    query = update.callback_query
+    await query.answer()
+
+    broker_telegram_id = int(query.data.replace("admin_view_", ""))
+    broker_info = get_broker(broker_telegram_id)
+
+    if broker_info:
+        msg = (
+            f"👤 **የአቅራቢ/ደላላ ዝርዝር መረጃ**\n\n"
+            f"• ስም: {broker_info.get('full_name')}\n"
+            f"• ሚና: {broker_info.get('role')}\n"
+            f"• ስልክ: {broker_info.get('phone')}\n"
+            f"• ክፍለ ከተማ: {broker_info.get('sub_city')}\n"
+            f"• ሁኔታ: {broker_info.get('status')}\n"
+            f"• Telegram ID: `{broker_telegram_id}`"
+        )
+        await query.message.reply_text(msg, parse_mode="Markdown")
+    else:
+        await query.message.reply_text("❌ የደላላው መረጃ አልተገኘም።")
+
+
+def register_admin_approval_handlers(application):
+    """Register admin approval callback handlers"""
+    application.add_handler(
+        CallbackQueryHandler(admin_approve_broker, pattern=r"^admin_appr_")
+    )
+    application.add_handler(
+        CallbackQueryHandler(admin_reject_broker, pattern=r"^admin_reje_")
+    )
+    application.add_handler(
+        CallbackQueryHandler(admin_view_broker, pattern=r"^admin_view_")
+    )
 
 # ==============================================================================
 # 12.5 DELETE REQUEST HANDLER (አዲስ ተጨምሯል)
@@ -2278,9 +2323,7 @@ async def delete_request_callback(update: Update, context: ContextTypes.DEFAULT_
         )
     else:
         await query.message.reply_text("❌ ጥያቄውን ማጥፋት አልተቻለም።")
-# ==============================================================================
-# 12. VIEW REQUESTS - CLEAN UI DESIGN (የተሻሻለ)
-# ==============================================================================
+
 # ==============================================================================
 # 12. VIEW REQUESTS - MAIN HANDLER (የተስተካከለ)
 # ==============================================================================
