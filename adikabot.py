@@ -145,9 +145,8 @@ def submit_listing():
     data = request.json
     print(f"New Listing Received: {data}")
     return jsonify({"status": "success"})
-
-@web_app.route('/api/submit-request', methods=['POST'])
-def submit_request():
+@web_app.route('/api/submit-request', methods=['POST'], endpoint='api_submit_request')
+def api_submit_request():
     data = request.json
     user_id = data.get('user_id')
     category = data.get('category', 'መኪና')
