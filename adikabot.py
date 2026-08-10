@@ -2278,7 +2278,19 @@ def register_admin_approval_handlers(application):
     application.add_handler(
         CallbackQueryHandler(admin_view_broker, pattern=r"^admin_view_")
     )
+async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Master callback router for admin approval actions (^admin_)
+    """
+    query = update.callback_query
+    data = query.data
 
+    if data.startswith("admin_appr_"):
+        await admin_approve_broker(update, context)
+    elif data.startswith("admin_reje_"):
+        await admin_reject_broker(update, context)
+    elif data.startswith("admin_view_"):
+        await admin_view_broker(update, context)
 # ==============================================================================
 # 12.5 DELETE REQUEST HANDLER (አዲስ ተጨምሯል)
 # ==============================================================================
