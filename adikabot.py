@@ -18,92 +18,7 @@ from telegram.ext import (
     ConversationHandler,
     filters,
 )
-# ==============================================================================
-# 0. FLASK WEB SERVER & HTML TEMPLATE
-# ==============================================================================
 
-SELLER_FORM_HTML = """
-<!DOCTYPE html>
-<html lang="am">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-gray-100 p-4">
-    <div class="max-w-md mx-auto bg-white p-6 rounded-xl shadow-md">
-        <h2 class="text-xl font-bold mb-4 text-center text-gray-800">ንብረት ለገበያ ያቅርቡ</h2>
-        <form id="listingForm" class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">ምድብ</label>
-                <select id="category" class="w-full p-2 border rounded-lg bg-gray-50">
-                    <option value="መኪና">መኪና</option>
-                    <option value="ቤት">ቤት / ቦታ</option>
-                    <option value="የሥራ ቦታ">የሥራ ቦታ / ንግድ</option>
-                </select>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">ዋጋ (በብር)</label>
-                <input type="text" id="price" placeholder="ምሳሌ፦ 2,500,000" class="w-full p-2 border rounded-lg bg-gray-50" required>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">ዝርዝር መግለጫ</label>
-                <textarea id="description" rows="3" placeholder="ስለ ንብረቱ ተጨማሪ መረጃ ያስገቡ..." class="w-full p-2 border rounded-lg bg-gray-50" required></textarea>
-            </div>
-            <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">ስልክ ቁጥር</label>
-                <input type="tel" id="phone" placeholder="0911......" class="w-full p-2 border rounded-lg bg-gray-50" required>
-            </div>
-            <button type="submit" id="submitBtn" class="w-full bg-blue-600 hover:bg-blue-700 text-white p-3 rounded-lg font-bold transition">መረጃውን ይላኩ</button>
-        </form>
-    </div>
-
-    <script>
-        let tg = window.Telegram.WebApp;
-        tg.expand();
-        
-        document.getElementById('listingForm').onsubmit = (e) => {
-            e.preventDefault();
-            
-            const submitBtn = document.getElementById('submitBtn');
-            submitBtn.disabled = true;
-            submitBtn.innerText = "እየተላከ ነው...";
-
-            const data = {
-                user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null,
-                category: document.getElementById('category').value,
-                price: document.getElementById('price').value,
-                description: document.getElementById('description').value,
-                phone: document.getElementById('phone').value
-            };
-            
-            fetch('https://adika-vrkk.onrender.com/api/submit-listing', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(data)
-            })
-            .then(res => res.json())
-            .then(resData => {
-                if(resData.status === "success") {
-                    alert("✅ መረጃው በስኬት ተልኳል!");
-                    tg.close();
-                } else {
-                    alert("❌ ስህተት፦ " + (resData.message || "መረጃውን መላክ አልተቻለም"));
-                    submitBtn.disabled = false;
-                    submitBtn.innerText = "መረጃውን ይላኩ";
-                }
-            })
-            .catch(err => {
-                alert("❌ ከአገልጋዩ ጋር ማገናኘት አልተቻለም። እባክዎ ኢንተርኔትዎን ያረጋግጡ።");
-                submitBtn.disabled = false;
-                submitBtn.innerText = "መረጃውን ይላኩ";
-            });
-        };
-    </script>
-</body>
-</html>
-"""
 # ==============================================================================
 # 0. FLASK WEB SERVER & WEBAPP ROUTES
 # ==============================================================================
@@ -138,53 +53,27 @@ SELLER_FORM_HTML = """
         </form>
     </div>
 
-   <script>
-    let tg = window.Telegram.WebApp;
-    tg.expand();
-    tg.ready();
-
-    document.getElementById('listingForm').onsubmit = function(e) {
-        e.preventDefault();
+    <script>
+        let tg = window.Telegram.WebApp;
+        tg.expand();
         
-        const submitBtn = document.getElementById('submitBtn');
-        submitBtn.disabled = true;
-        submitBtn.innerText = "እየተላከ ነው...";
-
-        const data = {
-            user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null,
-            category: document.getElementById('category').value,
-            price: document.getElementById('price').value,
-            description: document.getElementById('description').value,
-            phone: document.getElementById('phone').value
+        document.getElementById('listingForm').onsubmit = (e) => {
+            e.preventDefault();
+            const data = {
+                user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "unknown",
+                category: document.getElementById('category').value,
+                price: document.getElementById('price').value,
+                description: document.getElementById('description').value,
+                phone: document.getElementById('phone').value
+            };
+            
+            fetch('/api/submit-listing', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(data)
+            }).then(() => tg.close());
         };
-        
-        fetch('https://adika-vrkk.onrender.com/api/submit-listing', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(data)
-        })
-        .then(res => res.json())
-        .then(resData => {
-            if(resData.status === "success") {
-                // የቴሌግራም የራሱ የማረጋገጫ Pop-up
-                tg.showAlert("✅ መረጃው በስኬት ተልኳል!", function() {
-                    tg.close();
-                });
-            } else {
-                tg.showAlert("❌ ስህተት፦ " + (resData.message || "መረጃውን መላክ አልተቻለም"));
-                submitBtn.disabled = false;
-                submitBtn.innerText = "መረጃውን ይላኩ";
-            }
-        })
-        .catch(err => {
-            tg.showAlert("❌ ከአገልጋዩ ጋር ማገናኘት አልተቻለም፦ " + err);
-            submitBtn.disabled = false;
-            submitBtn.innerText = "መረጃውን ይላኩ";
-        });
-    };
-</script>
+    </script>
 </body>
 </html>
 """
@@ -238,12 +127,7 @@ BUYER_FORM_HTML = """
 </body>
 </html>
 """
-@web_app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Origin', '*')
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    return response
+
 @web_app.route('/')
 def home():
     return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
@@ -256,76 +140,50 @@ def webapp_seller_form():
 def webapp_buyer_form():
     return render_template_string(BUYER_FORM_HTML)
 
-import urllib.request
-import json
-
-@web_app.route('/api/submit-listing', methods=['POST', 'OPTIONS'])
+@web_app.route('/api/submit-listing', methods=['POST'])
 def submit_listing():
-    if request.method == 'OPTIONS':
-        return jsonify({"status": "ok"}), 200
-
     data = request.json
-    if not data:
-        return jsonify({"status": "error", "message": "ምንም መረጃ አልተላከም"}), 400
+    print(f"New Listing Received: {data}")
+    return jsonify({"status": "success"})
+@web_app.route('/api/submit-request', methods=['POST'], endpoint='api_submit_request')
+def api_submit_request():
+    data = request.json
+    user_id = data.get('user_id')
+    category = data.get('category', 'መኪና')
+    budget = data.get('budget', '')
+    details = data.get('details', '')
+    phone = data.get('phone', '')
 
-    raw_user_id = data.get("user_id")
-    try:
-        user_id = int(raw_user_id) if raw_user_id and str(raw_user_id).isdigit() else None
-    except Exception:
-        user_id = None
+    if not user_id or user_id == "unknown":
+        return jsonify({"status": "error", "message": "User ID አልተገኘም"}), 400
 
-    category = data.get("category", "ያልተጠቀሰ")
-    price = data.get("price", "በድርድር")
-    description = data.get("description", "")
-    phone = data.get("phone", "")
+    full_desc = (
+        f"📌 **አዲስ የ{category} ጥያቄ (በ WebApp የተሞላ)**\n"
+        f"💰 በጀት: {budget} ብር\n"
+        f"📝 ዝርዝር: {details}\n"
+        f"📞 ስልክ: {phone}"
+    )
 
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            INSERT INTO marketplace_items (user_id, main_category, price, description, phone, created_at)
-            VALUES (%s, %s, %s, %s, %s, NOW())
-            RETURNING id;
-            """,
-            (user_id, category, price, description, phone)
+    req_id = add_listing(user_id, "WebApp User", 'BUY', category, '', 'መግዛት', '', full_desc)
+
+    if req_id:
+        notification_text = (
+            f"🔔 **አዲስ የ{category} ጥያቄ! (#REQ-{req_id})**\n\n"
+            f"{full_desc}\n\n"
+            f"👉 ይህ ንብረት በእጅዎ ካለ ከታች **'አለኝ'** የሚለውን በመጫን ለፈላጊው መረጃ ይላኩ!"
         )
-        item_id = cursor.fetchone()['id']
-        conn.commit()
-        cursor.close()
-        conn.close()
+        
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(notify_brokers(bot_app, notification_text, req_id, user_id))
+            loop.close()
+        except Exception as e:
+            print(f"Error notifying brokers: {e}")
 
-        # ለለቀቀው ሰው እና ለደላሎች ማሳወቅ
-        if BOT_TOKEN and user_id:
-            try:
-                import urllib.request
-                import json
-                
-                notify_text = (
-                    f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ በ WebApp ተመዝግቧል! [#{item_id}]**\n\n"
-                    f"📦 **ምድብ፦** {category}\n"
-                    f"💰 **ዋጋ፦** {price} ብር\n"
-                    f"📝 **መግለጫ፦** {description}\n"
-                    f"📞 **ስልክ፦** `{phone}`"
-                )
-                
-                telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                payload = json.dumps({
-                    "chat_id": user_id,
-                    "text": notify_text,
-                    "parse_mode": "Markdown"
-                }).encode('utf-8')
-                
-                req = urllib.request.Request(telegram_url, data=payload, headers={'Content-Type': 'application/json'})
-                urllib.request.urlopen(req, timeout=5)
-            except Exception as notify_err:
-                logger.error(f"Telegram notification error: {notify_err}")
-
-        return jsonify({"status": "success", "item_id": item_id})
-
-    except Exception as e:
-        logger.error(f"Error saving webapp listing: {e}")
-        return jsonify({"status": "error", "message": f"DB Error: {str(e)}"}), 500
+        return jsonify({"status": "success", "req_id": req_id})
+    
+    return jsonify({"status": "error", "message": "መረጃውን መመዝገብ አልተቻለም"}), 500
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -418,16 +276,12 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 DB_FILE = "adika_marketplace.db"
 
-from telegram import KeyboardButton, WebAppInfo
-
 # ==============================================================================
 # 2. CONSTANTS & KEYBOARDS
 # ==============================================================================
 
-WEB_APP_URL = "https://adika-vrkk.onrender.com/seller-form"
-
 MAIN_KEYBOARD = [
-    ["🔍 መግዛት / መከራየት", KeyboardButton("📢 መሸጥ / ማከራየት", web_app=WebAppInfo(url=WEB_APP_URL))],
+    ["🔍 መግዛት / መከራየት", "📢 መሸጥ / ማከራየት"],
     ["🛍️ የገበያ ቦታ (የሚሸጡ)", "📋 የፈላጊዎች ዝርዝር"],
     ["👥 የደላሎች/አቅራቢዎች ማውጫ", "📝 እንደ አቅራቢ/ደላላ መመዝገብ"],
     ["📞 ድጋፍ", "🏠 ዋና ገጽ"]
@@ -2275,7 +2129,7 @@ async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     
     keyboard = [
-        [InlineKeyboardButton("👨‍💼 ደላላ", callback_data="role_broker")],
+        [InlineKeyboardButton("👨💼 ደላላ", callback_data="role_broker")],
         [InlineKeyboardButton("🚢 አስመጪ / አቅራቢ", callback_data="role_importer")],
         [InlineKeyboardButton("👤 ባለቤት / አቅራቢ", callback_data="role_owner")],
         [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
