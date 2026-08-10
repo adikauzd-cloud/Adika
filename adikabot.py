@@ -1665,37 +1665,6 @@ async def nohave_item_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         parse_mode="Markdown"
     )
 
-# ==============================================================================
-# CONVERSATION HANDLER & REGISTRATIONS
-# ==============================================================================
-
-# 1. ConversationHandler Setup
-broker_offer_conv_handler = ConversationHandler(
-    entry_points=[
-        CallbackQueryHandler(broker_have_item_click, pattern=r"^have_item_")
-    ],
-    states={
-        BROKER_OFFER_TEXT: [
-            MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_text)
-        ],
-        BROKER_OFFER_PHOTO: [
-            MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), broker_offer_photo)
-        ],
-    },
-    fallbacks=[
-        MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), go_home),
-        CommandHandler("cancel", go_home),
-    ],
-    per_message=False,
-)
-
-# 2. Application/Dispatcher ላይ መመዝገቢያ (በ main logic ውስጥ የሚጨመር)
-def register_broker_response_handlers(application):
-    """Register broker response handlers to application"""
-    application.add_handler(broker_offer_conv_handler)
-    application.add_handler(
-        CallbackQueryHandler(nohave_item_callback, pattern=r"^nohave_item_")
-    )
 
 # ==============================================================================
 # 9. SELLER FLOW (መሸጥ / ማከራየት) - የተስተካከለ
@@ -1929,14 +1898,40 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     return ConversationHandler.END
 
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+from telegram.ext import (
+    ContextTypes,
+    ConversationHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    CommandHandler,
+    filters,
+)
+
+logger = logging.getLogger(__name__)
+
+# State Constants
+(
+    BROKER_ROLE,
+    BROKER_NAME,
+    BROKER_PHONE,
+    BROKER_SUBCITY,
+    BROKER_NID_PHOTO,
+    BROKER_OFFER_TEXT,
+    BROKER_OFFER_PHOTO,
+) = range(7)
+
 # ==============================================================================
-# 10. BROKER REGISTRATION (የተስተካከለ - broker_reg_start ተጨምሯል)
+# 10. BROKER REGISTRATION (የተስተካከለ)
 # ==============================================================================
+
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start broker/supplier registration process"""
     context.user_data.clear()
     
     keyboard = [
-        [InlineKeyboardButton("👨💼 ደላላ", callback_data="role_broker")],
+        [InlineKeyboardButton("👨‍💼 ደላላ", callback_data="role_broker")],
         [InlineKeyboardButton("🚢 አስመጪ / አቅራቢ", callback_data="role_importer")],
         [InlineKeyboardButton("👤 ባለቤት / አቅራቢ", callback_data="role_owner")],
         [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
@@ -1952,7 +1947,9 @@ async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return BROKER_ROLE
 
+
 async def broker_role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle role selection callback"""
     query = update.callback_query
     if query.data == "flow_home":
         return await go_home(update, context)
@@ -1969,14 +1966,19 @@ async def broker_role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.edit_message_text(f"👤 **ምዝገባ፦ {role}**\n\n1️⃣ ሙሉ ስምዎን ያስገቡ፦")
     return BROKER_NAME
 
+
 async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive broker full name"""
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
+        
     context.user_data['broker_name'] = update.message.text
     await update.message.reply_text("2️⃣ የስልክ ቁጥርዎን ያስገቡ፦")
     return BROKER_PHONE
 
+
 async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive broker phone number"""
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     
@@ -1991,7 +1993,9 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("3️⃣ የሚሰሩበትን ክፍለ ከተማ ይምረጡ፦", reply_markup=InlineKeyboardMarkup(keyboard))
     return BROKER_SUBCITY
 
+
 async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle subcity selection callback"""
     query = update.callback_query
     if query.data == "flow_home":
         return await go_home(update, context)
@@ -2006,7 +2010,9 @@ async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
     return BROKER_NID_PHOTO
 
+
 async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Receive ID photo and submit registration"""
     if update.message and update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
 
@@ -2098,8 +2104,72 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             "🔄 እንደገና ለመሞከር '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
-    
+        
     return ConversationHandler.END
+
+# ==============================================================================
+# CONVERSATION HANDLERS & REGISTRATIONS SETUP
+# ==============================================================================
+
+# 1. Broker Offer Flow ConversationHandler
+broker_offer_conv_handler = ConversationHandler(
+    entry_points=[
+        CallbackQueryHandler(broker_have_item_click, pattern=r"^have_item_")
+    ],
+    states={
+        BROKER_OFFER_TEXT: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_text)
+        ],
+        BROKER_OFFER_PHOTO: [
+            MessageHandler(filters.PHOTO | (filters.TEXT & ~filters.COMMAND), broker_offer_photo)
+        ],
+    },
+    fallbacks=[
+        MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), go_home),
+        CommandHandler("cancel", go_home),
+    ],
+    per_message=False,
+)
+
+# 2. Broker Registration ConversationHandler
+broker_reg_conv_handler = ConversationHandler(
+    entry_points=[
+        MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)
+    ],
+    states={
+        BROKER_ROLE: [
+            CallbackQueryHandler(broker_role_chosen, pattern=r"^role_"),
+            CallbackQueryHandler(go_home, pattern=r"^flow_home$")
+        ],
+        BROKER_NAME: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name)
+        ],
+        BROKER_PHONE: [
+            MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone)
+        ],
+        BROKER_SUBCITY: [
+            CallbackQueryHandler(broker_reg_subcity, pattern=r"^broker_sc_"),
+            CallbackQueryHandler(go_home, pattern=r"^flow_home$")
+        ],
+        BROKER_NID_PHOTO: [
+            MessageHandler((filters.PHOTO | filters.TEXT) & ~filters.COMMAND, broker_reg_nid_photo)
+        ],
+    },
+    fallbacks=[
+        MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), go_home),
+        CommandHandler("cancel", go_home),
+    ],
+    per_message=False,
+)
+
+# 3. App Dispatcher Registration Function
+def register_broker_handlers(application):
+    """Register all broker-related handlers to application"""
+    application.add_handler(broker_reg_conv_handler)
+    application.add_handler(broker_offer_conv_handler)
+    application.add_handler(
+        CallbackQueryHandler(nohave_item_callback, pattern=r"^nohave_item_")
+    )
 # ==============================================================================
 # 11. ADMIN APPROVAL HANDLER
 # ==============================================================================
@@ -2724,6 +2794,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==============================================================================
 def main():
     import asyncio
+    import threading
     
     # 1. Database Initialization & Flask Thread
     init_db()
@@ -2802,6 +2873,7 @@ def main():
     app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
     app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
     app.add_handler(CallbackQueryHandler(delete_request_callback, pattern="^delete_item_"))
+    app.add_handler(CallbackQueryHandler(nohave_item_callback, pattern="^nohave_item_"))
    
     # 9. Conversation Handlers Registration
     app.add_handler(buyer_conv)
