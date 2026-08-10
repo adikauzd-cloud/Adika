@@ -138,27 +138,53 @@ SELLER_FORM_HTML = """
         </form>
     </div>
 
-    <script>
-        let tg = window.Telegram.WebApp;
-        tg.expand();
+   <script>
+    let tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+
+    document.getElementById('listingForm').onsubmit = function(e) {
+        e.preventDefault();
         
-        document.getElementById('listingForm').onsubmit = (e) => {
-            e.preventDefault();
-            const data = {
-                user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "unknown",
-                category: document.getElementById('category').value,
-                price: document.getElementById('price').value,
-                description: document.getElementById('description').value,
-                phone: document.getElementById('phone').value
-            };
-            
-            fetch('/api/submit-listing', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(data)
-            }).then(() => tg.close());
+        const submitBtn = document.getElementById('submitBtn');
+        submitBtn.disabled = true;
+        submitBtn.innerText = "እየተላከ ነው...";
+
+        const data = {
+            user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : null,
+            category: document.getElementById('category').value,
+            price: document.getElementById('price').value,
+            description: document.getElementById('description').value,
+            phone: document.getElementById('phone').value
         };
-    </script>
+        
+        fetch('https://adika-vrkk.onrender.com/api/submit-listing', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(data)
+        })
+        .then(res => res.json())
+        .then(resData => {
+            if(resData.status === "success") {
+                // የቴሌግራም የራሱ የማረጋገጫ Pop-up
+                tg.showAlert("✅ መረጃው በስኬት ተልኳል!", function() {
+                    tg.close();
+                });
+            } else {
+                tg.showAlert("❌ ስህተት፦ " + (resData.message || "መረጃውን መላክ አልተቻለም"));
+                submitBtn.disabled = false;
+                submitBtn.innerText = "መረጃውን ይላኩ";
+            }
+        })
+        .catch(err => {
+            tg.showAlert("❌ ከአገልጋዩ ጋር ማገናኘት አልተቻለም፦ " + err);
+            submitBtn.disabled = false;
+            submitBtn.innerText = "መረጃውን ይላኩ";
+        });
+    };
+</script>
 </body>
 </html>
 """
@@ -212,7 +238,12 @@ BUYER_FORM_HTML = """
 </body>
 </html>
 """
-
+@web_app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 @web_app.route('/')
 def home():
     return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
@@ -228,8 +259,11 @@ def webapp_buyer_form():
 import urllib.request
 import json
 
-@web_app.route('/api/submit-listing', methods=['POST'])
+@web_app.route('/api/submit-listing', methods=['POST', 'OPTIONS'])
 def submit_listing():
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+
     data = request.json
     if not data:
         return jsonify({"status": "error", "message": "ምንም መረጃ አልተላከም"}), 400
@@ -246,7 +280,6 @@ def submit_listing():
     phone = data.get("phone", "")
 
     try:
-        # 1. ወደ ዳታቤዝ ማስገባት
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute(
@@ -259,52 +292,40 @@ def submit_listing():
         )
         item_id = cursor.fetchone()['id']
         conn.commit()
-
-        # 2. የተመዘገቡ ደላሎችን ID ከዳታቤዝ ማውጣት
-        cursor.execute("SELECT user_id FROM brokers WHERE user_id IS NOT NULL;")
-        brokers = cursor.fetchall()
         cursor.close()
         conn.close()
 
-        # 3. ለደላሎች መልእክት ማዘጋጀት
-        broker_notice = (
-            f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ በ WebApp ተለቋል! [#{item_id}]**\n\n"
-            f"📦 **ምድብ፦** {category}\n"
-            f"💰 **ዋጋ፦** {price} ብር\n"
-            f"📝 **መግለጫ፦** {description}\n"
-            f"📞 **ስልክ፦** `{phone}`"
-        )
-
-        import urllib.request
-        import json
-
-        # ለሁሉም ደላሎች በየተራ መልእክቱን መላክ
-        for broker in brokers:
-            b_id = broker.get('user_id')
-            if b_id:
-                try:
-                    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                    payload = json.dumps({"chat_id": b_id, "text": broker_notice, "parse_mode": "Markdown"}).encode('utf-8')
-                    req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
-                    urllib.request.urlopen(req, timeout=3)
-                except Exception as err:
-                    logger.error(f"Failed sending to broker {b_id}: {err}")
-
-        # ለለቀቀው ሰው ማረጋገጫ መላክ
-        if user_id:
+        # ለለቀቀው ሰው እና ለደላሎች ማሳወቅ
+        if BOT_TOKEN and user_id:
             try:
-                url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-                payload = json.dumps({"chat_id": user_id, "text": f"✅ ንብረትዎ በስኬት ተመዝግቧል!\n\n{broker_notice}", "parse_mode": "Markdown"}).encode('utf-8')
-                req = urllib.request.Request(url, data=payload, headers={'Content-Type': 'application/json'})
-                urllib.request.urlopen(req, timeout=3)
-            except Exception:
-                pass
+                import urllib.request
+                import json
+                
+                notify_text = (
+                    f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ በ WebApp ተመዝግቧል! [#{item_id}]**\n\n"
+                    f"📦 **ምድብ፦** {category}\n"
+                    f"💰 **ዋጋ፦** {price} ብር\n"
+                    f"📝 **መግለጫ፦** {description}\n"
+                    f"📞 **ስልክ፦** `{phone}`"
+                )
+                
+                telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+                payload = json.dumps({
+                    "chat_id": user_id,
+                    "text": notify_text,
+                    "parse_mode": "Markdown"
+                }).encode('utf-8')
+                
+                req = urllib.request.Request(telegram_url, data=payload, headers={'Content-Type': 'application/json'})
+                urllib.request.urlopen(req, timeout=5)
+            except Exception as notify_err:
+                logger.error(f"Telegram notification error: {notify_err}")
 
         return jsonify({"status": "success", "item_id": item_id})
 
     except Exception as e:
         logger.error(f"Error saving webapp listing: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": f"DB Error: {str(e)}"}), 500
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
