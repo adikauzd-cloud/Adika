@@ -1591,7 +1591,8 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 # ==============================================================================
 # 9. SELLER FLOW (መሸጥ / ማከራየት) - የተስተካከለ
 # ==============================================================================
-from telegram import WebAppInfo
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, Update, WebAppInfo
+from telegram.ext import ContextTypes, ConversationHandler
 
 async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -1729,7 +1730,11 @@ async def seller_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
     context.user_data['description'] = update.message.text
-    await update.message.reply_text("💰 **የሚሸጡበትን/ሚያከራዩበትን ዋጋ ያስገቡ፦**", reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True))
+    await update.message.reply_text(
+        "💰 **የሚሸጡበትን/ሚያከራዩበትን ዋጋ ያስገቡ፦**", 
+        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True),
+        parse_mode="Markdown"
+    )
     return SELLER_PRICE
 
 async def seller_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1741,7 +1746,7 @@ async def seller_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return SELLER_PRICE
     
     context.user_data['price'] = update.message.text
-    await update.message.reply_text("📞 **የስልክ ቁጥርዎን ያስገቡ፦**")
+    await update.message.reply_text("📞 **የስልክ ቁጥርዎን ያስገቡ፦**", parse_mode="Markdown")
     return SELLER_PHONE
 
 async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1753,15 +1758,18 @@ async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return SELLER_PHONE
     
     context.user_data['phone'] = update.message.text
-    await update.message.reply_text("📸 **የንብረቱን ፎቶ ይላኩ፦**")
+    await update.message.reply_text("📸 **የንብረቱን ፎቶ ይላኩ (ወይም 'ዝለል' የሚለውን ይጻፉ)፦**", parse_mode="Markdown")
     return SELLER_PHOTO
 
 async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+        
     photo_id = update.message.photo[-1].file_id if update.message.photo else None
     
     if not photo_id:
-        await update.message.reply_text("📸 **ፎቶ አልተላከም**\n\nያለ ፎቶ ማስታወቂያዎን ማስመዝገብ ይችላሉ።")
+        await update.message.reply_text("📸 **ፎቶ አልተላከም**\n\nያለ ፎቶ ማስታወቂያዎን በመመዝገብ ላይ ይገኛል...")
     
     property_subtype = context.user_data.get('property_subtype', '')
     description = context.user_data.get('description', '')
@@ -1792,7 +1800,8 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✅ **ማስታወቂያዎ በስኬት ተመዝግቧል!** 🎉\n\n"
             "📌 ማስታወቂያዎ ለደላሎች ተልኳል።\n"
             "📋 '📋 የፈላጊዎች ዝርዝር' ውስጥ ይታያል።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
         )
         
         notification_text = (
@@ -1805,7 +1814,8 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "❌ ማስታወቂያውን መመዝገብ አልተቻለም።\n\n"
             "💡 እባክዎ እንደገና ይሞክሩ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
         )
     
     return ConversationHandler.END
