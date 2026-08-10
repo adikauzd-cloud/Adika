@@ -1203,20 +1203,26 @@ async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 # ==============================================================================
-# 7. BUYER FLOW (ፈላጊ) - የተሻሻለ
+# 7. BUYER FLOW (ፈላጊ) - የተሻሻለ (Web App Integration)
 # ==============================================================================
+from telegram import WebAppInfo
+
 async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     context.user_data['req_type'] = 'BUY'
     
+    web_app_url = "https://adika-vrkk.onrender.com/buyer-form"
+    
     keyboard = [
+        [InlineKeyboardButton("🌐 በፎርም በፍጥነት ለመሙላት (WebApp)", web_app=WebAppInfo(url=web_app_url))],
         [InlineKeyboardButton("🚗 መኪና", callback_data="flow_buy_cat_car")],
         [InlineKeyboardButton("🏠 ቤት / ቦታ", callback_data="flow_buy_cat_house")],
         [InlineKeyboardButton("🏢 የሥራ ቦታ / ንግድ", callback_data="flow_buy_cat_commercial")],
         [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     await update.message.reply_text(
-        "🔍 **የሚፈልጉትን ምድብ ይምረጡ፦**",
+        "🔍 **የሚፈልጉትን ምድብ ይምረጡ፦**\n\n"
+        "💡 *በአንድ ገጽ ላይ በቀላሉ ለመሙላት 'በፎርም በፍጥነት ለመሙላት' የሚለውን አዝራር መጠቀም ይችላሉ።*",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -1390,7 +1396,6 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ ጥያቄውን መመዝገብ አልተቻለም። እባክዎ እንደገና ይሞክሩ።")
 
     return ConversationHandler.END
-
 # ==============================================================================
 # 8. BROKER RESPONSE FLOW (የተስተካከለ)
 # ==============================================================================
