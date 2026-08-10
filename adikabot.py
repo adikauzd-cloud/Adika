@@ -1427,20 +1427,26 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return ConversationHandler.END
 
 # ==============================================================================
-# 9. SELLER FLOW (መሸጥ / ማከራየት) - የተሻሻለ
+# 9. SELLER FLOW (መሸጥ / ማከራየት) - የተስተካከለ
 # ==============================================================================
+from telegram import WebAppInfo
+
 async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     context.user_data['req_type'] = 'SELL'
     
+    web_app_url = "https://adika-vrkk.onrender.com/seller-form"
+    
     keyboard = [
+        [InlineKeyboardButton("🌐 በፎርም በፍጥነት ለመሙላት (WebApp)", web_app=WebAppInfo(url=web_app_url))],
         [InlineKeyboardButton("🚗 መኪና", callback_data="flow_sell_cat_car")],
         [InlineKeyboardButton("🏠 ቤት / ቦታ", callback_data="flow_sell_cat_house")],
         [InlineKeyboardButton("🏢 የሥራ ቦታ / ንግድ", callback_data="flow_sell_cat_commercial")],
         [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     await update.message.reply_text(
-        "📢 **የሚሸጡትን ወይም የሚያከራዩትን ምድብ ይምረጡ፦**",
+        "📢 **የሚሸጡትን ወይም የሚያከራዩትን ምድብ ይምረጡ፦**\n\n"
+        "💡 *በአንድ ገጽ ላይ በቀላሉ ለመሙላት 'በፎርም በፍጥነት ለመሙላት' የሚለውን አዝራር መጠቀም ይችላሉ።*",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -1592,7 +1598,6 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     photo_id = update.message.photo[-1].file_id if update.message.photo else None
     
-    # ✅ ፎቶ ካልተላከም መቀጠል
     if not photo_id:
         await update.message.reply_text("📸 **ፎቶ አልተላከም**\n\nያለ ፎቶ ማስታወቂያዎን ማስመዝገብ ይችላሉ።")
     
@@ -1628,7 +1633,6 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         
-        # ✅ ለደላሎች ማሳወቅ
         notification_text = (
             f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ!**\n\n"
             f"{desc}\n\n"
