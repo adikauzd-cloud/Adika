@@ -232,110 +232,112 @@ def webapp_buyer_form():
 
 @web_app.route('/api/submit-listing', methods=['POST'])
 def submit_listing():
-    data = request.json or {}
-    user_id = data.get('user_id')
-    category = data.get('category', 'መኪና')
-    price = data.get('price', '')
-    description = data.get('description', '')
-    phone = data.get('phone', '')
+    try:
+        data = request.json or {}
+        user_id = data.get('user_id')
+        category = data.get('category', 'መኪና')
+        price = data.get('price', '')
+        description = data.get('description', '')
+        phone = data.get('phone', '')
 
-    if not user_id or user_id == "unknown":
-        return jsonify({"status": "error", "message": "User ID አልተገኘም"}), 400
+        logger.info(f"📥 Seller WebApp data received: {data}")
 
-    full_desc = (
-        f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ (WebApp)**\n"
-        f"📌 ምድብ: {category}\n"
-        f"💰 ዋጋ: {price} ብር\n"
-        f"📝 መግለጫ: {description}\n"
-        f"📞 ስልክ: {phone}"
-    )
+        if not user_id or user_id == "unknown":
+            return jsonify({"status": "error", "message": "User ID አልተገኘም። Telegram ውስጥ ክፈት።"}), 400
 
-    req_id = add_listing(
-        user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
-        user_name="WebApp User",
-        req_type="SELL",
-        main_category=category,
-        sub_category="",
-        action_type="መሸጥ",
-        property_type="",
-        description=full_desc,
-        price=price,
-        phone=phone,
-    )
+        full_desc = (
+            f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ (WebApp)**\n"
+            f"📌 ምድብ: {category}\n"
+            f"💰 ዋጋ: {price} ብር\n"
+            f"📝 መግለጫ: {description}\n"
+            f"📞 ስልክ: {phone}"
+        )
 
-    if req_id:
-        # Notify brokers (optional)
-        if bot_app:
-            try:
-                notification_text = (
-                    f"📢 **አዲስ የሽያጭ ማስታወቂያ! (#SELL-{req_id})**\n\n"
-                    f"{full_desc}"
-                )
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(
-                    notify_brokers(bot_app.bot, notification_text, req_id, int(user_id))
-                )
-                loop.close()
-            except Exception as e:
-                logger.error(f"Error notifying brokers from seller WebApp: {e}")
+        req_id = add_listing(
+            user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
+            user_name="WebApp User",
+            req_type="SELL",
+            main_category=category,
+            sub_category="",
+            action_type="መሸጥ",
+            property_type="",
+            description=full_desc,
+            price=str(price),
+            phone=str(phone),
+        )
 
-        return jsonify({"status": "success", "req_id": req_id})
-    
-    return jsonify({"status": "error", "message": "መረጃውን መመዝገብ አልተቻለም"}), 500
+        if req_id:
+            logger.info(f"✅ Seller listing saved with ID: {req_id}")
+            return jsonify({"status": "success", "req_id": req_id})
+        else:
+            return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም። Log ይመልከቱ።"}), 500
+
+    except Exception as e:
+        logger.error(f"❌ submit_listing error: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
 
 @web_app.route('/api/submit-request', methods=['POST'])
 def submit_request():
-    data = request.json or {}
-    user_id = data.get('user_id')
-    category = data.get('category', 'መኪና')
-    budget = data.get('budget', '')
-    details = data.get('details', '')
-    phone = data.get('phone', '')
+    try:
+        data = request.json or {}
+        user_id = data.get('user_id')
+        category = data.get('category', 'መኪና')
+        budget = data.get('budget', '')
+        details = data.get('details', '')
+        phone = data.get('phone', '')
 
-    if not user_id or user_id == "unknown":
-        return jsonify({"status": "error", "message": "User ID አልተገኘም"}), 400
+        logger.info(f"📥 Buyer WebApp data received: {data}")
 
-    full_desc = (
-        f"📌 **አዲስ የ{category} ጥያቄ (WebApp)**\n"
-        f"💰 በጀት: {budget} ብር\n"
-        f"📝 ዝርዝር: {details}\n"
-        f"📞 ስልክ: {phone}"
-    )
+        if not user_id or user_id == "unknown":
+            return jsonify({"status": "error", "message": "User ID አልተገኘም። Telegram ውስጥ ክፈት።"}), 400
 
-    req_id = add_listing(
-        user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
-        user_name="WebApp User",
-        req_type="BUY",
-        main_category=category,
-        sub_category="",
-        action_type="መግዛት",
-        property_type="",
-        description=full_desc,
-        price=budget,
-        phone=phone,
-    )
+        full_desc = (
+            f"📌 **አዲስ የ{category} ጥያቄ (WebApp)**\n"
+            f"💰 በጀት: {budget} ብር\n"
+            f"📝 ዝርዝር: {details}\n"
+            f"📞 ስልክ: {phone}"
+        )
 
-    if req_id:
-        if bot_app:
-            try:
-                notification_text = (
-                    f"🔔 **አዲስ የ{category} ጥያቄ! (#REQ-{req_id})**\n\n"
-                    f"{full_desc}\n\n"
-                    f"👉 ይህ ንብረት በእጅዎ ካለ **'አለኝ'** የሚለውን ይጫኑ!"
-                )
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                loop.run_until_complete(
-                    notify_brokers(bot_app.bot, notification_text, req_id, int(user_id))
-                )
-                loop.close()
-            except Exception as e:
-                logger.error(f"Error notifying brokers from buyer WebApp: {e}")
+        req_id = add_listing(
+            user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
+            user_name="WebApp User",
+            req_type="BUY",
+            main_category=category,
+            sub_category="",
+            action_type="መግዛት",
+            property_type="",
+            description=full_desc,
+            price=str(budget),
+            phone=str(phone),
+        )
 
-        return jsonify({"status": "success", "req_id": req_id})
+        if req_id:
+            logger.info(f"✅ Buyer request saved with ID: {req_id}")
 
-    return jsonify({"status": "error", "message": "መረጃውን መመዝገብ አልተቻለም"}), 500
+            # Notify brokers
+            if bot_app:
+                try:
+                    notification_text = (
+                        f"🔔 **አዲስ የ{category} ጥያቄ! (#REQ-{req_id})**\n\n"
+                        f"{full_desc}\n\n"
+                        f"👉 ይህ ንብረት በእጅዎ ካለ **'አለኝ'** የሚለውን ይጫኑ!"
+                    )
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop.run_until_complete(
+                        notify_brokers(bot_app.bot, notification_text, req_id, int(user_id))
+                    )
+                    loop.close()
+                except Exception as e:
+                    logger.error(f"Error notifying brokers: {e}")
+
+            return jsonify({"status": "success", "req_id": req_id})
+        else:
+            return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም። Log ይመልከቱ።"}), 500
+
+    except Exception as e:
+        logger.error(f"❌ submit_request error: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -489,27 +491,67 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
         cursor = conn.cursor()
         p = get_placeholder()
 
+        # አሮጌ table ካለ አዲስ columns ለመጨመር መሞከር
+        try:
+            if DATABASE_URL:
+                cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS price TEXT;")
+                cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS phone TEXT;")
+                cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS photo_id TEXT;")
+            else:
+                # SQLite
+                try:
+                    cursor.execute("ALTER TABLE listings ADD COLUMN price TEXT;")
+                except:
+                    pass
+                try:
+                    cursor.execute("ALTER TABLE listings ADD COLUMN phone TEXT;")
+                except:
+                    pass
+                try:
+                    cursor.execute("ALTER TABLE listings ADD COLUMN photo_id TEXT;")
+                except:
+                    pass
+                conn.commit()
+        except Exception as alter_err:
+            logger.warning(f"ALTER TABLE warning (may already exist): {alter_err}")
+
         query = f"""
             INSERT INTO listings 
             (user_chat_id, user_name, req_type, main_category, sub_category, 
-             action_type, property_type, description, price, phone, photo_id)
-            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p})
+             action_type, property_type, description, price, phone, photo_id, status)
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending')
         """
-        params = (user_chat_id, user_name, req_type, main_category, sub_category,
-                  action_type, property_type, description, price, phone, photo_id)
+        params = (
+            user_chat_id, 
+            user_name, 
+            req_type, 
+            main_category, 
+            sub_category or "",
+            action_type or "", 
+            property_type or "", 
+            description, 
+            price or "", 
+            phone or "", 
+            photo_id
+        )
 
         if DATABASE_URL:
             cursor.execute(query + " RETURNING id", params)
             row = cursor.fetchone()
+            if row is None:
+                logger.error("RETURNING id returned None")
+                return None
             req_id = row["id"] if isinstance(row, dict) else row[0]
         else:
             cursor.execute(query, params)
             req_id = cursor.lastrowid
             conn.commit()
 
+        logger.info(f"✅ Listing added successfully with ID: {req_id}")
         return req_id
+
     except Exception as e:
-        logger.error(f"Add listing error: {e}")
+        logger.error(f"❌ Add listing error: {e}", exc_info=True)
         return None
     finally:
         if conn:
