@@ -376,138 +376,66 @@ def run_flask():
 # 3. DATABASE CONNECTION & INITIALIZATION
 # ==============================================================================
 
-def get_db_connection():
-    if DATABASE_URL:
-        cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
-        if cleaned_url.startswith("postgres://"):
-            cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
-        conn = psycopg2.connect(cleaned_url, cursor_factory=RealDictCursor)
-        conn.autocommit = True
-        return conn
-    else:
-        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
+import sqlite3
+import logging
 
-def get_placeholder():
-    return "%s" if DATABASE_URL else "?"
+logger = logging.getLogger(__name__)
+
+DB_NAME = "adika_marketplace.db"
 
 def init_db():
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    
+    # የሽያጭ/ኪራይ መረጃዎች ሰንጠረዥ (Listings Table)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS listings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_chat_id INTEGER,
+            user_name TEXT,
+            username TEXT,
+            req_type TEXT,            -- SELL / RENT
+            main_category TEXT,       -- house / car / business
+            sub_category TEXT,
+            action_type TEXT,
+            property_type TEXT,
+            condition TEXT,           -- Brand New / Good / Needs Repair
+            location TEXT,            -- Sub-city / Location
+            price TEXT,
+            is_negotiable INTEGER DEFAULT 1, -- 1=Yes, 0=No
+            is_urgent INTEGER DEFAULT 0,     -- 1=Urgent, 0=Normal
+            contact_type TEXT,        -- phone / telegram
+            contact_value TEXT,       -- Phone number or @username
+            description TEXT,
+            photo_id TEXT,
+            status TEXT DEFAULT 'ACTIVE',    -- ACTIVE / SOLD / DELETED
+            is_verified INTEGER DEFAULT 0,  -- 1=Verified, 0=Unverified
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
 
-        if DATABASE_URL:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS listings (
-                    id SERIAL PRIMARY KEY,
-                    user_chat_id BIGINT NOT NULL,
-                    user_name TEXT,
-                    req_type TEXT NOT NULL,
-                    main_category TEXT NOT NULL,
-                    sub_category TEXT,
-                    action_type TEXT,
-                    property_type TEXT,
-                    description TEXT NOT NULL,
-                    price TEXT,
-                    phone TEXT,
-                    photo_id TEXT,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS brokers (
-                    id SERIAL PRIMARY KEY,
-                    chat_id BIGINT NOT NULL UNIQUE,
-                    full_name TEXT NOT NULL,
-                    phone TEXT NOT NULL,
-                    role_type TEXT NOT NULL,
-                    national_id_photo TEXT,
-                    sub_city TEXT NOT NULL,
-                    rating REAL DEFAULT 5.0,
-                    total_ratings INT DEFAULT 0,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS ratings (
-                    id SERIAL PRIMARY KEY,
-                    broker_chat_id BIGINT NOT NULL,
-                    user_chat_id BIGINT NOT NULL,
-                    stars INT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS broker_offers (
-                    id SERIAL PRIMARY KEY,
-                    request_id INTEGER NOT NULL,
-                    broker_id BIGINT NOT NULL,
-                    description TEXT,
-                    photo_id TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-        else:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS listings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_chat_id INTEGER NOT NULL,
-                    user_name TEXT,
-                    req_type TEXT NOT NULL,
-                    main_category TEXT NOT NULL,
-                    sub_category TEXT,
-                    action_type TEXT,
-                    property_type TEXT,
-                    description TEXT NOT NULL,
-                    price TEXT,
-                    phone TEXT,
-                    photo_id TEXT,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS brokers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chat_id INTEGER NOT NULL UNIQUE,
-                    full_name TEXT NOT NULL,
-                    phone TEXT NOT NULL,
-                    role_type TEXT NOT NULL,
-                    national_id_photo TEXT,
-                    sub_city TEXT NOT NULL,
-                    rating REAL DEFAULT 5.0,
-                    total_ratings INTEGER DEFAULT 0,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS ratings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    broker_chat_id INTEGER NOT NULL,
-                    user_chat_id INTEGER NOT NULL,
-                    stars INTEGER NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS broker_offers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    request_id INTEGER NOT NULL,
-                    broker_id INTEGER NOT NULL,
-                    description TEXT,
-                    photo_id TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            conn.commit()
+    # የፈላጊዎች መረጃ ሰንጠረዥ (Buyer Requests Table)
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS buyer_requests (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_chat_id INTEGER,
+            user_name TEXT,
+            username TEXT,
+            req_type TEXT,            -- BUY / RENT_SEARCH
+            main_category TEXT,
+            sub_category TEXT,
+            action_type TEXT,
+            property_type TEXT,
+            description TEXT,
+            phone TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
 
-        logger.info("✅ Adika Database initialized successfully")
-    except Exception as e:
-        logger.error(f"❌ Database initialization error: {e}")
-        if conn and not DATABASE_URL:
-            conn.rollback()
-    finally:
-        if conn:
-            conn.close()
+    conn.commit()
+    conn.close()
+    logger.info("Database initialized successfully.")
+
 
 # ==============================================================================
 # 4. DATABASE OPERATIONS
