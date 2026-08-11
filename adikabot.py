@@ -230,6 +230,35 @@ def webapp_seller_form():
 def webapp_buyer_form():
     return render_template_string(BUYER_FORM_HTML)
 
+
+def _send_notification_safe(notification_text: str, req_id: int, buyer_id: int):
+    """ከ Flask ውስጥ በአስተማማኝ መንገድ ለደላሎች ማሳወቂያ መላክ"""
+    if not bot_app:
+        logger.warning("bot_app is None – cannot send notification")
+        return
+
+    try:
+        async def _notify():
+            await notify_brokers(bot_app.bot, notification_text, req_id, buyer_id)
+
+        # አዲስ event loop በተለየ thread
+        def run_in_thread():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(_notify())
+                loop.close()
+                logger.info(f"✅ Notification sent for req_id={req_id}")
+            except Exception as e:
+                logger.error(f"❌ Notification thread error: {e}", exc_info=True)
+
+        t = threading.Thread(target=run_in_thread, daemon=True)
+        t.start()
+
+    except Exception as e:
+        logger.error(f"❌ Failed to start notification thread: {e}", exc_info=True)
+
+
 @web_app.route('/api/submit-listing', methods=['POST'])
 def submit_listing():
     try:
@@ -240,7 +269,7 @@ def submit_listing():
         description = data.get('description', '')
         phone = data.get('phone', '')
 
-        logger.info(f"📥 Seller WebApp data received: {data}")
+        logger.info(f"📥 Seller WebApp data: {data}")
 
         if not user_id or user_id == "unknown":
             return jsonify({"status": "error", "message": "User ID አልተገኘም። Telegram ውስጥ ክፈት።"}), 400
@@ -267,14 +296,23 @@ def submit_listing():
         )
 
         if req_id:
-            logger.info(f"✅ Seller listing saved with ID: {req_id}")
+            logger.info(f"✅ Seller listing saved ID={req_id}")
+
+            # ለደላሎች ማሳወቂያ
+            notification_text = (
+                f"📢 **አዲስ የሽያጭ ማስታወቂያ! (#SELL-{req_id})**\n\n"
+                f"{full_desc}"
+            )
+            _send_notification_safe(notification_text, req_id, int(user_id))
+
             return jsonify({"status": "success", "req_id": req_id})
         else:
-            return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም። Log ይመልከቱ።"}), 500
+            return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም።"}), 500
 
     except Exception as e:
         logger.error(f"❌ submit_listing error: {e}", exc_info=True)
         return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
+
 
 @web_app.route('/api/submit-request', methods=['POST'])
 def submit_request():
@@ -286,7 +324,7 @@ def submit_request():
         details = data.get('details', '')
         phone = data.get('phone', '')
 
-        logger.info(f"📥 Buyer WebApp data received: {data}")
+        logger.info(f"📥 Buyer WebApp data: {data}")
 
         if not user_id or user_id == "unknown":
             return jsonify({"status": "error", "message": "User ID አልተገኘም። Telegram ውስጥ ክፈት።"}), 400
@@ -312,32 +350,24 @@ def submit_request():
         )
 
         if req_id:
-            logger.info(f"✅ Buyer request saved with ID: {req_id}")
+            logger.info(f"✅ Buyer request saved ID={req_id}")
 
-            # Notify brokers
-            if bot_app:
-                try:
-                    notification_text = (
-                        f"🔔 **አዲስ የ{category} ጥያቄ! (#REQ-{req_id})**\n\n"
-                        f"{full_desc}\n\n"
-                        f"👉 ይህ ንብረት በእጅዎ ካለ **'አለኝ'** የሚለውን ይጫኑ!"
-                    )
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    loop.run_until_complete(
-                        notify_brokers(bot_app.bot, notification_text, req_id, int(user_id))
-                    )
-                    loop.close()
-                except Exception as e:
-                    logger.error(f"Error notifying brokers: {e}")
+            # ለደላሎች ማሳወቂያ
+            notification_text = (
+                f"🔔 **አዲስ የ{category} ጥያቄ! (#REQ-{req_id})**\n\n"
+                f"{full_desc}\n\n"
+                f"👉 ይህ ንብረት በእጅዎ ካለ **'አለኝ'** የሚለውን ይጫኑ!"
+            )
+            _send_notification_safe(notification_text, req_id, int(user_id))
 
             return jsonify({"status": "success", "req_id": req_id})
         else:
-            return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም። Log ይመልከቱ።"}), 500
+            return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም።"}), 500
 
     except Exception as e:
         logger.error(f"❌ submit_request error: {e}", exc_info=True)
         return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
+
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
