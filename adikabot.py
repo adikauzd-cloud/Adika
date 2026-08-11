@@ -320,7 +320,52 @@ def get_db_connection():
         conn = sqlite3.connect(DB_FILE)
         conn.row_factory = sqlite3.Row
         return conn
+        
+async def delete_request_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
+    """ጥያቄን ለማጥፋት - ለባለቤቱ እና ለአድሚን ብቻ"""
+    query = update.callback_query
+    await query.answer()
 
+    req_id_str = query.data.replace("delete_req_", "")
+    if not req_id_str.isdigit():
+        await query.message.reply_text("❌ የተሳሳተ የጥያቄ መታወቂያ (ID)።")
+        return
+
+    req_id = int(req_id_str)
+    listing = get_listing_by_id(req_id)
+
+    if not listing:
+        await query.message.reply_text("❌ ጥያቄው አልተገኘም ወይም አስቀድሞ ተሰርዟል።")
+        return
+
+    user_id = query.from_user.id
+    is_owner = listing.get("user_chat_id") == user_id
+    is_admin = user_id == ADMIN_CHAT_ID_INT
+
+    if not (is_owner or is_admin):
+        await query.answer(
+            "⛔ ይህን ጥያቄ ለማጥፋት ፈቃድ የለዎትም!", show_alert=True
+        )
+        return
+
+    success = update_listing_status(req_id, "deleted")
+    if success:
+        try:
+            await query.edit_message_text(
+                f"🗑️ **ጥያቄ #{req_id} በስኬት ተሰርዟል።**",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await query.message.reply_text(
+                f"🗑️ **ጥያቄ #{req_id} በስኬት ተሰርዟል።**",
+                parse_mode="Markdown",
+            )
+    else:
+        await query.message.reply_text(
+            "❌ ጥያቄውን ማጥፋት አልተቻለም። እባክዎ እንደገና ይሞክሩ።"
+        )
 # ==============================================================================
 # SECTION 1: DATABASE INITIALIZATION
 # ==============================================================================
