@@ -959,6 +959,37 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
             await asyncio.sleep(0.05)
         except Exception as e:
             logger.error(f"Failed to send notification to broker {b_id}: {e}")
+# ==============================================================================
+# 4. CONVERSATION STATES
+# ==============================================================================
+
+# የገዢ ስቴቶች (Buyer States)
+(
+    BUYER_MAIN, 
+    BUYER_SUB, 
+    BUYER_ACTION, 
+    BUYER_HTYPE, 
+    BUYER_PROPERTY, 
+    BUYER_DETAILS, 
+    BUYER_PHONE
+) = range(10, 17)
+
+# የሻጭ ስቴቶች (Seller States)
+(
+    SELLER_MAIN, 
+    SELLER_SUBCAT, 
+    SELLER_CONDITION, 
+    SELLER_LOCATION, 
+    SELLER_PRICE, 
+    SELLER_NEGOTIABLE, 
+    SELLER_URGENT, 
+    SELLER_DESC, 
+    SELLER_CONTACT_TYPE, 
+    SELLER_CONTACT_VAL, 
+    SELLER_PHOTO, 
+    SELLER_CONFIRM
+) = range(100, 112)
+
 
 # ==============================================================================
 # 7. SELLER HANDLERS & CONVERSATION
