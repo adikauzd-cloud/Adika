@@ -2321,31 +2321,31 @@ async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE)
     return BROKER_NID_PHOTO
 
 
-async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Receive ID photo and submit registration"""
-    if update.message and update.message.text == "🏠 ዋና ገጽ":
-        return await go_home(update, context)
+async def broker_reg_nid_photo(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
+    """የደላላ ምዝገባ መጨረሻ፦ መታወቂያ ተቀብሎ ማረጋገጫ መላክ"""
+    try:
+        user_data = context.user_data
+        user_id = update.effective_user.id
 
-    user = update.effective_user
-    
-    if not update.message or not update.message.photo:
+        # 1. የደላላውን መረጃ ዳታቤዝ ማስገባት
+        save_broker_profile(user_id=user_id, data=user_data)
+
+        # 2. የማረጋገጫ መልእክት
         await update.message.reply_text(
-            "❌ **እባክዎ የመታወቂያዎን ፎቶ ይላኩ!**\n\n"
-            "📸 ፎቶውን ከቴሌግራም ፋይል አባሪ አማራጭ በመጠቀም ይላኩ።\n"
-            "✏️ ጽሁፍ አይቀበልም።",
-            parse_mode="Markdown"
+            "✅ **ምዝገባዎ በስኬት ተጠናቋል!**\n\n"
+            "መረጃዎ በአድሚን ታይቶ ከጸደቀ በኋላ የፈላጊዎችን ጥያቄ ማየት እና መልስ መስጠት ይችላሉ።",
+            parse_mode="Markdown",
         )
-        return BROKER_NID_PHOTO
-        
-    existing_broker = get_broker(user.id)
-    if existing_broker:
+
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    except Exception as e:
+        logger.error(f"Error in broker_reg_nid_photo: {e}")
         await update.message.reply_text(
-            "ℹ️ **አስቀድመው ተመዝግበዋል!**\n\n"
-            f"👤 ስም: {existing_broker.get('full_name')}\n"
-            f"📊 ሁኔታ: {existing_broker.get('status')}\n\n"
-            "📌 ለውጥ ለማድረግ እባክዎን አድሚንን ያግኙ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-            parse_mode="Markdown"
+            "❌ ምዝገባውን ማጠናቀቅ አልተቻለም። እባክዎ እንደገና ይሞክሩ።"
         )
         return ConversationHandler.END
         
