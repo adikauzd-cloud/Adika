@@ -978,6 +978,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
     SELLER_SUB,
     SELLER_SUBCAT, 
     SELLER_ACTION, 
+    SELLER_PROPERTY,
     SELLER_CONDITION, 
     SELLER_LOCATION, 
     SELLER_PRICE, 
@@ -988,7 +989,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
     SELLER_CONTACT_VAL, 
     SELLER_PHOTO, 
     SELLER_CONFIRM
-) = range(100, 114)
+) = range(100, 115)
 
 
 # ==============================================================================
