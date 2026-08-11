@@ -1,5 +1,5 @@
 # ==============================================================================
-# ADIKA MARKETPLACE BOT - CLEAN VERSION
+# ADIKA MARKETPLACE BOT - CLEAN & FIXED VERSION
 # ==============================================================================
 
 import logging
@@ -34,7 +34,7 @@ from telegram.ext import (
 )
 
 # ==============================================================================
-# 1. CONFIGURATION & LOGGING
+# 1. CONFIGURATION, LOGGING & CONSTANTS
 # ==============================================================================
 
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -55,6 +55,46 @@ logger = logging.getLogger(__name__)
 
 # Global bot application (for Flask notifications)
 bot_app: Optional[Application] = None
+
+# UI Keyboards & Option Lists
+MAIN_KEYBOARD = [
+    ["🔍 መግዛት / መከራየት", "📢 መሸጥ / ማከራየት"],
+    ["📋 የፈላጊዎች ዝርዝር", "🛍️ የገበያ ቦታ (የሚሸጡ)"],
+    ["👥 የደላሎች/አቅራቢዎች ማውጫ", "📝 እንደ አቅራቢ/ደላላ መመዝገብ"],
+    ["📞 ድጋፍ"],
+]
+
+CAR_SUB_CATEGORIES = ["ቶዮታ", "ሱዙኪ", "ሁንዳይ", "ኒሳን", "ሌሎች"]
+PROPERTY_TYPES = ["መኖሪያ ቤት", "ንግድ ቤት", "ቦታ / መሬት"]
+HOUSE_TYPES = ["ቪላ", "ኮንዶሚኒየም", "አፓርትመንት", "ግቢ ቤት"]
+SUB_CITIES = [
+    "ቦሌ", "አራዳ", "አዲስ ከተማ", "ልደታ", "ቂርቆስ", 
+    "የካ", "ጉለሌ", "ኮልፌ ቀራኒዮ", "አካቂ ቃሊቲ", "ንፋስ ስልክ ላፍቶ", "ለሚ ኩራ"
+]
+
+# Conversation State Definitions
+(
+    SELLER_MAIN, SELLER_SUBCAT, SELLER_CONDITION, 
+    SELLER_LOCATION, SELLER_PRICE, SELLER_NEGOTIABLE, 
+    SELLER_URGENT, SELLER_DESC, SELLER_CONTACT_TYPE, 
+    SELLER_CONTACT_VAL, SELLER_PHOTO, SELLER_CONFIRM,
+    SELLER_ACTION, SELLER_SUB, SELLER_PROPERTY, SELLER_HTYPE,
+    SELLER_DETAILS, SELLER_PHONE
+) = range(100, 118)
+
+(
+    BUYER_MAIN, BUYER_ACTION, BUYER_SUB, 
+    BUYER_PROPERTY, BUYER_HTYPE, BUYER_DETAILS, BUYER_PHONE
+) = range(200, 207)
+
+(
+    BROKER_ROLE, BROKER_NAME, BROKER_PHONE, 
+    BROKER_SUBCITY, BROKER_NID_PHOTO
+) = range(300, 305)
+
+(
+    BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO
+) = range(400, 402)
 
 # ==============================================================================
 # 2. FLASK WEB SERVER & WEBAPP
@@ -241,7 +281,6 @@ def _send_notification_safe(notification_text: str, req_id: int, buyer_id: int):
         async def _notify():
             await notify_brokers(bot_app.bot, notification_text, req_id, buyer_id)
 
-        # አዲስ event loop በተለየ thread
         def run_in_thread():
             try:
                 loop = asyncio.new_event_loop()
@@ -298,7 +337,6 @@ def submit_listing():
         if req_id:
             logger.info(f"✅ Seller listing saved ID={req_id}")
 
-            # ለደላሎች ማሳወቂያ
             notification_text = (
                 f"📢 **አዲስ የሽያጭ ማስታወቂያ! (#SELL-{req_id})**\n\n"
                 f"{full_desc}"
@@ -352,7 +390,6 @@ def submit_request():
         if req_id:
             logger.info(f"✅ Buyer request saved ID={req_id}")
 
-            # ለደላሎች ማሳወቂያ
             notification_text = (
                 f"🔔 **አዲስ የ{category} ጥያቄ! (#REQ-{req_id})**\n\n"
                 f"{full_desc}\n\n"
@@ -372,58 +409,168 @@ def submit_request():
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host="0.0.0.0", port=port, use_reloader=False)
+
+
 # ==============================================================================
-# 2. DATABASE MANAGEMENT
+# 3. DATABASE MANAGEMENT & CONNECTION HELPERS
 # ==============================================================================
 
-DB_NAME = "adika_marketplace.db"
+def get_db_connection():
+    if DATABASE_URL:
+        return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def get_placeholder():
+    return "%s" if DATABASE_URL else "?"
 
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = get_db_connection()
     cursor = conn.cursor()
     
-    # 1. የሽያጭ/ኪራይ መረጃዎች ሰንጠረዥ (Updated Seller/Listings Table)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS listings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_chat_id INTEGER,
-            user_name TEXT,
-            username TEXT,
-            req_type TEXT,            -- SELL / RENT
-            main_category TEXT,       -- house / car / business
-            sub_category TEXT,
-            condition TEXT,           -- Brand New / Good / Needs Repair
-            location TEXT,            -- Sub-city / Specific location
-            price TEXT,
-            is_negotiable INTEGER DEFAULT 1, -- 1=የሚደራደር, 0=የማይደራደር
-            is_urgent INTEGER DEFAULT 0,     -- 1=አስቸኳይ, 0=መደበኛ
-            contact_type TEXT,        -- phone / telegram
-            contact_value TEXT,       -- Phone number or Telegram @username
-            description TEXT,
-            photo_id TEXT,
-            status TEXT DEFAULT 'ACTIVE',    -- ACTIVE / SOLD / DELETED
-            is_verified INTEGER DEFAULT 0,  -- 1=Verified, 0=Unverified
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-
-    # 2. የገዢዎች መረጃ ሰንጠረዥ (የነበረው ሳይነካ ይቀጥላል)
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS buyer_requests (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_chat_id INTEGER,
-            user_name TEXT,
-            username TEXT,
-            req_type TEXT,
-            main_category TEXT,
-            sub_category TEXT,
-            action_type TEXT,
-            property_type TEXT,
-            description TEXT,
-            phone TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
+    if DATABASE_URL:
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS listings (
+                id SERIAL PRIMARY KEY,
+                user_chat_id BIGINT,
+                user_name TEXT,
+                username TEXT,
+                req_type TEXT,
+                main_category TEXT,
+                sub_category TEXT,
+                action_type TEXT,
+                property_type TEXT,
+                condition TEXT,
+                location TEXT,
+                price TEXT,
+                is_negotiable INT DEFAULT 1,
+                is_urgent INT DEFAULT 0,
+                contact_type TEXT,
+                contact_value TEXT,
+                description TEXT,
+                phone TEXT,
+                photo_id TEXT,
+                status TEXT DEFAULT 'pending',
+                is_verified INT DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS buyer_requests (
+                id SERIAL PRIMARY KEY,
+                user_chat_id BIGINT,
+                user_name TEXT,
+                username TEXT,
+                req_type TEXT,
+                main_category TEXT,
+                sub_category TEXT,
+                action_type TEXT,
+                property_type TEXT,
+                description TEXT,
+                phone TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS brokers (
+                id SERIAL PRIMARY KEY,
+                chat_id BIGINT UNIQUE,
+                full_name TEXT,
+                phone TEXT,
+                role_type TEXT,
+                national_id_photo TEXT,
+                sub_city TEXT,
+                rating FLOAT DEFAULT 5.0,
+                total_ratings INT DEFAULT 0,
+                status TEXT DEFAULT 'pending'
+            );
+            CREATE TABLE IF NOT EXISTS broker_offers (
+                id SERIAL PRIMARY KEY,
+                request_id INT,
+                broker_id BIGINT,
+                description TEXT,
+                photo_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS ratings (
+                id SERIAL PRIMARY KEY,
+                broker_chat_id BIGINT,
+                user_chat_id BIGINT,
+                stars INT
+            );
+        ''')
+    else:
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS listings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_chat_id INTEGER,
+                user_name TEXT,
+                username TEXT,
+                req_type TEXT,
+                main_category TEXT,
+                sub_category TEXT,
+                action_type TEXT,
+                property_type TEXT,
+                condition TEXT,
+                location TEXT,
+                price TEXT,
+                is_negotiable INTEGER DEFAULT 1,
+                is_urgent INTEGER DEFAULT 0,
+                contact_type TEXT,
+                contact_value TEXT,
+                description TEXT,
+                phone TEXT,
+                photo_id TEXT,
+                status TEXT DEFAULT 'pending',
+                is_verified INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS buyer_requests (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_chat_id INTEGER,
+                user_name TEXT,
+                username TEXT,
+                req_type TEXT,
+                main_category TEXT,
+                sub_category TEXT,
+                action_type TEXT,
+                property_type TEXT,
+                description TEXT,
+                phone TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS brokers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER UNIQUE,
+                full_name TEXT,
+                phone TEXT,
+                role_type TEXT,
+                national_id_photo TEXT,
+                sub_city TEXT,
+                rating REAL DEFAULT 5.0,
+                total_ratings INTEGER DEFAULT 0,
+                status TEXT DEFAULT 'pending'
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS broker_offers (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id INTEGER,
+                broker_id INTEGER,
+                description TEXT,
+                photo_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS ratings (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                broker_chat_id INTEGER,
+                user_chat_id INTEGER,
+                stars INTEGER
+            )
+        ''')
 
     conn.commit()
     conn.close()
@@ -440,30 +587,6 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
-
-        # አሮጌ table ካለ አዲስ columns ለመጨመር መሞከር
-        try:
-            if DATABASE_URL:
-                cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS price TEXT;")
-                cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS phone TEXT;")
-                cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS photo_id TEXT;")
-            else:
-                # SQLite
-                try:
-                    cursor.execute("ALTER TABLE listings ADD COLUMN price TEXT;")
-                except:
-                    pass
-                try:
-                    cursor.execute("ALTER TABLE listings ADD COLUMN phone TEXT;")
-                except:
-                    pass
-                try:
-                    cursor.execute("ALTER TABLE listings ADD COLUMN photo_id TEXT;")
-                except:
-                    pass
-                conn.commit()
-        except Exception as alter_err:
-            logger.warning(f"ALTER TABLE warning (may already exist): {alter_err}")
 
         query = f"""
             INSERT INTO listings 
@@ -492,6 +615,7 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                 logger.error("RETURNING id returned None")
                 return None
             req_id = row["id"] if isinstance(row, dict) else row[0]
+            conn.commit()
         else:
             cursor.execute(query, params)
             req_id = cursor.lastrowid
@@ -506,6 +630,24 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
     finally:
         if conn:
             conn.close()
+
+def save_seller_listing(user_id: int, full_name: str, username: str, data: dict):
+    contact_val = data.get('contact_value', '')
+    phone = contact_val if data.get('contact_type') == 'phone' else ''
+    
+    return add_listing(
+        user_chat_id=user_id,
+        user_name=full_name,
+        req_type="SELL",
+        main_category=data.get('main_category', ''),
+        sub_category=data.get('sub_category', ''),
+        action_type="መሸጥ",
+        property_type="",
+        description=data.get('description', ''),
+        price=data.get('price', ''),
+        phone=phone,
+        photo_id=data.get('photo_id')
+    )
 
 def get_listing_by_id(listing_id: int):
     conn = None
@@ -572,8 +714,7 @@ def update_listing_status(req_id: int, status: str) -> bool:
         cursor = conn.cursor()
         p = get_placeholder()
         cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
-        if not DATABASE_URL:
-            conn.commit()
+        conn.commit()
         return True
     except Exception as e:
         logger.error(f"Update listing error: {e}")
@@ -624,26 +765,14 @@ def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city
         existing = cursor.fetchone()
 
         if existing:
-            if DATABASE_URL:
-                query = f"""
-                    UPDATE brokers 
-                    SET full_name = {p}, phone = {p}, role_type = {p},
-                        national_id_photo = {p}, sub_city = {p}, status = 'pending'
-                    WHERE chat_id = {p} RETURNING id
-                """
-                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
-                row = cursor.fetchone()
-                broker_id = row["id"] if isinstance(row, dict) else row[0]
-            else:
-                query = """
-                    UPDATE brokers 
-                    SET full_name = ?, phone = ?, role_type = ?,
-                        national_id_photo = ?, sub_city = ?, status = 'pending'
-                    WHERE chat_id = ?
-                """
-                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
-                broker_id = existing[0] if not isinstance(existing, dict) else existing["id"]
-                conn.commit()
+            query = f"""
+                UPDATE brokers 
+                SET full_name = {p}, phone = {p}, role_type = {p},
+                    national_id_photo = {p}, sub_city = {p}, status = 'pending'
+                WHERE chat_id = {p}
+            """
+            cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
+            broker_id = existing[0] if not isinstance(existing, dict) else existing["id"]
         else:
             if DATABASE_URL:
                 query = f"""
@@ -660,8 +789,8 @@ def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city
                 """
                 cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city))
                 broker_id = cursor.lastrowid
-                conn.commit()
 
+        conn.commit()
         return broker_id
     except Exception as e:
         logger.error(f"Add broker error: {e}")
@@ -693,8 +822,7 @@ def update_broker_status(chat_id: int, status: str) -> bool:
         cursor = conn.cursor()
         p = get_placeholder()
         cursor.execute(f"UPDATE brokers SET status = {p} WHERE chat_id = {p}", (status.lower(), chat_id))
-        if not DATABASE_URL:
-            conn.commit()
+        conn.commit()
         return True
     except Exception as e:
         logger.error(f"Update broker status error: {e}")
@@ -758,8 +886,7 @@ def save_broker_offer(request_id: int, broker_id: int, description: str, photo_i
             INSERT INTO broker_offers (request_id, broker_id, description, photo_id)
             VALUES ({p}, {p}, {p}, {p})
         """, (request_id, broker_id, description, photo_id))
-        if not DATABASE_URL:
-            conn.commit()
+        conn.commit()
         return True
     except Exception as e:
         logger.error(f"Save broker offer error: {e}")
@@ -793,8 +920,7 @@ def add_broker_rating(broker_chat_id, user_chat_id, stars):
             (round(float(avg_stars or 5.0), 1), total_count, broker_chat_id)
         )
 
-        if not DATABASE_URL:
-            conn.commit()
+        conn.commit()
         return True
     except Exception as e:
         logger.error(f"Add broker rating error: {e}")
@@ -803,11 +929,11 @@ def add_broker_rating(broker_chat_id, user_chat_id, stars):
         if conn:
             conn.close()
 
+
 # ==============================================================================
-# 5. CONSTANTS & KEYBOARDS
+# 5. KEYBOARDS & HELPER FORMATTERS
 # ==============================================================================
 
-# 1. ለደላሎች የሚላከው ካርድ ቁልፎች (#2 & #21)
 def build_broker_card_keyboard(listing_id: int):
     return InlineKeyboardMarkup([
         [
@@ -819,7 +945,6 @@ def build_broker_card_keyboard(listing_id: int):
         ]
     ])
 
-# 2. ሻጭ ከመለጠፉ በፊት የሚያየው ማረጋገጫ (#3)
 def build_seller_confirmation_keyboard():
     return InlineKeyboardMarkup([
         [
@@ -828,7 +953,6 @@ def build_seller_confirmation_keyboard():
         ]
     ])
 
-# 3. የባለቤት ዕቃ አስተዳደር ቁልፍ (#7)
 def build_owner_manage_keyboard(listing_id: int):
     return InlineKeyboardMarkup([
         [
@@ -837,39 +961,25 @@ def build_owner_manage_keyboard(listing_id: int):
         ]
     ])
 
-# 4. የሻጭ ካርድ ዲዛይን አዘጋጅ (#5, #8, #10, #13, #14)
 def format_seller_card(data: dict) -> str:
     urgent_badge = "⚡ **[አስቸኳይ ሽያጭ]**\n" if data.get('is_urgent') else ""
     verified_badge = " ✔️ *Verified Listing*" if data.get('is_verified') else ""
     negotiable_text = "የሚደራደር" if data.get('is_negotiable') else "የማይደራደር"
     
     contact_type = data.get('contact_type', 'phone')
-    contact_val = data.get('contact_value', '')
+    contact_val = data.get('contact_value') or data.get('phone') or ''
     contact_display = f"📞 `{contact_val}`" if contact_type == 'phone' else f"✈️ @{contact_val.replace('@', '')}"
 
     card_text = (
         f"{urgent_badge}"
-        f"📌 **{data.get('main_category', '').upper()} - {data.get('sub_category', '')}**{verified_badge}\n\n"
+        f"📌 **{str(data.get('main_category', '')).upper()} - {data.get('sub_category', '')}**{verified_badge}\n\n"
         f"⚙️ **ሁኔታ፦** {data.get('condition', 'ያልተገለጸ')}\n"
         f"📍 **ክፍለ-ከተማ/ቦታ፦** {data.get('location', 'ያልተጠቀሰ')}\n"
-        f"💵 **ዋጋ፦** {data.get('price')} ብር ({negotiable_text})\n\n"
+        f"💵 **ዋጋ፦** {data.get('price', '-')} ብር ({negotiable_text})\n\n"
         f"📝 **ዝርዝር መረጃ፦**\n{data.get('description', '')}\n\n"
         f"🔗 **መገናኛ፦** {contact_display}"
     )
     return card_text
-
-# ==============================================================================
-# 6. HELPER FUNCTIONS
-# ==============================================================================
-
-def validate_phone(phone: str) -> bool:
-    phone = phone.replace(' ', '').replace('-', '')
-    pattern = r'^(09|07|01)\d{8}$|^\+251(9|7|1)\d{8}$'
-    return bool(re.match(pattern, phone))
-
-def validate_price(price: str) -> bool:
-    price = price.replace(',', '').replace(' ', '')
-    return price.isdigit()
 
 def format_buyer_card(req: dict) -> str:
     req_id = req.get('id', 'N/A')
@@ -893,29 +1003,6 @@ def format_buyer_card(req: dict) -> str:
         f"💡 *ደላላ ከሆኑና ይህ ንብረት በእጅዎ ካለ ከታች ያለውን አዝራር ይጫኑ።*"
     )
 
-def format_seller_card(item: dict) -> str:
-    item_id = item.get('id', 'N/A')
-    main_cat = item.get('main_category', '')
-    action_type = item.get('action_type', '')
-    sub_cat = item.get('sub_category', '-')
-    desc = item.get('description', '')
-    price = item.get('price', 'በድርድር')
-    phone = item.get('phone', '-')
-
-    icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-    tag = "🔴 ለሽያጭ" if action_type in ["መሸጥ", "SELL"] else "🔵 ለኪራይ"
-
-    return (
-        f"{icon} **[ለገበያ የቀረበ - #{item_id}]** {tag}\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"📦 **አይነት፦** {main_cat} ({sub_cat})\n"
-        f"💰 **ዋጋ፦** `{price}`\n\n"
-        f"📋 **መግለጫ፦**\n_{desc}_\n\n"
-        f"📞 **የባለቤቱ/አቅራቢው ስልክ፦** `{phone}`\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"✨ *ለበለጠ መረጃ በስልክ ቁጥሩ በቀጥታ ይደውሉ።*"
-    )
-
 def format_broker_profile(b: dict) -> str:
     stars = "⭐" * int(float(b.get('rating', 5)))
     return (
@@ -926,6 +1013,15 @@ def format_broker_profile(b: dict) -> str:
         f"ደረጃ፦ {b.get('rating', 5.0)}/5.0 {stars}\n"
         f"───────────────────"
     )
+
+def validate_phone(phone: str) -> bool:
+    phone = phone.replace(' ', '').replace('-', '')
+    pattern = r'^(09|07|01)\d{8}$|^\+251(9|7|1)\d{8}$'
+    return bool(re.match(pattern, phone))
+
+def validate_price(price: str) -> bool:
+    price = price.replace(',', '').replace(' ', '')
+    return price.isdigit()
 
 def get_nav_buttons(back_callback: str = None) -> list:
     buttons = []
@@ -959,21 +1055,20 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
             await asyncio.sleep(0.05)
         except Exception as e:
             logger.error(f"Failed to send notification to broker {b_id}: {e}")
-NameError: name 'BROKER_SUBCITY' is not defined
+
+async def notify_brokers_new_listing(bot, data: dict):
+    req_id = data.get('id', 0)
+    msg = f"📢 **አዲስ የሽያጭ ማስታወቂያ! (#SELL-{req_id})**\n\n{format_seller_card(data)}"
+    await notify_brokers(bot, msg, req_id, 0)
+
+async def post_to_channel(bot, data: dict):
+    logger.info(f"Listing #{data.get('id')} ready for channel posting.")
+
 
 # ==============================================================================
-# 7. SELLER HANDLERS & CONVERSATION
+# 6. SELLER STEP HANDLERS
 # ==============================================================================
 
-# State Definitions (ለሻጭ ብቻ)
-(
-    SELLER_MAIN, SELLER_SUBCAT, SELLER_CONDITION, 
-    SELLER_LOCATION, SELLER_PRICE, SELLER_NEGOTIABLE, 
-    SELLER_URGENT, SELLER_DESC, SELLER_CONTACT_TYPE, 
-    SELLER_CONTACT_VAL, SELLER_PHOTO, SELLER_CONFIRM
-) = range(100, 112)
-
-# 1. ንኡስ ምድብ እና የጽሁፍ ማስተካከያ (#6)
 async def seller_subcat_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -995,7 +1090,6 @@ async def seller_subcat_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     return SELLER_CONDITION
 
-# 2. የንብረት ሁኔታ ከተመረጠ በኋላ አድራሻ/ቦታ መቀበል (#9)
 async def seller_condition_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1008,13 +1102,11 @@ async def seller_condition_chosen(update: Update, context: ContextTypes.DEFAULT_
     )
     return SELLER_LOCATION
 
-# 3. አድራሻ ሲገባ ዋጋ መጠየቅ
 async def seller_location_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['location'] = update.message.text.strip()
     await update.message.reply_text("💵 **የመሸጫ/የመኪራያ ዋጋ በብር ያስገቡ፦**")
     return SELLER_PRICE
 
-# 4. ዋጋ ሲገባ የድርድር ሁኔታ መጠየቅ (#8)
 async def seller_price_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['price'] = update.message.text.strip()
     
@@ -1031,7 +1123,6 @@ async def seller_price_received(update: Update, context: ContextTypes.DEFAULT_TY
     )
     return SELLER_NEGOTIABLE
 
-# 5. የአስቸኳይ ሽያጭ ጥያቄ (#14)
 async def seller_negotiable_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1051,7 +1142,6 @@ async def seller_negotiable_chosen(update: Update, context: ContextTypes.DEFAULT
     )
     return SELLER_URGENT
 
-# 6. ዝርዝር መግለጫ መጠየቅ
 async def seller_urgent_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1064,7 +1154,6 @@ async def seller_urgent_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     return SELLER_DESC
 
-# 7. የመገናኛ ምርጫ መጠየቅ (#5)
 async def seller_desc_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['description'] = update.message.text.strip()
     
@@ -1081,7 +1170,6 @@ async def seller_desc_received(update: Update, context: ContextTypes.DEFAULT_TYP
     )
     return SELLER_CONTACT_TYPE
 
-# 8. የመገናኛ መረጃ መቀበል (#5)
 async def seller_contact_type_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -1107,7 +1195,6 @@ async def seller_contact_val_received(update: Update, context: ContextTypes.DEFA
     await update.message.reply_text("🖼 **አሁን የንብረቱን ፎቶ ይላኩ፦**")
     return SELLER_PHOTO
 
-# 9. ፎቶ መቀበል እና ቅድመ-እይታ ከነ ማረጋገጫ ቁልፎች ማሳየት (#1, #3)
 async def seller_photo_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.photo:
         context.user_data['photo_id'] = update.message.photo[-1].file_id
@@ -1132,31 +1219,36 @@ async def seller_photo_received(update: Update, context: ContextTypes.DEFAULT_TY
         )
     return SELLER_CONFIRM
 
-# 10. ማረጋገጫ እና መለጠፍ / መሰረዝ (#3, #28)
 async def seller_confirm_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
     if query.data == "seller_cancel_post":
-        await query.edit_message_caption("❌ **ማስታወቂያው ተሰርዟል።**") if query.message.photo else await query.edit_message_text("❌ **ማስታወቂያው ተሰርዟል።**")
+        if query.message.photo:
+            await query.edit_message_caption("❌ **ማስታወቂያው ተሰርዟል።**")
+        else:
+            await query.edit_message_text("❌ **ማስታወቂያው ተሰርዟል።**")
         context.user_data.clear()
         return ConversationHandler.END
 
     user = update.effective_user
-    listing_id = save_seller_listing(user.id, user.full_name, user.username, context.user_data)
+    listing_id = save_seller_listing(user.id, user.full_name or "User", user.username or "", context.user_data)
     
     if listing_id:
         context.user_data['id'] = listing_id
         
-        await query.edit_message_caption(
-            caption=f"✅ **ማስታወቂያዎ በስኬት ተለጥፏል! (#LIST-{listing_id})**\n\n{format_seller_card(context.user_data)}",
-            reply_markup=build_owner_manage_keyboard(listing_id),
-            parse_mode="Markdown"
-        ) if query.message.photo else await query.edit_message_text(
-            text=f"✅ **ማስታወቂያዎ በስኬት ተለጥፏል! (#LIST-{listing_id})**\n\n{format_seller_card(context.user_data)}",
-            reply_markup=build_owner_manage_keyboard(listing_id),
-            parse_mode="Markdown"
-        )
+        if query.message.photo:
+            await query.edit_message_caption(
+                caption=f"✅ **ማስታወቂያዎ በስኬት ተለጥፏል! (#LIST-{listing_id})**\n\n{format_seller_card(context.user_data)}",
+                reply_markup=build_owner_manage_keyboard(listing_id),
+                parse_mode="Markdown"
+            )
+        else:
+            await query.edit_message_text(
+                text=f"✅ **ማስታወቂያዎ በስኬት ተለጥፏል! (#LIST-{listing_id})**\n\n{format_seller_card(context.user_data)}",
+                reply_markup=build_owner_manage_keyboard(listing_id),
+                parse_mode="Markdown"
+            )
         
         await notify_brokers_new_listing(context.bot, context.user_data)
         await post_to_channel(context.bot, context.user_data)
@@ -1166,8 +1258,9 @@ async def seller_confirm_action(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data.clear()
     return ConversationHandler.END
 
+
 # ==============================================================================
-# 8. START & HOME HANDLERS
+# 7. START & HOME HANDLERS
 # ==============================================================================
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1206,8 +1299,9 @@ async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     return ConversationHandler.END
 
+
 # ==============================================================================
-# 9. BUYER FLOW
+# 8. BUYER FLOW
 # ==============================================================================
 
 async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1393,7 +1487,6 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown",
         )
 
-        # Notify brokers
         notification_text = (
             f"🔔 **አዲስ ጥያቄ! (#REQ-{req_id})**\n\n"
             f"{desc}\n\n"
@@ -1407,8 +1500,9 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return ConversationHandler.END
 
+
 # ==============================================================================
-# 10. SELLER FLOW
+# 9. SELLER FLOW
 # ==============================================================================
 
 async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1639,8 +1733,9 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     return ConversationHandler.END
 
+
 # ==============================================================================
-# 11. BROKER REGISTRATION
+# 10. BROKER REGISTRATION
 # ==============================================================================
 
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1787,8 +1882,9 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data.clear()
     return ConversationHandler.END
 
+
 # ==============================================================================
-# 12. BROKER OFFER FLOW
+# 11. BROKER OFFER FLOW
 # ==============================================================================
 
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1880,8 +1976,6 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
         photo_id = None
         if update.message.photo:
             photo_id = update.message.photo[-1].file_id
-        elif update.message.text and update.message.text != "ፎቶ የለውም":
-            pass
 
         save_broker_offer(int(req_id), broker_user.id, offer_text, photo_id)
 
@@ -1933,8 +2027,9 @@ async def nohave_item_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         parse_mode="Markdown"
     )
 
+
 # ==============================================================================
-# 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY
+# 12. VIEW REQUESTS / MARKETPLACE / DIRECTORY
 # ==============================================================================
 
 async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2058,8 +2153,9 @@ async def filter_brokers_by_subcity_callback(update: Update, context: ContextTyp
 
     await query.edit_message_text(msg, parse_mode="Markdown")
 
+
 # ==============================================================================
-# 14. ADMIN HANDLERS
+# 13. ADMIN HANDLERS
 # ==============================================================================
 
 async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2156,8 +2252,9 @@ async def delete_request_callback(update: Update, context: ContextTypes.DEFAULT_
     else:
         await query.message.reply_text("❌ ጥያቄውን ማጥፋት አልተቻለም።")
 
+
 # ==============================================================================
-# 15. SUPPORT HANDLER
+# 14. SUPPORT HANDLER
 # ==============================================================================
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2181,8 +2278,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif update.callback_query:
         await update.callback_query.edit_message_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
+
 # ==============================================================================
-# 16. MAIN ENGINE
+# 15. MAIN ENGINE
 # ==============================================================================
 
 def main():
@@ -2219,15 +2317,36 @@ def main():
         states={
             SELLER_MAIN: [CallbackQueryHandler(seller_category_chosen, pattern="^flow_sell_cat_"), cancel_handler],
             SELLER_ACTION: [CallbackQueryHandler(seller_action_chosen, pattern="^flow_sell_action_"), cancel_handler],
-            SELLER_SUB: [CallbackQueryHandler(seller_sub_chosen, pattern="^flow_sell_sub_"), cancel_handler],
+            SELLER_SUB: [
+                CallbackQueryHandler(seller_sub_chosen, pattern="^flow_sell_sub_"), 
+                CallbackQueryHandler(seller_subcat_chosen, pattern="^sell_sub_"),
+                cancel_handler
+            ],
+            SELLER_CONDITION: [CallbackQueryHandler(seller_condition_chosen, pattern="^cond_"), cancel_handler],
+            SELLER_LOCATION: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_location_received), cancel_handler],
+            SELLER_NEGOTIABLE: [CallbackQueryHandler(seller_negotiable_chosen, pattern="^neg_"), cancel_handler],
+            SELLER_URGENT: [CallbackQueryHandler(seller_urgent_chosen, pattern="^urg_"), cancel_handler],
+            SELLER_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_desc_received), cancel_handler],
+            SELLER_CONTACT_TYPE: [CallbackQueryHandler(seller_contact_type_chosen, pattern="^contact_"), cancel_handler],
+            SELLER_CONTACT_VAL: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_contact_val_received), cancel_handler],
             SELLER_PROPERTY: [CallbackQueryHandler(seller_property_chosen, pattern="^flow_sell_prop_"), cancel_handler],
             SELLER_HTYPE: [CallbackQueryHandler(seller_htype_chosen, pattern="^flow_sell_htype_"), cancel_handler],
             SELLER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_details), cancel_handler],
-            SELLER_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_price), cancel_handler],
+            SELLER_PRICE: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, seller_price),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, seller_price_received),
+                cancel_handler
+            ],
             SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_phone), cancel_handler],
             SELLER_PHOTO: [
                 MessageHandler(filters.PHOTO, seller_photo),
+                MessageHandler(filters.PHOTO, seller_photo_received),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, seller_photo),
+                cancel_handler
+            ],
+            SELLER_CONFIRM: [
+                CallbackQueryHandler(seller_confirm_action, pattern="^seller_confirm_post$"),
+                CallbackQueryHandler(seller_confirm_action, pattern="^seller_cancel_post$"),
                 cancel_handler
             ],
         },
