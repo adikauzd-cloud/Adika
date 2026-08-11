@@ -2108,3 +2108,80 @@ def main():
     )
 
     # Seller Conversation (Updated - Batch 1)
+    seller_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📢 መሸጥ / ማከራየት$"), seller_start)],
+        states={
+            SELLER_MAIN: [CallbackQueryHandler(seller_category_chosen, pattern="^flow_sell_cat_"), cancel_handler],
+            SELLER_ACTION: [CallbackQueryHandler(seller_action_chosen, pattern="^flow_sell_action_"), cancel_handler],
+            SELLER_SUB: [CallbackQueryHandler(seller_sub_chosen, pattern="^flow_sell_sub_"), cancel_handler],
+            SELLER_PROPERTY: [CallbackQueryHandler(seller_property_chosen, pattern="^flow_sell_prop_"), cancel_handler],
+            SELLER_HTYPE: [CallbackQueryHandler(seller_htype_chosen, pattern="^flow_sell_htype_"), cancel_handler],
+            SELLER_DETAILS: [MessageHandler(filters.TEXT & \~filters.COMMAND, seller_details), cancel_handler],
+            SELLER_PRICE: [MessageHandler(filters.TEXT & \~filters.COMMAND, seller_price), cancel_handler],
+            SELLER_CONTACT_TYPE: [CallbackQueryHandler(seller_contact_type, pattern="^contact_"), cancel_handler],
+            SELLER_CONTACT_VALUE: [MessageHandler(filters.TEXT & \~filters.COMMAND, seller_contact_value), cancel_handler],
+            SELLER_PHOTO: [
+                MessageHandler(filters.PHOTO, seller_photo),
+                MessageHandler(filters.TEXT & \~filters.COMMAND, seller_photo),
+                cancel_handler
+            ],
+            SELLER_CONFIRM: [CallbackQueryHandler(seller_confirm, pattern="^seller_confirm_"), cancel_handler],
+        },
+        fallbacks=[CommandHandler("start", start), cancel_handler],
+        allow_reentry=True,
+    )
+
+    # Broker Registration
+    broker_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)],
+        states={
+            BROKER_ROLE: [CallbackQueryHandler(broker_role_chosen, pattern="^role_"), cancel_handler],
+            BROKER_NAME: [MessageHandler(filters.TEXT & \~filters.COMMAND, broker_reg_name), cancel_handler],
+            BROKER_PHONE: [MessageHandler(filters.TEXT & \~filters.COMMAND, broker_reg_phone), cancel_handler],
+            BROKER_SUBCITY: [CallbackQueryHandler(broker_reg_subcity, pattern="^broker_sc_"), cancel_handler],
+            BROKER_NID_PHOTO: [MessageHandler(filters.PHOTO, broker_reg_nid_photo), cancel_handler],
+        },
+        fallbacks=[CommandHandler("start", start), cancel_handler],
+        allow_reentry=True,
+    )
+
+    # Broker Offer Response
+    broker_response_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
+        states={
+            BROKER_OFFER_TEXT: [MessageHandler(filters.TEXT & \~filters.COMMAND, broker_offer_text), cancel_handler],
+            BROKER_OFFER_PHOTO: [
+                MessageHandler(filters.PHOTO, broker_offer_photo),
+                MessageHandler(filters.TEXT & \~filters.COMMAND, broker_offer_photo),
+                cancel_handler
+            ],
+        },
+        fallbacks=[CommandHandler("start", start), cancel_handler],
+        allow_reentry=True,
+    )
+
+    # Register handlers
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(buyer_conv)
+    app.add_handler(seller_conv)
+    app.add_handler(broker_conv)
+    app.add_handler(broker_response_conv)
+
+    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
+    app.add_handler(MessageHandler(filters.Regex(r"^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
+    app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
+    app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
+    app.add_handler(cancel_handler)
+
+    app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
+    app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
+    app.add_handler(CallbackQueryHandler(delete_request_callback, pattern=r"^delete_req_"))
+    app.add_handler(CallbackQueryHandler(nohave_item_callback, pattern="^nohave_item_"))
+    app.add_handler(CallbackQueryHandler(filter_brokers_by_subcity_callback, pattern="^dir_sc_"))
+
+    logger.info("🚀 Adika Marketplace Bot በስኬት ተጀምሯል...")
+    app.run_polling()
+
+
+if __name__ == "__main__":
+    main()
