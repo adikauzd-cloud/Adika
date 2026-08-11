@@ -963,6 +963,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
 # CONVERSATION STATES
 # ==============================================================================
 
+# የገዢ ስቴቶች (Buyer States)
 (
     BUYER_MAIN, 
     BUYER_SUB, 
@@ -973,6 +974,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
     BUYER_PHONE
 ) = range(10, 17)
 
+# የሻጭ ስቴቶች (Seller States)
 (
     SELLER_MAIN, 
     SELLER_SUB,
@@ -993,6 +995,15 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
     SELLER_PHOTO, 
     SELLER_CONFIRM
 ) = range(100, 118)
+
+# የደላላ ስቴቶች (Broker States)
+(
+    BROKER_ROLE,
+    BROKER_MAIN,
+    BROKER_PHONE,
+    BROKER_CONFIRM
+) = range(200, 204)
+
 
 
 # ==============================================================================
