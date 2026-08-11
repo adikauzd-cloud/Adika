@@ -3165,7 +3165,9 @@ def main():
 
     # 2. Application Builder
     app = Application.builder().token(BOT_TOKEN).build()
-
+application.add_handler(
+    CallbackQueryHandler(delete_request_callback, pattern=r"^delete_req_")
+)
     # Shared Cancel Handler
     cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
     cancel_message_handler = MessageHandler(cancel_filter, go_home)
