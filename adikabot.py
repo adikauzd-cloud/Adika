@@ -667,24 +667,134 @@ async def filter_brokers_by_subcity_callback(update: Update, context: ContextTyp
 def get_nav_buttons(back_callback: str = None) -> list:
     buttons = []
     if back_callback:
-        buttons.append(InlineKeyboardButton("⬅️ ተመለስ", callback_data=back_callback))
-    buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
+        buttons.append(
+            InlineKeyboardButton("⬅️ ተመለስ", callback_data=back_callback)
+        )
+    buttons.append(
+        InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")
+    )
     return buttons
 
-def build_pagination_keyboard(current_page: int, total_pages: int, prefix: str) -> InlineKeyboardMarkup:
-    nav_row = []
-    
-    if current_page > 1:
-        nav_row.append(InlineKeyboardButton("◀️ ቀዳሚ", callback_data=f"{prefix}_page_{current_page - 1}"))
-        
-    nav_row.append(InlineKeyboardButton(f"📄 {current_page}/{total_pages}", callback_data="ignore"))
-    
-    if current_page < total_pages:
-        nav_row.append(InlineKeyboardButton("ቀጣይ ▶️", callback_data=f"{prefix}_page_{current_page + 1}"))
-        
-    keyboard = [nav_row, [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]]
+
+def build_request_keyboard(
+    req_id: int, back_callback: str = None
+) -> InlineKeyboardMarkup:
+    """የጥያቄ ዝርዝር ማሳያ ቁልፎችን ከነ ማጥፊያው አዘጋጅቶ ይመልሳል"""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "🗑️ ጥያቄውን አጥፋ", callback_data=f"delete_req_{req_id}"
+            )
+        ],
+        get_nav_buttons(back_callback),
+    ]
     return InlineKeyboardMarkup(keyboard)
 
+
+def build_pagination_keyboard(
+    current_page: int, total_pages: int, prefix: str
+) -> InlineKeyboardMarkup:
+    nav_row = []
+
+    if current_page > 1:
+        nav_row.append(
+            InlineKeyboardButton(
+                "◀️ ቀዳሚ", callback_data=f"{prefix}_page_{current_page - 1}"
+            )
+        )
+
+    nav_row.append(
+        InlineKeyboardButton(
+            f"📄 {current_page}/{total_pages}", callback_data="ignore"
+        )
+    )
+
+    if current_page < total_pages:
+        nav_row.append(
+            InlineKeyboardButton(
+                "ቀጣይ ▶️", callback_data=f"{prefix}_page_{current_page + 1}"
+            )
+        )
+
+    keyboard = [nav_row, get_nav_buttons()]
+    return InlineKeyboardMarkup(keyboard)
+
+
+# ==============================================================================
+# SECTION 5: CALLBACK HANDLERS (DELETE REQUEST)
+# ==============================================================================
+async def delete_request_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
+    """ጥያቄን ለማጥፋት - ለባለቤቱ እና ለአድሚን ብቻ"""
+    query = update.callback_query
+    await query.answer()
+
+    req_id_str = query.data.replace("delete_req_", "")
+    if not req_id_str.isdigit():
+        await query.message.reply_text("❌ የተሳሳተ የጥያቄ መታወቂያ (ID)።")
+        return
+
+    req_id = int(req_id_str)
+    listing = get_listing_by_id(req_id)
+
+    if not listing:
+        await query.message.reply_text("❌ ጥያቄው አልተገኘም ወይም አስቀድሞ ተሰርዟል።")
+        return
+
+    user_id = query.from_user.id
+    is_owner = listing.get("user_chat_id") == user_id
+    is_admin = user_id == ADMIN_CHAT_ID_INT
+
+    if not (is_owner or is_admin):
+        await query.answer(
+            "⛔ ይህን ጥያቄ ለማጥፋት ፈቃድ የለዎትም!", show_alert=True
+        )
+        return
+
+    success = update_listing_status(req_id, "deleted")
+    if success:
+        try:
+            await query.edit_message_text(
+                f"🗑️ **ጥያቄ #{req_id} በስኬት ተሰርዟል።**",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await query.message.reply_text(
+                f"🗑️ **ጥያቄ #{req_id} በስኬት ተሰርዟል።**",
+                parse_mode="Markdown",
+            )
+    else:
+        await query.message.reply_text(
+            "❌ ጥያቄውን ማጥፋት አልተቻለም። እባክዎ እንደገና ይሞክሩ።"
+        )
+
+
+# ==============================================================================
+# SECTION 6: REQUEST DISPLAY HANDLERS (REPLY_MARKUP USAGE)
+# ==============================================================================
+async def show_request_details(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
+    """የጥያቄን ዝርዝር ከነ ማጥፊያ ቁልፉ ማሳያ"""
+    req_id = 123  # የጥያቄው ID
+
+    # 1. Keyboard አዘጋጅ
+    reply_markup = build_request_keyboard(req_id, back_callback="flow_home")
+
+    # 2. መልእክቱን ላክ
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            text=f"📋 **የጥያቄ ቁጥር #{req_id} ዝርዝር**",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+        )
+    else:
+        await update.message.reply_text(
+            text=f"📋 **የጥያቄ ቁጥር #{req_id} ዝርዝር**",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+        )
 # ==============================================================================
 # SECTION 5: MARKETPLACE PAGINATION CALLBACK
 # ==============================================================================
