@@ -960,24 +960,30 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
         except Exception as e:
             logger.error(f"Failed to send notification to broker {b_id}: {e}")
 # ==============================================================================
-# CONVERSATION STATES
+# CONVERSATION STATES (COMPLETE & EXHAUSTIVE)
 # ==============================================================================
 
 # የገዢ ስቴቶች (Buyer States)
 (
     BUYER_MAIN, 
     BUYER_SUB, 
+    BUYER_CAT,
+    BUYER_SUBCAT,
     BUYER_ACTION, 
     BUYER_HTYPE, 
     BUYER_PROPERTY, 
     BUYER_DETAILS, 
-    BUYER_PHONE
-) = range(10, 17)
+    BUYER_LOCATION,
+    BUYER_PRICE,
+    BUYER_PHONE,
+    BUYER_CONFIRM
+) = range(10, 22)
 
 # የሻጭ ስቴቶች (Seller States)
 (
     SELLER_MAIN, 
     SELLER_SUB,
+    SELLER_CAT,
     SELLER_SUBCAT, 
     SELLER_ACTION, 
     SELLER_HTYPE,
@@ -994,15 +1000,27 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
     SELLER_CONTACT_VAL, 
     SELLER_PHOTO, 
     SELLER_CONFIRM
-) = range(100, 118)
+) = range(100, 119)
 
 # የደላላ ስቴቶች (Broker States)
 (
     BROKER_ROLE,
+    BROKER_NAME,
     BROKER_MAIN,
     BROKER_PHONE,
+    BROKER_LOCATION,
+    BROKER_ID,
     BROKER_CONFIRM
-) = range(200, 204)
+) = range(200, 207)
+
+# የአስተዳዳሪ እና አጠቃላይ ስቴቶች (Admin & Common States)
+(
+    ADMIN_MAIN,
+    ADMIN_BROADCAST,
+    ADMIN_APPROVE,
+    SELECT_ROLE,
+    MAIN_MENU
+) = range(300, 305)
 
 
 
