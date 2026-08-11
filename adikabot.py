@@ -1014,11 +1014,11 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
     BUYER_MAIN, BUYER_ACTION, BUYER_SUB, BUYER_PROPERTY, BUYER_HTYPE,
     BUYER_DETAILS, BUYER_PHONE,
     SELLER_MAIN, SELLER_ACTION, SELLER_SUB, SELLER_PROPERTY, SELLER_HTYPE,
-    SELLER_DETAILS, SELLER_PRICE, SELLER_CONTACT_TYPE, SELLER_CONTACT_VALUE,
-    SELLER_PHOTO, SELLER_CONFIRM,
+    SELLER_DETAILS, SELLER_PRICE, SELLER_PHONE, SELLER_PHOTO,
     BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_SUBCITY, BROKER_NID_PHOTO,
     BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO
-) = range(25)
+) = range(23)
+
 # ==============================================================================
 # 8. START & HOME HANDLERS
 # ==============================================================================
