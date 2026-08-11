@@ -82,14 +82,23 @@ SELLER_FORM_HTML = """
             <input type="text" id="price" placeholder="ዋጋ (በብር)" class="w-full p-2 border rounded" required>
             <textarea id="description" placeholder="ዝርዝር መግለጫ" class="w-full p-2 border rounded" required></textarea>
             <input type="tel" id="phone" placeholder="ስልክ ቁጥር" class="w-full p-2 border rounded" required>
-            <button type="submit" class="w-full bg-blue-600 text-white p-2 rounded font-bold">መረጃውን ይላኩ</button>
+            <button type="submit" id="submitBtn" class="w-full bg-blue-600 text-white p-2 rounded font-bold">መረጃውን ይላኩ</button>
         </form>
+        <p id="statusMsg" class="text-center mt-4 text-sm hidden"></p>
     </div>
     <script>
         let tg = window.Telegram.WebApp;
         tg.expand();
-        document.getElementById('listingForm').onsubmit = (e) => {
+        tg.ready();
+
+        document.getElementById('listingForm').onsubmit = async (e) => {
             e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            const status = document.getElementById('statusMsg');
+            btn.disabled = true;
+            btn.innerText = "እየተላከ ነው...";
+            status.classList.add('hidden');
+
             const data = {
                 user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "unknown",
                 category: document.getElementById('category').value,
@@ -97,11 +106,34 @@ SELLER_FORM_HTML = """
                 description: document.getElementById('description').value,
                 phone: document.getElementById('phone').value
             };
-            fetch('/api/submit-listing', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(data)
-            }).then(() => tg.close());
+
+            try {
+                const res = await fetch('/api/submit-listing', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                const result = await res.json();
+
+                if (result.status === "success") {
+                    status.innerText = "✅ በስኬት ተመዝግቧል! ቁጥር: #" + result.req_id;
+                    status.classList.remove('hidden');
+                    status.classList.add('text-green-600');
+                    setTimeout(() => tg.close(), 1800);
+                } else {
+                    status.innerText = "❌ " + (result.message || "ስህተት ተከስቷል");
+                    status.classList.remove('hidden');
+                    status.classList.add('text-red-600');
+                    btn.disabled = false;
+                    btn.innerText = "መረጃውን ይላኩ";
+                }
+            } catch (err) {
+                status.innerText = "❌ የኔትወርክ ስህተት። እንደገና ይሞክሩ።";
+                status.classList.remove('hidden');
+                status.classList.add('text-red-600');
+                btn.disabled = false;
+                btn.innerText = "መረጃውን ይላኩ";
+            }
         };
     </script>
 </body>
@@ -128,14 +160,23 @@ BUYER_FORM_HTML = """
             <input type="text" id="budget" placeholder="ባጀት (በብር)" class="w-full p-2 border rounded" required>
             <textarea id="details" placeholder="ዝርዝር ፍላጎት" class="w-full p-2 border rounded" required></textarea>
             <input type="tel" id="phone" placeholder="ስልክ ቁጥር" class="w-full p-2 border rounded" required>
-            <button type="submit" class="w-full bg-green-600 text-white p-2 rounded font-bold">ጥያቄውን ይላኩ</button>
+            <button type="submit" id="submitBtn" class="w-full bg-green-600 text-white p-2 rounded font-bold">ጥያቄውን ይላኩ</button>
         </form>
+        <p id="statusMsg" class="text-center mt-4 text-sm hidden"></p>
     </div>
     <script>
         let tg = window.Telegram.WebApp;
         tg.expand();
-        document.getElementById('buyerForm').onsubmit = (e) => {
+        tg.ready();
+
+        document.getElementById('buyerForm').onsubmit = async (e) => {
             e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            const status = document.getElementById('statusMsg');
+            btn.disabled = true;
+            btn.innerText = "እየተላከ ነው...";
+            status.classList.add('hidden');
+
             const data = {
                 user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "unknown",
                 category: document.getElementById('category').value,
@@ -143,11 +184,34 @@ BUYER_FORM_HTML = """
                 details: document.getElementById('details').value,
                 phone: document.getElementById('phone').value
             };
-            fetch('/api/submit-request', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify(data)
-            }).then(() => tg.close());
+
+            try {
+                const res = await fetch('/api/submit-request', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(data)
+                });
+                const result = await res.json();
+
+                if (result.status === "success") {
+                    status.innerText = "✅ ጥያቄዎ ተመዝግቧል! ቁጥር: #" + result.req_id;
+                    status.classList.remove('hidden');
+                    status.classList.add('text-green-600');
+                    setTimeout(() => tg.close(), 1800);
+                } else {
+                    status.innerText = "❌ " + (result.message || "ስህተት ተከስቷል");
+                    status.classList.remove('hidden');
+                    status.classList.add('text-red-600');
+                    btn.disabled = false;
+                    btn.innerText = "ጥያቄውን ይላኩ";
+                }
+            } catch (err) {
+                status.innerText = "❌ የኔትወርክ ስህተት። እንደገና ይሞክሩ።";
+                status.classList.remove('hidden');
+                status.classList.add('text-red-600');
+                btn.disabled = false;
+                btn.innerText = "ጥያቄውን ይላኩ";
+            }
         };
     </script>
 </body>
@@ -200,7 +264,24 @@ def submit_listing():
     )
 
     if req_id:
+        # Notify brokers (optional)
+        if bot_app:
+            try:
+                notification_text = (
+                    f"📢 **አዲስ የሽያጭ ማስታወቂያ! (#SELL-{req_id})**\n\n"
+                    f"{full_desc}"
+                )
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(
+                    notify_brokers(bot_app.bot, notification_text, req_id, int(user_id))
+                )
+                loop.close()
+            except Exception as e:
+                logger.error(f"Error notifying brokers from seller WebApp: {e}")
+
         return jsonify({"status": "success", "req_id": req_id})
+    
     return jsonify({"status": "error", "message": "መረጃውን መመዝገብ አልተቻለም"}), 500
 
 @web_app.route('/api/submit-request', methods=['POST'])
@@ -235,21 +316,22 @@ def submit_request():
         phone=phone,
     )
 
-    if req_id and bot_app:
-        notification_text = (
-            f"🔔 **አዲስ የ{category} ጥያቄ! (#REQ-{req_id})**\n\n"
-            f"{full_desc}\n\n"
-            f"👉 ይህ ንብረት በእጅዎ ካለ ከታች **'አለኝ'** የሚለውን በመጫን ለፈላጊው መረጃ ይላኩ!"
-        )
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(
-                notify_brokers(bot_app.bot, notification_text, req_id, int(user_id))
-            )
-            loop.close()
-        except Exception as e:
-            logger.error(f"Error notifying brokers from WebApp: {e}")
+    if req_id:
+        if bot_app:
+            try:
+                notification_text = (
+                    f"🔔 **አዲስ የ{category} ጥያቄ! (#REQ-{req_id})**\n\n"
+                    f"{full_desc}\n\n"
+                    f"👉 ይህ ንብረት በእጅዎ ካለ **'አለኝ'** የሚለውን ይጫኑ!"
+                )
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(
+                    notify_brokers(bot_app.bot, notification_text, req_id, int(user_id))
+                )
+                loop.close()
+            except Exception as e:
+                logger.error(f"Error notifying brokers from buyer WebApp: {e}")
 
         return jsonify({"status": "success", "req_id": req_id})
 
@@ -258,7 +340,6 @@ def submit_request():
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
     web_app.run(host="0.0.0.0", port=port, use_reloader=False)
-
 # ==============================================================================
 # 3. DATABASE CONNECTION & INITIALIZATION
 # ==============================================================================
@@ -418,9 +499,6 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                   action_type, property_type, description, price, phone, photo_id)
 
         if DATABASE_URL:
-            cursor.execute(query + " RETURNING id", params)
-            req_id = cursor.fetchone()["id"] if isinstance(cursor.fetchone(), dict) else cursor.fetchone()[0]
-            # Fix for RealDictCursor
             cursor.execute(query + " RETURNING id", params)
             row = cursor.fetchone()
             req_id = row["id"] if isinstance(row, dict) else row[0]
