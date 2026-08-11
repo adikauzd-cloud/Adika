@@ -960,10 +960,9 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
         except Exception as e:
             logger.error(f"Failed to send notification to broker {b_id}: {e}")
 # ==============================================================================
-# 4. CONVERSATION STATES
+# CONVERSATION STATES
 # ==============================================================================
 
-# የገዢ ስቴቶች (Buyer States)
 (
     BUYER_MAIN, 
     BUYER_SUB, 
@@ -974,11 +973,11 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
     BUYER_PHONE
 ) = range(10, 17)
 
-# የሻጭ ስቴቶች (Seller States)
 (
     SELLER_MAIN, 
+    SELLER_SUB,
     SELLER_SUBCAT, 
-    SELLER_ACTION,
+    SELLER_ACTION, 
     SELLER_CONDITION, 
     SELLER_LOCATION, 
     SELLER_PRICE, 
@@ -989,7 +988,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
     SELLER_CONTACT_VAL, 
     SELLER_PHOTO, 
     SELLER_CONFIRM
-) = range(100, 113)
+) = range(100, 114)
 
 
 # ==============================================================================
