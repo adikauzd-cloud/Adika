@@ -1744,53 +1744,44 @@ async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     return BUYER_PHONE
 
-
 async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    phone = update.message.text
-    
-    if phone == "🏠 ዋና ገጽ":
-        return await go_home(update, context)
-    
-    if not validate_phone(phone):
-        await update.message.reply_text("❌ ስልክ ቁጥሩ ትክክል አይደለም! እባክዎ እንደገና ያስገቡ።")
-        return BUYER_PHONE
-    
-    main_cat = context.user_data.get('main_category', '')
-    sub_cat = context.user_data.get('sub_category', '')
-    action_type = context.user_data.get('action_type', '')
-    prop_subtype = context.user_data.get('property_subtype', '')
-    description = context.user_data.get('description', '')
-    
-    category_title = "🚗 አዲስ የመኪና ጥያቄ" if main_cat == "car" else "🏠 አዲስ የቤት/ቦታ ጥያቄ"
-    
-    full_desc = (
-        f"📌 **{category_title}**\n"
-        f"🔹 አይነት: {prop_subtype if prop_subtype else sub_cat}\n"
-        f"🔄 ፍላጎት: {action_type}\n"
-        f"📝 ዝርዝር: {description}\n"
-        f"📞 ስልክ: {phone}"
-    )
-    
-    req_id = add_listing(user.id, user.first_name, 'BUY', main_cat, sub_cat, action_type, prop_subtype, full_desc)
-    
-    if req_id:
-        await update.message.reply_text(
-            f"✅ **ጥያቄዎ በጥሩ ሁኔታ ተመዝግቧል!** (#REQ-{req_id})\n\n"
-            f"📌 ጥያቄዎ ለተረጋገጡ ደላሎች የተላከ ሲሆን፣ ንብረቱ ያላቸው ደላሎች አማራጮችን ሲልኩልዎ እዚሁ ቴሌግራም ላይ ይደርስዎታል።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-        
-        notification_text = (
-            f"🔔 **{category_title}! (#REQ-{req_id})**\n\n"
-            f"{full_desc}\n\n"
-            f"👉 ይህ ንብረት በእጅዎ ካለ ከታች **'አለኝ'** የሚለውን በመጫን ለፈላጊው መረጃ ይላኩ!"
-        )
-        await notify_brokers(context, notification_text, req_id, user.id)
-    else:
-        await update.message.reply_text("❌ ጥያቄውን መመዝገብ አልተቻለም። እባክዎ እንደገና ይሞክሩ።")
+    """የገዢ ፎርም መጨረሻ፦ ስልክ ተቀብሎ ዳታቤዝ ማስገባት እና ማረጋገጫ መላክ"""
+    try:
+        phone = update.message.text.strip()
+        context.user_data["phone"] = phone
 
-    return ConversationHandler.END
+        # 1. ዳታውን ከ user_data ላይ ውሰድ
+        user_data = context.user_data
+        user_id = update.effective_user.id
+
+        # 2. ዳታቤዝ ውስጥ አስቀምጥ (እንደ ዳታቤዝህ Function ስም አቀናጀው)
+        req_id = save_buyer_request(user_id=user_id, data=user_data)
+
+        # 3. Keyboard አዘጋጅ
+        reply_markup = build_request_keyboard(
+            req_id, back_callback="flow_home"
+        )
+
+        # 4. ለተጠቃሚው ማረጋገጫ መልእክት ላክ
+        await update.message.reply_text(
+            f"✅ **ጥያቄዎ በስኬት ተመዝግቧል!**\n\n"
+            f"🆔 **የጥያቄ ቁጥር:** #{req_id}\n"
+            f"📞 **ስልክ:** {phone}\n\n"
+            f"አቅራቢዎች ወይም ደላሎች ጥያቄዎን አይተው መልስ ይሰጡዎታል።",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+        )
+
+        # 5. ዳታውን አጽዳ እና ውይይቱን ጨርስ
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    except Exception as e:
+        logger.error(f"Error in buyer_phone: {e}")
+        await update.message.reply_text(
+            "❌ መረጃውን መዝገብ ላይ ማስቀመጥ አልተቻለም። እባክዎ እንደገና ይሞክሩ።"
+        )
+        return ConversationHandler.END
 import logging
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
