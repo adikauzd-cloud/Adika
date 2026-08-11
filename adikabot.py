@@ -961,17 +961,209 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
             logger.error(f"Failed to send notification to broker {b_id}: {e}")
 
 # ==============================================================================
-# 7. CONVERSATION STATES
+# 7. SELLER HANDLERS & CONVERSATION
 # ==============================================================================
 
+# State Definitions (ለሻጭ ብቻ)
 (
-    BUYER_MAIN, BUYER_ACTION, BUYER_SUB, BUYER_PROPERTY, BUYER_HTYPE,
-    BUYER_DETAILS, BUYER_PHONE,
-    SELLER_MAIN, SELLER_ACTION, SELLER_SUB, SELLER_PROPERTY, SELLER_HTYPE,
-    SELLER_DETAILS, SELLER_PRICE, SELLER_PHONE, SELLER_PHOTO,
-    BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_SUBCITY, BROKER_NID_PHOTO,
-    BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO
-) = range(23)
+    SELLER_MAIN, SELLER_SUBCAT, SELLER_CONDITION, 
+    SELLER_LOCATION, SELLER_PRICE, SELLER_NEGOTIABLE, 
+    SELLER_URGENT, SELLER_DESC, SELLER_CONTACT_TYPE, 
+    SELLER_CONTACT_VAL, SELLER_PHOTO, SELLER_CONFIRM
+) = range(100, 112)
+
+# 1. ንኡስ ምድብ እና የጽሁፍ ማስተካከያ (#6)
+async def seller_subcat_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    context.user_data['sub_category'] = query.data.replace("sell_sub_", "")
+    
+    keyboard = [
+        [InlineKeyboardButton("✨ አዲስ (Brand New)", callback_data="cond_Brand New")],
+        [InlineKeyboardButton("👍 በጥሩ ሁኔታ ላይ ያለ", callback_data="cond_Good")],
+        [InlineKeyboardButton("🛠 ጥገና የሚፈልግ", callback_data="cond_Needs Repair")],
+    ]
+    
+    prompt_text = "🚗 **የመኪና አይነት/ሞዴል ይምረጡ፦**" if context.user_data.get('main_category') == "car" else "⚙️ **የንብረቱ/ዕቃው ሁኔታ ምን ይመስላል?**"
+    
+    await query.edit_message_text(
+        prompt_text,
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return SELLER_CONDITION
+
+# 2. የንብረት ሁኔታ ከተመረጠ በኋላ አድራሻ/ቦታ መቀበል (#9)
+async def seller_condition_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    context.user_data['condition'] = query.data.replace("cond_", "")
+    
+    await query.edit_message_text(
+        "📍 **ንብረቱ የሚገኝበትን ክፍለ-ከተማ ወይም ልዩ ቦታ ያስገቡ፦**\n\n💡 *ምሳሌ፦* ቦሌ / ካዛንችስ",
+        parse_mode="Markdown"
+    )
+    return SELLER_LOCATION
+
+# 3. አድራሻ ሲገባ ዋጋ መጠየቅ
+async def seller_location_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['location'] = update.message.text.strip()
+    await update.message.reply_text("💵 **የመሸጫ/የመኪራያ ዋጋ በብር ያስገቡ፦**")
+    return SELLER_PRICE
+
+# 4. ዋጋ ሲገባ የድርድር ሁኔታ መጠየቅ (#8)
+async def seller_price_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['price'] = update.message.text.strip()
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("💰 የሚደራደር", callback_data="neg_1"),
+            InlineKeyboardButton("🔒 የማይደራደር", callback_data="neg_0")
+        ]
+    ]
+    await update.message.reply_text(
+        "💵 **የዋጋ ሁኔታ ይምረጡ፦**",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return SELLER_NEGOTIABLE
+
+# 5. የአስቸኳይ ሽያጭ ጥያቄ (#14)
+async def seller_negotiable_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    context.user_data['is_negotiable'] = 1 if query.data == "neg_1" else 0
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("⚡ አዎ (አስቸኳይ ሽያጭ)", callback_data="urg_1"),
+            InlineKeyboardButton("🔹 መደበኛ ሽያጭ", callback_data="urg_0")
+        ]
+    ]
+    await query.edit_message_text(
+        "🚨 **ማስታወቂያው የ «አስቸኳይ ሽያጭ» ባጅ እንዲኖረው ይፈልጋሉ?**",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return SELLER_URGENT
+
+# 6. ዝርዝር መግለጫ መጠየቅ
+async def seller_urgent_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    context.user_data['is_urgent'] = 1 if query.data == "urg_1" else 0
+    
+    await query.edit_message_text(
+        "📝 **የንብረቱን/ዕቃውን ዝርዝር መረጃ ያስገቡ፦**",
+        parse_mode="Markdown"
+    )
+    return SELLER_DESC
+
+# 7. የመገናኛ ምርጫ መጠየቅ (#5)
+async def seller_desc_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['description'] = update.message.text.strip()
+    
+    keyboard = [
+        [
+            InlineKeyboardButton("📞 በስልክ ቁጥር", callback_data="contact_phone"),
+            InlineKeyboardButton("✈️ በቴሌግራም (@username)", callback_data="contact_telegram")
+        ]
+    ]
+    await update.message.reply_text(
+        "📞 **ገዢዎች በምን እንዲያገኙዎት ይፈልጋሉ?**",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return SELLER_CONTACT_TYPE
+
+# 8. የመገናኛ መረጃ መቀበል (#5)
+async def seller_contact_type_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    choice = query.data.replace("contact_", "")
+    context.user_data['contact_type'] = choice
+    
+    if choice == "phone":
+        await query.edit_message_text("📞 **እባክዎን ስልክ ቁጥርዎን ያስገቡ፦** (ምሳሌ፦ 0911223344)")
+    else:
+        user = update.effective_user
+        if user.username:
+            context.user_data['contact_value'] = user.username
+            await query.edit_message_text(f"✅ የመረጡት ቴሌግራም አድራሻ፦ @{user.username}\n\n🖼 **አሁን የንብረቱን ፎቶ ይላኩ፦**")
+            return SELLER_PHOTO
+        else:
+            await query.edit_message_text("✍️ **እባክዎን የቴሌግራም username ዎን ያስገቡ፦** (ምሳሌ፦ @myusername)")
+            
+    return SELLER_CONTACT_VAL
+
+async def seller_contact_val_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['contact_value'] = update.message.text.strip().replace("@", "")
+    await update.message.reply_text("🖼 **አሁን የንብረቱን ፎቶ ይላኩ፦**")
+    return SELLER_PHOTO
+
+# 9. ፎቶ መቀበል እና ቅድመ-እይታ ከነ ማረጋገጫ ቁልፎች ማሳየት (#1, #3)
+async def seller_photo_received(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.photo:
+        context.user_data['photo_id'] = update.message.photo[-1].file_id
+    else:
+        context.user_data['photo_id'] = None
+
+    card_preview = format_seller_card(context.user_data)
+    preview_text = f"📋 **የማስታወቂያዎ ቅድመ-እይታ፦**\n\n{card_preview}\n\nእባክዎን መረጃውን አረጋግጠው ይልቀቁት፦"
+
+    if context.user_data.get('photo_id'):
+        await update.message.reply_photo(
+            photo=context.user_data['photo_id'],
+            caption=preview_text,
+            reply_markup=build_seller_confirmation_keyboard(),
+            parse_mode="Markdown"
+        )
+    else:
+        await update.message.reply_text(
+            preview_text,
+            reply_markup=build_seller_confirmation_keyboard(),
+            parse_mode="Markdown"
+        )
+    return SELLER_CONFIRM
+
+# 10. ማረጋገጫ እና መለጠፍ / መሰረዝ (#3, #28)
+async def seller_confirm_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.data == "seller_cancel_post":
+        await query.edit_message_caption("❌ **ማስታወቂያው ተሰርዟል።**") if query.message.photo else await query.edit_message_text("❌ **ማስታወቂያው ተሰርዟል።**")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    user = update.effective_user
+    listing_id = save_seller_listing(user.id, user.full_name, user.username, context.user_data)
+    
+    if listing_id:
+        context.user_data['id'] = listing_id
+        
+        await query.edit_message_caption(
+            caption=f"✅ **ማስታወቂያዎ በስኬት ተለጥፏል! (#LIST-{listing_id})**\n\n{format_seller_card(context.user_data)}",
+            reply_markup=build_owner_manage_keyboard(listing_id),
+            parse_mode="Markdown"
+        ) if query.message.photo else await query.edit_message_text(
+            text=f"✅ **ማስታወቂያዎ በስኬት ተለጥፏል! (#LIST-{listing_id})**\n\n{format_seller_card(context.user_data)}",
+            reply_markup=build_owner_manage_keyboard(listing_id),
+            parse_mode="Markdown"
+        )
+        
+        await notify_brokers_new_listing(context.bot, context.user_data)
+        await post_to_channel(context.bot, context.user_data)
+    else:
+        await query.message.reply_text("❌ **ስህተት ተከስቷል። እባክዎን እንደገና ይሞክሩ።**")
+
+    context.user_data.clear()
+    return ConversationHandler.END
 
 # ==============================================================================
 # 8. START & HOME HANDLERS
