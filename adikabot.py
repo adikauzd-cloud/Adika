@@ -711,8 +711,6 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 # ==============================================================================
 # SECTION 4: INLINE NAVIGATION & PAGINATION HELPERS
 # ==============================================================================
-
-
 def get_nav_buttons(back_callback: str = None) -> list:
     buttons = []
     if back_callback:
@@ -767,6 +765,83 @@ def build_pagination_keyboard(
 
     keyboard = [nav_row, get_nav_buttons()]
     return InlineKeyboardMarkup(keyboard)
+
+
+# ==============================================================================
+# SECTION 5: CALLBACK HANDLERS (DELETE REQUEST)
+# ==============================================================================
+async def delete_request_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
+    """ጥያቄን ለማጥፋት - ለባለቤቱ እና ለአድሚን ብቻ"""
+    query = update.callback_query
+    await query.answer()
+
+    req_id_str = query.data.replace("delete_req_", "")
+    if not req_id_str.isdigit():
+        await query.message.reply_text("❌ የተሳሳተ የጥያቄ መታወቂያ (ID)።")
+        return
+
+    req_id = int(req_id_str)
+    listing = get_listing_by_id(req_id)
+
+    if not listing:
+        await query.message.reply_text("❌ ጥያቄው አልተገኘም ወይም አስቀድሞ ተሰርዟል።")
+        return
+
+    user_id = query.from_user.id
+    is_owner = listing.get("user_chat_id") == user_id
+    is_admin = user_id == ADMIN_CHAT_ID_INT
+
+    if not (is_owner or is_admin):
+        await query.answer(
+            "⛔ ይህን ጥያቄ ለማጥፋት ፈቃድ የለዎትም!", show_alert=True
+        )
+        return
+
+    success = update_listing_status(req_id, "deleted")
+    if success:
+        try:
+            await query.edit_message_text(
+                f"🗑️ **ጥያቄ #{req_id} በስኬት ተሰርዟል።**",
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await query.message.reply_text(
+                f"🗑️ **ጥያቄ #{req_id} በስኬት ተሰርዟል።**",
+                parse_mode="Markdown",
+            )
+    else:
+        await query.message.reply_text(
+            "❌ ጥያቄውን ማጥፋት አልተቻለም። እባክዎ እንደገና ይሞክሩ።"
+        )
+
+
+# ==============================================================================
+# SECTION 6: REQUEST DISPLAY HANDLERS (REPLY_MARKUP USAGE)
+# ==============================================================================
+async def show_request_details(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+):
+    """የጥያቄን ዝርዝር ከነ ማጥፊያ ቁልፉ ማሳያ"""
+    req_id = 123  # የጥያቄው ID
+
+    # 1. Keyboard አዘጋጅ
+    reply_markup = build_request_keyboard(req_id, back_callback="flow_home")
+
+    # 2. መልእክቱን ላክ
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            text=f"📋 **የጥያቄ ቁጥር #{req_id} ዝርዝር**",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+        )
+    else:
+        await update.message.reply_text(
+            text=f"📋 **የጥያቄ ቁጥር #{req_id} ዝርዝር**",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+        )
 # ==============================================================================
 # SECTION 5: MARKETPLACE PAGINATION CALLBACK
 # ==============================================================================
