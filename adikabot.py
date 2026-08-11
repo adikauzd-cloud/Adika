@@ -376,6 +376,8 @@ def run_flask():
 # 2. DATABASE MANAGEMENT
 # ==============================================================================
 
+DB_NAME = "adika_marketplace.db"
+
 def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
@@ -425,6 +427,7 @@ def init_db():
 
     conn.commit()
     conn.close()
+
 
 # ==============================================================================
 # 4. DATABASE OPERATIONS
