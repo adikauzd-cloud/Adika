@@ -1567,9 +1567,38 @@ CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈ
 # ==============================================================================
 
 def validate_phone(phone: str) -> bool:
-    phone = phone.replace(' ', '').replace('-', '')
-    pattern = r'^(09|07|01)\d{8}\( |^\+251(9|7|1)\d{8} \)'
-    return bool(re.match(pattern, phone))
+    """ንጹህ ስልክ ቁጥር ብቻ ያረጋግጣል"""
+    if not phone:
+        return False
+    phone = phone.replace(' ', '').replace('-', '').replace('+', '')
+    
+    # 09xxxxxxxx / 07xxxxxxxx / 01xxxxxxxx
+    if re.match(r'^(09|07|01)\d{8}$', phone):
+        return True
+    # 9xxxxxxxx / 7xxxxxxxx (without leading 0)
+    if re.match(r'^(9|7)\d{8}$', phone):
+        return True
+    # 2519xxxxxxxx
+    if re.match(r'^251(9|7)\d{8}$', phone):
+        return True
+    return False
+
+def validate_contact(contact: str) -> bool:
+    """ስልክ ቁጥር ወይም Telegram username ያረጋግጣል"""
+    if not contact:
+        return False
+    contact = contact.strip()
+    
+    # Telegram username (@username)
+    if contact.startswith('@'):
+        username = contact[1:]
+        # Telegram username rules: 5-32 chars, starts with letter, alphanumeric + underscore
+        if re.match(r'^[a-zA-Z][a-zA-Z0-9_]{4,31}$', username):
+            return True
+        return False
+    
+    # Phone number
+    return validate_phone(contact)
 
 def validate_price(price: str) -> bool:
     price = price.replace(',', '').replace(' ', '')
@@ -1662,7 +1691,7 @@ def build_request_keyboard(req_id: int, user_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(keyboard)
 
 def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int, phone: str = "") -> InlineKeyboardMarkup:
-    """ለሻጭ ማስታወቂያዎች (Seller Listings) - ደላሎች + ባለቤት"""
+    """ለሻጭ ማስታወቂያዎች (Seller Listings)"""
     keyboard = []
 
     # ደላላ ቁልፎች
