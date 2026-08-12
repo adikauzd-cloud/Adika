@@ -1715,21 +1715,21 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
 # ==============================================================================
 
 (
-   # Buyer flow states (10 states)
+   # Buyer flow states (0-9 = 10 states)
    BUYER_MAIN, BUYER_ACTION, BUYER_SUB, BUYER_PROPERTY, BUYER_HTYPE,
    BUYER_DETAILS, BUYER_PHONE, BUYER_BUDGET_RANGE, BUYER_ALERT, BUYER_ALERT_CHOICE,
-   # Seller flow states (18 states)
+   # Seller flow states (10-27 = 18 states)
    SELLER_MAIN, SELLER_ACTION, SELLER_SUB, SELLER_PROPERTY, SELLER_HTYPE,
    SELLER_DETAILS, SELLER_PRICE, SELLER_NEGOTIABLE, SELLER_URGENT, 
    SELLER_CONDITION, SELLER_FUEL, SELLER_TRANSMISSION, SELLER_MILEAGE,
    SELLER_BEDROOMS, SELLER_PARKING, SELLER_PHONE, SELLER_PHOTO, SELLER_HOUSE_CONDITION,
-   # Broker states (6 states)
+   # Broker states (28-32 = 5 states)
    BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_SUBCITY, BROKER_NID_PHOTO,
-   # Broker offer states (2 states)
+   # Broker offer states (33-34 = 2 states)
    BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO,
-   # Notification prefs state (1 state)
+   # Notification prefs state (35 = 1 state)
    NOTIFICATION_PREFS
-) = range(37)
+) = range(36)
 # ==============================================================================
 # 8. START & HOME HANDLERS
 # ==============================================================================
