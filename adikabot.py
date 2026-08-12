@@ -3255,7 +3255,6 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 # ==============================================================================
 
 async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የፈላጊዎች ዝርዝር - ለደላሎች እና አድሚን ብቻ"""
     user_id = update.effective_user.id
     is_admin = (user_id == ADMIN_CHAT_ID_INT)
     broker = get_broker(user_id)
@@ -3301,7 +3300,6 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         req_id = listing.get('id')
         user_chat_id = listing.get('user_chat_id')
         card_text = format_buyer_card(listing)
-        
         reply_markup = build_request_keyboard(req_id, user_chat_id)
 
         await update.message.reply_text(
@@ -3312,7 +3310,6 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የገበያ ቦታ - ሁሉም SELL type listings ይታያሉ"""
     items = get_public_marketplace_items(limit=20)
     user_id = update.effective_user.id
 
@@ -3347,28 +3344,27 @@ async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_
         try:
             if photo_id:
                 await update.message.reply_photo(
-                    photo=photo_id, 
-                    caption=card_text, 
+                    photo=photo_id,
+                    caption=card_text,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
             else:
                 await update.message.reply_text(
-                    card_text, 
+                    card_text,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
         except Exception as e:
             logger.error(f"Failed to send marketplace item {item.get('id')}: {e}")
             await update.message.reply_text(
-                card_text, 
+                card_text,
                 reply_markup=reply_markup,
                 parse_mode="Markdown"
             )
 
 
 async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የደላሎች ማውጫ - በክፍለ ከተማ"""
     keyboard = [[InlineKeyboardButton(sc, callback_data=f"dir_sc_{sc}")] for sc in SUB_CITIES]
     keyboard.append([InlineKeyboardButton("🌐 የሁሉም ክፍለ ከተሞች", callback_data="dir_sc_ሁሉም")])
     keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
@@ -3382,7 +3378,6 @@ async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def filter_brokers_by_subcity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """በተመረጠው ክፍለ ከተማ የተረጋገጡ ደላሎችን አሳይ"""
     query = update.callback_query
     await query.answer()
 
