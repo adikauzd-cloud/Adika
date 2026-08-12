@@ -1154,59 +1154,60 @@ def update_listing_status(req_id: int, status: str) -> bool:
 
 
 def get_public_marketplace_items(main_category=None, limit=10, offset=0):
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
+    """ለገበያ ቦታ - SELL type listings ብቻ"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
 
-       if main_category:
-           query = f"""
-               SELECT * FROM listings 
-               WHERE req_type = 'SELL' AND status = 'pending' AND main_category = {p}
-               ORDER BY created_at DESC 
-               LIMIT {p} OFFSET {p}
-           """
-           cursor.execute(query, (main_category, limit, offset))
-       else:
-           query = f"""
-               SELECT * FROM listings 
-               WHERE req_type = 'SELL' AND status = 'pending'
-               ORDER BY created_at DESC 
-               LIMIT {p} OFFSET {p}
-           """
-           cursor.execute(query, (limit, offset))
+        if main_category:
+            query = f"""
+                SELECT * FROM listings 
+                WHERE req_type = 'SELL' AND status = 'pending' AND main_category = {p}
+                ORDER BY created_at DESC 
+                LIMIT {p} OFFSET {p}
+            """
+            cursor.execute(query, (main_category, limit, offset))
+        else:
+            query = f"""
+                SELECT * FROM listings 
+                WHERE req_type = 'SELL' AND status = 'pending'
+                ORDER BY created_at DESC 
+                LIMIT {p} OFFSET {p}
+            """
+            cursor.execute(query, (limit, offset))
 
-       rows = cursor.fetchall()
-       results = []
-       for row in rows:
-           item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-           # Parse extra_data
-           if 'extra_data' in item and isinstance(item['extra_data'], str):
-               try:
-                   item['extra_data'] = json.loads(item['extra_data'])
-               except:
-                   item['extra_data'] = {}
-           # Load photos
-           try:
-               cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (item['id'],))
-               photo_rows = cursor.fetchall()
-               item['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
-           except Exception:
-               item['photos'] = []
-           results.append(item)
-       
-       logger.info(f"🛍️ Retrieved {len(results)} marketplace items")
-       return results
-   except Exception as e:
-       logger.error(f"Get public marketplace items error: {e}")
-       return []
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+        rows = cursor.fetchall()
+        results = []
+        for row in rows:
+            item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
+            # Parse extra_data
+            if 'extra_data' in item and isinstance(item['extra_data'], str):
+                try:
+                    item['extra_data'] = json.loads(item['extra_data'])
+                except:
+                    item['extra_data'] = {}
+            # Load photos
+            try:
+                cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (item['id'],))
+                photo_rows = cursor.fetchall()
+                item['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
+            except Exception:
+                item['photos'] = []
+            results.append(item)
+        
+        logger.info(f"🛍️ Retrieved {len(results)} marketplace items (SELL only)")
+        return results
+    except Exception as e:
+        logger.error(f"Get public marketplace items error: {e}")
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 # ========== BROKER OPERATIONS ==========
