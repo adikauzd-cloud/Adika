@@ -3618,6 +3618,71 @@ async def notification_prefs_callback(update: Update, context: ContextTypes.DEFA
        )
    except Exception:
        pass
+       # ==============================================================================
+# 14B. FAVORITES, SOLD MARKER & NOTIFICATION PREFERENCES
+# ==============================================================================
+
+async def nohave_item_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ይለፈኝ - መልእክቱን ከደላላው ብቻ ያጠፋል"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    broker = get_broker(user_id)
+
+    if not broker or broker.get('status') != 'approved':
+        await query.answer("⛔ ይህን ማድረግ የሚችሉት በአድሚን የተረጋገጡ ደላሎች ብቻ ናቸው!", show_alert=True)
+        return
+
+    parts = query.data.split('_')
+    req_id = parts[-1] if parts else "?"
+    
+    await query.answer(f"ℹ️ ጥያቄ #{req_id} ተለፏል።", show_alert=False)
+    
+    try:
+        await query.delete_message()
+    except Exception:
+        try:
+            await query.edit_message_text(
+                f"⏭️ **ጥያቄ #{req_id} ተለፏል።**",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+
+
+async def mark_sold_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ተሸጧል / ተከራይቷል - ባለቤቱ ወይም አድሚን ብቻ"""
+    query = update.callback_query
+    await query.answer()
+    
+    user_id = update.effective_user.id
+    data = query.data
+    listing_id = int(data.replace("mark_sold_", ""))
+    
+    listing = get_listing_by_id(listing_id)
+    if not listing:
+        await query.answer("❌ ማስታወቂያው አልተገኘም።", show_alert=True)
+        return
+    
+    # ባለቤቱ ወይም አድሚን ብቻ
+    if listing.get('user_chat_id') != user_id and user_id != ADMIN_CHAT_ID_INT:
+        await query.answer("⛔ ይህን ማድረግ የሚችሉት የማስታወቂያው ባለቤት ወይም አድሚን ብቻ ነው!", show_alert=True)
+        return
+    
+    success = update_listing_status(listing_id, "sold")
+    if success:
+        try:
+            await query.edit_message_caption(
+                caption=f"{query.message.caption}\n\n✅ **ይህ ንብረት ተሸጧል/ተከራይቷል!**",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            await query.edit_message_text(
+                f"✅ **ማስታወቂያ #ADK-{listing_id} እንደተሸጠ/እንደተከራየ ምልክት ተደርጎበታል!**",
+                parse_mode="Markdown"
+            )
+        await query.answer("✅ ማስታወቂያው እንደተሸጠ ምልክት ተደርጎበታል!", show_alert=True)
+    else:
+        await query.answer("❌ ስህተት ተከስቷል።", show_alert=True)
 
 # ==============================================================================
 # 15. SUPPORT HANDLER
