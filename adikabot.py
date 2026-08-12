@@ -1737,7 +1737,7 @@ CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈ
 
 def validate_phone(phone: str) -> bool:
     phone = phone.replace(' ', '').replace('-', '')
-    pattern = r'^(09|07|01)\d{8}$|^\+251(9|7|1)\d{8}$'
+    pattern = r'^(09|07|01)\d{8}\( |^\+251(9|7|1)\d{8} \)'
     return bool(re.match(pattern, phone))
 
 def validate_price(price: str) -> bool:
