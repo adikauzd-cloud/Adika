@@ -3158,27 +3158,19 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         req_id = listing.get('id')
         user_chat_id = listing.get('user_chat_id')
         card_text = format_buyer_card(listing)
-
-        keyboard_buttons = [
-            InlineKeyboardButton(f"✅ አለኝ #{req_id}", callback_data=f"have_item_{req_id}_{user_chat_id}")
-        ]
-        if is_admin:
-            keyboard_buttons.append(
-                InlineKeyboardButton(f"❌ Delete #{req_id}", callback_data=f"delete_req_{req_id}")
-            )
-        else:
-            keyboard_buttons.append(
-                InlineKeyboardButton(f"❌ አልፎኛል #{req_id}", callback_data=f"nohave_item_{req_id}")
-            )
+        is_fav = is_favorite(user_id, req_id)
+        
+        reply_markup = build_request_keyboard(req_id, user_chat_id, is_fav)
 
         await update.message.reply_text(
             card_text,
-            reply_markup=InlineKeyboardMarkup([keyboard_buttons]),
+            reply_markup=reply_markup,
             parse_mode="Markdown"
         )
 
 async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_TYPE):
     items = get_public_marketplace_items(limit=10)
+    user_id = update.effective_user.id
 
     if not items:
         await update.message.reply_text(
@@ -3196,14 +3188,28 @@ async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_
     for item in items:
         card_text = format_seller_card(item)
         photo_id = item.get('photo_id')
+        owner_id = item.get('user_chat_id')
+        is_fav = is_favorite(user_id, item.get('id'))
+        
+        reply_markup = build_seller_card_keyboard(
+            item_id=item.get('id'),
+            owner_id=owner_id,
+            current_user_id=user_id,
+            is_fav=is_fav
+        )
 
         if photo_id:
             try:
-                await update.message.reply_photo(photo=photo_id, caption=card_text, parse_mode="Markdown")
+                await update.message.reply_photo(
+                    photo=photo_id, 
+                    caption=card_text, 
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
             except Exception:
-                await update.message.reply_text(card_text, parse_mode="Markdown")
+                await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
         else:
-            await update.message.reply_text(card_text, parse_mode="Markdown")
+            await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(sc, callback_data=f"dir_sc_{sc}")] for sc in SUB_CITIES]
@@ -3232,7 +3238,6 @@ async def filter_brokers_by_subcity_callback(update: Update, context: ContextTyp
         msg += format_broker_profile(b) + "\n\n"
 
     await query.edit_message_text(msg, parse_mode="Markdown")
-
 # ==============================================================================
 # 14. ADMIN HANDLERS
 # ==============================================================================
