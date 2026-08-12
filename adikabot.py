@@ -2986,12 +2986,7 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data.clear()
     return ConversationHandler.END
 
-# ==============================================================================
-# 12. BROKER OFFER FLOW
-# ==============================================================================
-
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ደላላ 'አለኝ' ሲጫን - ለፈላጊ ጥያቄ"""
     query = update.callback_query
     await query.answer()
 
@@ -3117,7 +3112,6 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ደላላ 'ገዢ አለኝ' ሲጫን - ለሻጩ ማሳወቂያ"""
     query = update.callback_query
     await query.answer()
 
@@ -3129,7 +3123,6 @@ async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return ConversationHandler.END
 
     parts = query.data.split('_')
-    # have_buyer_{item_id}_{owner_id}
     if len(parts) < 4:
         await query.answer("❌ የተሳሳተ መረጃ", show_alert=True)
         return ConversationHandler.END
@@ -3146,7 +3139,6 @@ async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     owner_name = listing.get('user_name', 'ባለቤት')
     broker_name = broker.get('full_name', 'ደላላ')
 
-    # ለደላላው - የባለቤቱን ስልክ ቁጥር አሳይ
     text_for_broker = (
         f"🤝 **ገዢ/ተከራይ አለዎት**\n\n"
         f"📦 ማስታወቂያ: #ADK-{item_id}\n"
@@ -3163,7 +3155,7 @@ async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     elif phone and str(phone).startswith('@'):
         username = str(phone).lstrip('@')
         keyboard.append([InlineKeyboardButton(f"💬 Telegram @{username}", url=f"https://t.me/{username}")])
-    
+
     keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
 
     try:
@@ -3179,8 +3171,7 @@ async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
-    
-    # ለሻጩ ማሳወቂያ
+
     try:
         seller_msg = (
             f"🔔 **ማስታወቂያዎ (#ADK-{item_id}) ላይ ፍላጎት አለ!**\n\n"
@@ -3195,12 +3186,11 @@ async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
     except Exception as e:
         logger.error(f"Failed to notify seller {owner_id}: {e}")
-    
+
     return ConversationHandler.END
 
 
 async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ደላላ 'ለራሴ' ሲጫን"""
     query = update.callback_query
     await query.answer()
 
@@ -3212,7 +3202,7 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if not listing:
         await query.answer("❌ ማስታወቂያው አልተገኘም።", show_alert=True)
         return ConversationHandler.END
-    
+
     phone = listing.get('phone', 'አልተገኘም')
     owner_name = listing.get('user_name', 'ባለቤት')
 
@@ -3229,7 +3219,7 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         clean_phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
         if clean_phone.isdigit() and len(clean_phone) >= 9:
             keyboard.append([InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
-    
+
     keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
 
     try:
@@ -3245,11 +3235,8 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
-    
+
     return ConversationHandler.END
-        )
-    except Exception:
-        pass
 # ==============================================================================
 # 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY
 # ==============================================================================
