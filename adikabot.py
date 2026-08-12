@@ -1988,6 +1988,7 @@ async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    )
    return BUYER_MAIN
 
+
 async def buyer_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
    if query.data == "flow_home":
@@ -2019,6 +2020,7 @@ async def buyer_category_chosen(update: Update, context: ContextTypes.DEFAULT_TY
        )
        return BUYER_ACTION
 
+
 async def buyer_sub_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
    if query.data == "flow_home":
@@ -2040,6 +2042,7 @@ async def buyer_sub_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    )
    return BUYER_ACTION
 
+
 async def buyer_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
    if query.data == "flow_home":
@@ -2057,6 +2060,7 @@ async def buyer_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
        parse_mode="Markdown"
    )
    return BUYER_BUDGET_RANGE
+
 
 async def buyer_budget_range(update: Update, context: ContextTypes.DEFAULT_TYPE):
    if update.message.text == "🏠 ዋና ገጽ":
@@ -2076,6 +2080,7 @@ async def buyer_budget_range(update: Update, context: ContextTypes.DEFAULT_TYPE)
        parse_mode="Markdown"
    )
    return BUYER_ALERT
+
 
 async def buyer_alert_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
@@ -2101,6 +2106,7 @@ async def buyer_alert_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
        )
        return BUYER_PROPERTY
 
+
 async def buyer_property_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
    if query.data == "flow_home":
@@ -2120,6 +2126,7 @@ async def buyer_property_chosen(update: Update, context: ContextTypes.DEFAULT_TY
    )
    return BUYER_HTYPE
 
+
 async def buyer_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
    if query.data == "flow_home":
@@ -2135,6 +2142,7 @@ async def buyer_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
    )
    return BUYER_DETAILS
 
+
 async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
    if update.message.text == "🏠 ዋና ገጽ":
        return await go_home(update, context)
@@ -2145,6 +2153,7 @@ async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
    )
    return BUYER_PHONE
+
 
 async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
    if update.message.text == "🏠 ዋና ገጽ":
@@ -2165,11 +2174,11 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
        parse_mode="Markdown",
        reply_markup=ReplyKeyboardMarkup([["ዝለል"], ["🏠 ዋና ገጽ"]], resize_keyboard=True)
    )
-   return BUYER_ALERT_CHOICE  # ይህን state ለ username እንጠቀማለን
+   return BUYER_TELEGRAM_USER  # አዲስ state እንጠቀማለን
 
 
-async def buyer_username_or_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
-   """Telegram username መቀበል ወይም መዝለል"""
+async def buyer_telegram_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+   """Telegram username መቀበል ወይም መዝለል እና ማስቀመጥ"""
    if update.message.text == "🏠 ዋና ገጽ":
        return await go_home(update, context)
    
@@ -2181,7 +2190,7 @@ async def buyer_username_or_skip(update: Update, context: ContextTypes.DEFAULT_T
    
    context.user_data["telegram_user"] = telegram_user
    
-   # አሁን ማስቀመጥ
+   # አሁን ማስቀመጥ እንጀምር
    user = update.effective_user
    user_data = context.user_data
 
@@ -2191,10 +2200,6 @@ async def buyer_username_or_skip(update: Update, context: ContextTypes.DEFAULT_T
    if user_data.get('property_subtype'):
        desc = f"🏠 {user_data.get('property_subtype')}\n{desc}"
    
-   # Telegram username ካለ ማከል
-   if telegram_user:
-       desc += f"\n📱 Telegram: {telegram_user}"
-
    phone = user_data.get('phone', '')
    main_category = user_data.get('main_category', '')
 
@@ -2218,19 +2223,18 @@ async def buyer_username_or_skip(update: Update, context: ContextTypes.DEFAULT_T
        )
 
        if req_id:
-           is_fav = False
-           reply_markup = build_request_keyboard(req_id, user.id, is_fav)
            await update.message.reply_text(
-               f"✅ **ጥያቄዎ በስኬት ተመዝግቧል!**\n\n"
+               f"✅ **ጥያቄዎ በስኬት ተመዝግቧል!** 🎉\n\n"
                f"🆔 **የጥያቄ ቁጥር:** #ADK-{req_id}\n"
+               f"📌 **ምድብ:** {main_category}\n"
                f"📞 **ስልክ:** {phone}\n"
                + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
                f"\nአቅራቢዎች ወይም ደላሎች ጥያቄዎን አይተው መልስ ይሰጡዎታል።",
-               reply_markup=reply_markup,
+               reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
                parse_mode="Markdown",
            )
 
-           # የ Search Alert ማስቀመጥ
+           # Search Alert ማስቀመጥ
            if user_data.get('create_alert'):
                try:
                    save_search_alert(user.id, main_category, 
@@ -2239,7 +2243,7 @@ async def buyer_username_or_skip(update: Update, context: ContextTypes.DEFAULT_T
                except Exception as e:
                    logger.error(f"Failed to save search alert: {e}")
 
-           # Notify brokers
+           # ለደላሎች ማሳወቂያ
            notification_text = (
                f"🔔 **አዲስ ጥያቄ! (#ADK-{req_id})**\n\n"
                f"📌 **ዘርፍ፦** {main_category}\n"
@@ -2260,8 +2264,7 @@ async def buyer_username_or_skip(update: Update, context: ContextTypes.DEFAULT_T
    except Exception as e:
        logger.error(f"❌ Buyer save error: {e}", exc_info=True)
        await update.message.reply_text(
-           f"❌ **ስህተት ተከስቷል፦** {str(e)[:100]}\n\n"
-           "እባክዎ እንደገና ይሞክሩ።",
+           "❌ **ስህተት ተከስቷል።** እባክዎ እንደገና ይሞክሩ።",
            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
            parse_mode="Markdown"
        )
