@@ -2679,13 +2679,13 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
     if property_subtype:
         description = f"🏠 {property_subtype}\n{description}"
 
-    desc = (
-        f"{urgent_text}📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ!**\n"
-        f"🔄 አይነት: {user_data.get('action_type')}\n"
-        f"📦 ምድብ: {user_data.get('main_category')}\n"
-        f"📝 ዝርዝር: {description}\n"
-        f"💰 ዋጋ: {user_data.get('price')} ብር ({negotiable_text})\n"
-    )
+      desc = (
+       f"{urgent_text}📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ!**\n"
+       f"🔄 አይነት: {user_data.get('action_type')}\n"
+       f"📦 ምድብ: {user_data.get('main_category')}\n"
+       f"📝 ዝርዝር: {description}\n"
+       f"💰 ዋጋ: {user_data.get('price')} ብር ({negotiable_text})\n"
+   )
     
     if is_car:
         if user_data.get('condition'): desc += f"📊 ሁኔታ: {user_data.get('condition')}\n"
