@@ -2434,17 +2434,57 @@ async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
    )
    return SELLER_PHOTO
 
+async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+   if update.message.text == "🏠 ዋና ገጽ":
+       return await go_home(update, context)
+
+   if not validate_phone(update.message.text):
+       await update.message.reply_text("❌ ትክክለኛ የስልክ ቁጥር ያስገቡ።")
+       return SELLER_PHONE
+
+   context.user_data['phone'] = update.message.text
+   
+   # Telegram username መጠየቅ
+   await update.message.reply_text(
+       "📱 **Telegram Username ያስገቡ (አማራጭ)፦**\n\n"
+       "💡 *ለምሳሌ፦* @Abebe_Belay\n"
+       "ወይም 'ዝለል' ብለው ይጻፉ።",
+       parse_mode="Markdown",
+       reply_markup=ReplyKeyboardMarkup([["ዝለል"], ["🏠 ዋና ገጽ"]], resize_keyboard=True)
+   )
+   return SELLER_PHOTO  # ወደ ፎቶ ከመሄድ በፊት username እንቀበላለን
+
+
 async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
    user = update.effective_user
    
    if update.message.text == "🏠 ዋና ገጽ":
        return await go_home(update, context)
    
+   # Telegram username መቀበል
+   if 'telegram_user' not in context.user_data:
+       if update.message.text and update.message.text.lower() == "ዝለል":
+           context.user_data['telegram_user'] = ""
+       elif update.message.text and not update.message.photo:
+           tg_user = update.message.text.strip()
+           if tg_user and not tg_user.startswith("@"):
+               tg_user = "@" + tg_user
+           context.user_data['telegram_user'] = tg_user
+           await update.message.reply_text(
+               "📸 **አሁን የንብረቱን ፎቶ ይላኩ (ወይም 'ዝለል' የሚለውን ይጻፉ)፦**\n\n"
+               "💡 *እስከ 5 ፎቶዎች መላክ ይችላሉ። ሲጨርሱ 'ጨረስኩ' ብለው ይጻፉ።*",
+               parse_mode="Markdown",
+               reply_markup=ReplyKeyboardMarkup([["ዝለል"], ["ጨረስኩ"], ["🏠 ዋና ገጽ"]], resize_keyboard=True)
+           )
+           return SELLER_PHOTO
+       else:
+           # ፎቶ ከሆነ username ባዶ አድርገን እንቀጥል
+           context.user_data['telegram_user'] = ""
+   
+   # አሁን ፎቶ ማስተናገድ
    if update.message.text and update.message.text.lower() in ['ዝለል', 'ጨረስኩ', 'ቀጥል']:
-       # ማስታወቂያውን ማስቀመጥ
        return await save_seller_listing(update, context)
    
-   # ፎቶ ከሆነ መቀበል
    if update.message.photo:
        if 'photos' not in context.user_data:
            context.user_data['photos'] = []
@@ -2466,12 +2506,14 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
    
    return SELLER_PHOTO
 
+
 async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE):
    user = update.effective_user
    user_data = context.user_data
 
    property_subtype = user_data.get('property_subtype', '')
    description = user_data.get('description', '')
+   telegram_user = user_data.get('telegram_user', '')
    
    # ማጠቃለያ ጽሁፍ መገንባት
    is_car = user_data.get('main_category') == "car"
@@ -2487,6 +2529,7 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
    desc = (
        f"{urgent_text}📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ!**\n"
        f"🔄 አይነት: {user_data.get('action_type')}\n"
+       f"📦 ምድብ: {user_data.get('main_category')}\n"
        f"📝 ዝርዝር: {description}\n"
        f"💰 ዋጋ: {user_data.get('price')} ብር ({negotiable_text})\n"
    )
@@ -2502,11 +2545,13 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
        if user_data.get('parking'): desc += f"🚗 ፓርኪንግ: {user_data.get('parking')}\n"
    
    desc += f"📞 ስልክ: {user_data.get('phone')}\n"
+   if telegram_user: desc += f"📱 Telegram: {telegram_user}\n"
    
    # Extra data
    extra_data = {
        'negotiable': negotiable,
        'urgent_sale': urgent_sale,
+       'telegram_user': telegram_user,
    }
    if is_car:
        extra_data.update({
@@ -2514,50 +2559,79 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
            'fuel_type': user_data.get('fuel_type', ''),
            'transmission': user_data.get('transmission', ''),
            'mileage': user_data.get('mileage', ''),
+           'car_type': user_data.get('sub_category', ''),
        })
    else:
        extra_data.update({
            'condition': user_data.get('condition', ''),
            'bedrooms': user_data.get('bedrooms', ''),
            'parking': user_data.get('parking', ''),
+           'house_type': property_subtype,
        })
 
-   photo_id = user_data.get('photos', [None])[0] if user_data.get('photos') else None
+   photos = user_data.get('photos', [])
+   photo_id = photos[0] if photos else None
 
-   req_id = add_listing(
-       user_chat_id=user.id,
-       user_name=user.first_name or "User",
-       req_type="SELL",
-       main_category=user_data.get('main_category'),
-       sub_category=user_data.get('sub_category', ''),
-       action_type=user_data.get('action_type'),
-       property_type=user_data.get('property_type', ''),
-       description=desc,
-       price=user_data.get('price'),
-       phone=user_data.get('phone'),
-       photo_id=photo_id,
-       extra_data=extra_data,
-       photos=user_data.get('photos', [])
-   )
-
-   if req_id:
-       await update.message.reply_text(
-           f"✅ **ማስታወቂያዎ በስኬት ተመዝግቧል!** 🎉\n\n"
-           f"🆔 **የማስታወቂያ ቁጥር:** #ADK-{req_id}\n\n"
-           f"📌 ማስታወቂያዎ ለደላሎች እና ለፈላጊዎች ተልኳል።",
-           reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-           parse_mode="Markdown"
+   try:
+       req_id = add_listing(
+           user_chat_id=user.id,
+           user_name=user.first_name or "User",
+           req_type="SELL",
+           main_category=user_data.get('main_category', ''),
+           sub_category=user_data.get('sub_category', ''),
+           action_type=user_data.get('action_type', 'መሸጥ'),
+           property_type=user_data.get('property_type', ''),
+           description=desc,
+           price=user_data.get('price'),
+           phone=user_data.get('phone'),
+           photo_id=photo_id,
+           extra_data=extra_data,
+           photos=photos
        )
 
-       notification_text = (
-           f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ! (#ADK-{req_id})**\n\n"
-           f"{desc}\n\n"
-           f"👉 ይህን ማስታወቂያ ለፈላጊዎች ማሳወቅ ይችላሉ!"
-       )
-       await notify_brokers(context.bot, notification_text, req_id, user.id)
-   else:
+       if req_id:
+           await update.message.reply_text(
+               f"✅ **ማስታወቂያዎ በስኬት ተመዝግቧል!** 🎉\n\n"
+               f"🆔 **የማስታወቂያ ቁጥር:** #ADK-{req_id}\n"
+               f"📞 **ስልክ:** {user_data.get('phone')}\n"
+               + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
+               f"\n📌 ማስታወቂያዎ ለደላሎች እና ለፈላጊዎች ተልኳል።",
+               reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+               parse_mode="Markdown"
+           )
+
+           # Send first photo as separate message if exists
+           if photos:
+               try:
+                   await update.message.reply_photo(
+                       photo=photos[0],
+                       caption=f"📸 **የማስታወቂያ #ADK-{req_id} ፎቶ**",
+                       parse_mode="Markdown"
+                   )
+               except Exception as e:
+                   logger.error(f"Failed to send photo: {e}")
+
+           notification_text = (
+               f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ! (#ADK-{req_id})**\n\n"
+               f"{desc}\n\n"
+               f"👉 ይህን ማስታወቂያ ለፈላጊዎች ማሳወቅ ይችላሉ!"
+           )
+           try:
+               await notify_brokers(context.bot, notification_text, req_id, user.id)
+           except Exception as e:
+               logger.error(f"Failed to notify brokers: {e}")
+       else:
+           await update.message.reply_text(
+               "❌ **ማስታወቂያውን መመዝገብ አልተቻለም።**\n\n"
+               "እባክዎ እንደገና ይሞክሩ ወይም የድጋፍ ቡድናችንን ያነጋግሩ።",
+               reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+               parse_mode="Markdown"
+           )
+   except Exception as e:
+       logger.error(f"❌ Seller save error: {e}", exc_info=True)
        await update.message.reply_text(
-           "❌ ማስታወቂያውን መመዝገብ አልተቻለም።",
+           f"❌ **ስህተት ተከስቷል፦** {str(e)[:100]}\n\n"
+           "እባክዎ እንደገና ይሞክሩ።",
            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
            parse_mode="Markdown"
        )
