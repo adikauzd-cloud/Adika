@@ -2137,60 +2137,49 @@ async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
        return await go_home(update, context)
    context.user_data['description'] = update.message.text
    await update.message.reply_text(
-       "📞 **እርስዎን የሚያገኙበት የስልክ ቁጥር ያስገቡ፦**",
+       "📞 **ስልክ ቁጥርዎን ያስገቡ፦**\n\n"
+       "📱 **Telegram Username (አማራጭ)** ማከል ከፈለጉ ከስልኩ ጋር ያስገቡ።\n"
+       "💡 *ለምሳሌ፦* `0911223344 @Abebe`",
        parse_mode="Markdown",
        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
    )
    return BUYER_PHONE
 
+
 async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
    if update.message.text == "🏠 ዋና ገጽ":
        return await go_home(update, context)
 
-   phone = update.message.text.strip()
+   text = update.message.text.strip()
+   
+   # Telegram username ማውጣት (ካለ)
+   telegram_user = ""
+   phone = text
+   
+   # @username ፈልጎ ማውጣት
+   import re
+   username_match = re.search(r'@\w+', text)
+   if username_match:
+       telegram_user = username_match.group()
+       phone = text.replace(telegram_user, '').strip()
+   
    if not validate_phone(phone):
-       await update.message.reply_text("❌ ትክክለኛ የስልክ ቁጥር ያስገቡ። (ለምሳሌ፦ 0911223344)")
+       await update.message.reply_text("❌ ትክክለኛ የስልክ ቁጥር ያስገቡ። (ለምሳሌ፦ 0911223344 ወይም 0911223344 @Abebe)")
        return BUYER_PHONE
 
    context.user_data["phone"] = phone
-   
-   # Telegram username መጠየቅ
-   await update.message.reply_text(
-       "📱 **Telegram Username ያስገቡ (አማራጭ)፦**\n\n"
-       "💡 *ለምሳሌ፦* @Abebe_Belay\n"
-       "ወይም 'ዝለል' ብለው ይጻፉ።",
-       parse_mode="Markdown",
-       reply_markup=ReplyKeyboardMarkup([["ዝለል"], ["🏠 ዋና ገጽ"]], resize_keyboard=True)
-   )
-   return BUYER_TELEGRAM_USER
-
-
-async def buyer_telegram_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-   """Telegram username ተቀብሎ ማስቀመጥ"""
-   if update.message.text == "🏠 ዋና ገጽ":
-       return await go_home(update, context)
-   
-   telegram_user = ""
-   if update.message.text.lower() != "ዝለል":
-       telegram_user = update.message.text.strip()
-       if telegram_user and not telegram_user.startswith("@"):
-           telegram_user = "@" + telegram_user
-   
    context.user_data["telegram_user"] = telegram_user
    
-   # ማስቀመጥ ጀምር
+   # በቀጥታ ማስቀመጥ
    user = update.effective_user
    user_data = context.user_data
 
    desc = user_data.get('description', '')
    budget = user_data.get('budget_range', '')
-   phone = user_data.get('phone', '')
    main_category = user_data.get('main_category', '')
    
    if user_data.get('property_subtype'):
        desc = f"🏠 {user_data.get('property_subtype')}\n{desc}"
-
-   logger.info(f"📝 Saving buyer request: user={user.id}, cat={main_category}, phone={phone}")
 
    try:
        req_id = add_listing(
@@ -2212,8 +2201,6 @@ async def buyer_telegram_user(update: Update, context: ContextTypes.DEFAULT_TYPE
        )
 
        if req_id:
-           logger.info(f"✅ Buyer request saved: #ADK-{req_id}")
-           
            await update.message.reply_text(
                f"✅ **ጥያቄዎ በስኬት ተመዝግቧል!** 🎉\n\n"
                f"🆔 **የጥያቄ ቁጥር:** #ADK-{req_id}\n"
@@ -2225,16 +2212,7 @@ async def buyer_telegram_user(update: Update, context: ContextTypes.DEFAULT_TYPE
                parse_mode="Markdown",
            )
 
-           # Search Alert
-           if user_data.get('create_alert'):
-               try:
-                   save_search_alert(user.id, main_category, 
-                                   budget.split('-')[0].strip() if '-' in budget else budget,
-                                   budget.split('-')[1].strip() if '-' in budget else budget)
-               except Exception as e:
-                   logger.error(f"Failed to save search alert: {e}")
-
-           # ለደላሎች ማሳወቂያ መላክ
+           # ለደላሎች ማሳወቂያ
            notification_text = (
                f"🔔 **አዲስ ጥያቄ! (#ADK-{req_id})**\n\n"
                f"📌 **ዘርፍ፦** {main_category}\n"
@@ -2244,17 +2222,10 @@ async def buyer_telegram_user(update: Update, context: ContextTypes.DEFAULT_TYPE
                + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
                f"\n👉 ይህ ንብረት በእጅዎ ካለ **'🤝 ገዢ/ተከራይ አለኝ'** የሚለውን ይጫኑ!"
            )
-           
-           try:
-               await notify_brokers(context.bot, notification_text, req_id, user.id)
-               logger.info(f"✅ Broker notification sent for #ADK-{req_id}")
-           except Exception as e:
-               logger.error(f"❌ Failed to notify brokers for #ADK-{req_id}: {e}")
+           await notify_brokers(context.bot, notification_text, req_id, user.id)
        else:
-           logger.error(f"❌ add_listing returned None for buyer {user.id}")
            await update.message.reply_text(
-               "❌ **መረጃውን መመዝገብ አልተቻለም።**\n\n"
-               "እባክዎ እንደገና ይሞክሩ ወይም የድጋፍ ቡድናችንን ያነጋግሩ።",
+               "❌ **መረጃውን መመዝገብ አልተቻለም።**",
                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
                parse_mode="Markdown"
            )
