@@ -72,7 +72,9 @@ SELLER_FORM_HTML = """
    <script src="https://cdn.tailwindcss.com"></script>
    <style>
        .image-preview-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+       .image-preview-wrapper { position: relative; }
        .image-preview { width: 80px; height: 80px; object-fit: cover; border-radius: 8px; border: 2px solid #e5e7eb; }
+       .remove-btn { position: absolute; top: -6px; right: -6px; background: #ef4444; color: white; border-radius: 50%; width: 22px; height: 22px; font-size: 14px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; }
        .urgent-badge { background-color: #ef4444; color: white; padding: 2px 8px; border-radius: 9999px; font-size: 12px; font-weight: bold; animation: pulse 1.5s infinite; }
        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
    </style>
@@ -89,11 +91,11 @@ SELLER_FORM_HTML = """
                    <option value="ቤት">🏠 ቤት</option>
                </select>
            </div>
-           
-           <!-- ተለዋዋጭ ማጣሪያዎች ዞን -->
+          
+           <!-- ተለዋዋጭ ማጣሪያዎች -->
            <div id="dynamicFilters"></div>
-           
-           <!-- ዋጋ እና የድርድር ሁኔታ -->
+          
+           <!-- ዋጋ -->
            <div>
                <label class="block text-sm font-medium text-gray-700 mb-1">💰 ዋጋ (በብር)</label>
                <input type="number" id="price" placeholder="ለምሳሌ፦ 2500000" class="w-full p-2 border rounded" required>
@@ -102,27 +104,27 @@ SELLER_FORM_HTML = """
                <input type="checkbox" id="negotiable" checked class="w-4 h-4 text-blue-600">
                <label for="negotiable" class="text-sm text-gray-700">💰 ዋጋው የሚደራደር ነው</label>
            </div>
-           
-           <!-- ⚡ አስቸኳይ ሽያጭ -->
+          
+           <!-- አስቸኳይ ሽያጭ -->
            <div class="flex items-center gap-2 bg-red-50 p-3 rounded-lg border border-red-200">
                <input type="checkbox" id="urgentSale" class="w-4 h-4 text-red-600">
                <label for="urgentSale" class="text-sm font-medium text-red-700">⚡ አስቸኳይ ሽያጭ (Urgent Sale)</label>
            </div>
-           
+          
            <!-- መግለጫ -->
            <div>
                <label class="block text-sm font-medium text-gray-700 mb-1">📝 ዝርዝር መግለጫ</label>
                <textarea id="description" placeholder="የንብረቱን ሙሉ ዝርዝር መረጃ ያስገቡ..." class="w-full p-2 border rounded h-24" required></textarea>
            </div>
-           
-           <!-- ፎቶ መጫኛ ከ Client-Side Compression ጋር -->
+          
+           <!-- ፎቶ መጫኛ (ብዙ ፎቶ ይደግፋል) -->
            <div>
                <label class="block text-sm font-medium text-gray-700 mb-1">📸 ፎቶዎች (እስከ 5)</label>
-               <input type="file" id="photos" accept="image/*" multiple class="w-full p-2 border rounded text-sm" max="5">
-               <p class="text-xs text-gray-500 mt-1">ፎቶዎች በራስ-ሰር ይጨመቃሉ (Max 1MB እያንዳንዳቸው)</p>
+               <input type="file" id="photos" accept="image/*" multiple class="w-full p-2 border rounded text-sm">
+               <p class="text-xs text-gray-500 mt-1">ፎቶዎች በራስ-ሰር ይጨመቃሉ • ከ1 በላይ መምረጥ ይችላሉ</p>
                <div id="photoPreviews" class="image-preview-container"></div>
            </div>
-           
+          
            <!-- የመገናኛ መረጃ -->
            <div>
                <label class="block text-sm font-medium text-gray-700 mb-1">📞 ስልክ ቁጥር</label>
@@ -132,8 +134,8 @@ SELLER_FORM_HTML = """
                <label class="block text-sm font-medium text-gray-700 mb-1">📱 Telegram Username (አማራጭ)</label>
                <input type="text" id="telegramUser" placeholder="@username" class="w-full p-2 border rounded">
            </div>
-           
-           <!-- የማረጋገጫ ቁልፎች -->
+          
+           <!-- ቁልፎች -->
            <div class="flex gap-3 pt-4">
                <button type="submit" id="submitBtn" class="flex-1 bg-blue-600 text-white p-3 rounded font-bold hover:bg-blue-700 transition">✅ አረጋግጥና ለጥፍ</button>
                <button type="button" id="cancelBtn" class="flex-1 bg-gray-400 text-white p-3 rounded font-bold hover:bg-gray-500 transition">❌ ሰርዝ</button>
@@ -141,16 +143,16 @@ SELLER_FORM_HTML = """
        </form>
        <p id="statusMsg" class="text-center mt-4 text-sm hidden"></p>
    </div>
+
    <script>
        let tg = window.Telegram.WebApp;
        tg.expand();
        tg.ready();
-       
+
        // ========== DYNAMIC FILTERS ==========
        const categorySelect = document.getElementById('category');
        const dynamicFiltersDiv = document.getElementById('dynamicFilters');
-       
-       // ለመኪና ማጣሪያዎች
+
        const carFiltersHTML = `
            <div class="space-y-3 border-t pt-3">
                <div>
@@ -167,8 +169,8 @@ SELLER_FORM_HTML = """
                    <label class="block text-sm font-medium text-gray-700 mb-1">⚙️ ማርሽ (Transmission)</label>
                    <select id="transmission" class="w-full p-2 border rounded">
                        <option value="">-- ይምረጡ --</option>
-                       <option value="ማንዋል">🕹️ ማንዋል (Manual)</option>
-                       <option value="ኦቶማቲክ">🤖 ኦቶማቲክ (Automatic)</option>
+                       <option value="ማንዋል">🕹️ ማንዋል</option>
+                       <option value="ኦቶማቲክ">🤖 ኦቶማቲክ</option>
                    </select>
                </div>
                <div>
@@ -176,12 +178,12 @@ SELLER_FORM_HTML = """
                    <input type="number" id="mileage" placeholder="ለምሳሌ፦ 50000" class="w-full p-2 border rounded">
                </div>
                <div>
-                   <label class="block text-sm font-medium text-gray-700 mb-1">📊 ሁኔታ (Condition)</label>
+                   <label class="block text-sm font-medium text-gray-700 mb-1">📊 ሁኔታ</label>
                    <select id="condition" class="w-full p-2 border rounded">
                        <option value="">-- ይምረጡ --</option>
-                       <option value="አዲስ">🆕 አዲስ (Brand New)</option>
-                       <option value="ያገለገለ">✅ ያገለገለ (Used - Good)</option>
-                       <option value="ጥገና የሚፈልግ">🔧 ጥገና የሚፈልግ (Needs Repair)</option>
+                       <option value="አዲስ">🆕 አዲስ</option>
+                       <option value="ያገለገለ">✅ ያገለገለ</option>
+                       <option value="ጥገና የሚፈልግ">🔧 ጥገና የሚፈልግ</option>
                    </select>
                </div>
                <div>
@@ -190,13 +192,12 @@ SELLER_FORM_HTML = """
                        <option value="">-- ይምረጡ --</option>
                        <option value="የቤት መኪና">🚗 የቤት መኪና</option>
                        <option value="የሥራ መኪና">🚚 የሥራ መኪና</option>
-                       <option value="ከባድ ተሽከርካሪ">🚜 ከባድ ተሽከርካሪ/ማሽን</option>
+                       <option value="ከባድ ተሽከርካሪ">🚜 ከባድ ተሽከርካሪ</option>
                    </select>
                </div>
            </div>
        `;
-       
-       // ለቤት ማጣሪያዎች
+
        const houseFiltersHTML = `
            <div class="space-y-3 border-t pt-3">
                <div>
@@ -220,12 +221,12 @@ SELLER_FORM_HTML = """
                    <label for="parking" class="text-sm text-gray-700">🚗 ፓርኪንግ አለው</label>
                </div>
                <div>
-                   <label class="block text-sm font-medium text-gray-700 mb-1">📊 ሁኔታ (Condition)</label>
+                   <label class="block text-sm font-medium text-gray-700 mb-1">📊 ሁኔታ</label>
                    <select id="houseCondition" class="w-full p-2 border rounded">
                        <option value="">-- ይምረጡ --</option>
-                       <option value="አዲስ">🆕 አዲስ (Brand New)</option>
-                       <option value="ጥሩ">✅ ጥሩ (Good)</option>
-                       <option value="እድሳት የሚፈልግ">🔧 እድሳት የሚፈልግ (Needs Renovation)</option>
+                       <option value="አዲስ">🆕 አዲስ</option>
+                       <option value="ጥሩ">✅ ጥሩ</option>
+                       <option value="እድሳት የሚፈልግ">🔧 እድሳት የሚፈልግ</option>
                    </select>
                </div>
                <div>
@@ -241,23 +242,18 @@ SELLER_FORM_HTML = """
                </div>
            </div>
        `;
-       
+
        function updateFilters() {
-           if (categorySelect.value === 'መኪና') {
-               dynamicFiltersDiv.innerHTML = carFiltersHTML;
-           } else {
-               dynamicFiltersDiv.innerHTML = houseFiltersHTML;
-           }
+           dynamicFiltersDiv.innerHTML = categorySelect.value === 'መኪና' ? carFiltersHTML : houseFiltersHTML;
        }
-       
        categorySelect.addEventListener('change', updateFilters);
-       updateFilters(); // initial load
-       
-       // ========== CLIENT-SIDE IMAGE COMPRESSION ==========
+       updateFilters();
+
+       // ========== MULTI-PHOTO WITH ACCUMULATION ==========
        const photoInput = document.getElementById('photos');
        const previewDiv = document.getElementById('photoPreviews');
-       let compressedFiles = [];
-       
+       let compressedFiles = [];   // እዚህ ነው የሚከማቹት
+
        async function compressImage(file) {
            return new Promise((resolve) => {
                const reader = new FileReader();
@@ -285,34 +281,59 @@ SELLER_FORM_HTML = """
                reader.readAsDataURL(file);
            });
        }
-       
-       photoInput.addEventListener('change', async () => {
+
+       function renderPreviews() {
            previewDiv.innerHTML = '';
-           compressedFiles = [];
-           const files = Array.from(photoInput.files).slice(0, 5);
-           
-           for (const file of files) {
-               const compressed = await compressImage(file);
-               compressedFiles.push(compressed);
-               
+           compressedFiles.forEach((file, index) => {
                const reader = new FileReader();
                reader.onload = (e) => {
+                   const wrapper = document.createElement('div');
+                   wrapper.className = 'image-preview-wrapper';
+
                    const img = document.createElement('img');
                    img.src = e.target.result;
                    img.className = 'image-preview';
-                   previewDiv.appendChild(img);
+
+                   const removeBtn = document.createElement('button');
+                   removeBtn.className = 'remove-btn';
+                   removeBtn.innerHTML = '×';
+                   removeBtn.type = 'button';
+                   removeBtn.onclick = () => {
+                       compressedFiles.splice(index, 1);
+                       renderPreviews();
+                   };
+
+                   wrapper.appendChild(img);
+                   wrapper.appendChild(removeBtn);
+                   previewDiv.appendChild(wrapper);
                };
-               reader.readAsDataURL(compressed);
+               reader.readAsDataURL(file);
+           });
+       }
+
+       photoInput.addEventListener('change', async () => {
+           const newFiles = Array.from(photoInput.files);
+           if (newFiles.length === 0) return;
+
+           // አዲስ ፎቶዎችን ጨምር (አትጥፋ)
+           for (const file of newFiles) {
+               if (compressedFiles.length >= 5) break;
+               const compressed = await compressImage(file);
+               compressedFiles.push(compressed);
            }
+
+           // input ን አጽዳ (ተመሳሳይ ፎቶ እንደገና ለመምረጥ)
+           photoInput.value = '';
+           renderPreviews();
        });
-       
+
        // ========== FORM SUBMISSION ==========
        document.getElementById('cancelBtn').addEventListener('click', () => {
            if (confirm('እርግጠኛ ነዎት? ሁሉም ያስገቡት መረጃ ይጠፋል።')) {
                tg.close();
            }
        });
-       
+
        document.getElementById('listingForm').onsubmit = async (e) => {
            e.preventDefault();
            const btn = document.getElementById('submitBtn');
@@ -320,10 +341,9 @@ SELLER_FORM_HTML = """
            btn.disabled = true;
            btn.innerText = "እየተላከ ነው...";
            status.classList.add('hidden');
-           
+
            const isCar = categorySelect.value === 'መኪና';
-           
-           // ተጨማሪ መረጃ መሰብሰብ
+
            const extraData = isCar ? {
                fuel_type: document.getElementById('fuelType')?.value || '',
                transmission: document.getElementById('transmission')?.value || '',
@@ -337,7 +357,7 @@ SELLER_FORM_HTML = """
                condition: document.getElementById('houseCondition')?.value || '',
                house_type: document.getElementById('houseType')?.value || '',
            };
-           
+
            const data = {
                user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "unknown",
                category: categorySelect.value,
@@ -349,9 +369,8 @@ SELLER_FORM_HTML = """
                telegram_user: document.getElementById('telegramUser').value || '',
                ...extraData
            };
-           
+
            try {
-               // ፎቶዎችን Base64 አድርጎ መላክ
                if (compressedFiles.length > 0) {
                    const photoPromises = compressedFiles.map(f => {
                        return new Promise((resolve) => {
@@ -362,19 +381,28 @@ SELLER_FORM_HTML = """
                    });
                    data.photos = await Promise.all(photoPromises);
                }
-               
+
                const res = await fetch('/api/submit-listing', {
                    method: 'POST',
                    headers: {'Content-Type': 'application/json'},
                    body: JSON.stringify(data)
                });
                const result = await res.json();
-               
+
                if (result.status === "success") {
-                   status.innerHTML = `<span class="text-green-600">✅ በስኬት ተመዝግቧል!</span><br>🆔 የማስታወቂያ ቁጥር፦ <b>#ADK-${result.req_id}</b>`;
+                   // ✅ የተሻሻለ ማሳወቂያ
+                   status.innerHTML = `
+                       <div class="text-green-600 font-medium">
+                           ✅ ማስታወቂያዎ በስኬት ተመዝግቧል!<br>
+                           🆔 ቁጥር፦ <b>#ADK-${result.req_id}</b><br><br>
+                           📬 ለሁሉም ደላሎች ተልኳል።<br>
+                           🗑️ ማስታወቂያውን ማጥፋት ከፈለጉ<br>
+                           ከገበያ ቦታ ገብተው <b>አጥፋ</b> ቁልፍን ይጫኑ።
+                       </div>
+                   `;
                    status.classList.remove('hidden');
                    document.getElementById('listingForm').classList.add('hidden');
-                   setTimeout(() => tg.close(), 2500);
+                   setTimeout(() => tg.close(), 4000);
                } else {
                    status.innerText = "❌ " + (result.message || "ስህተት ተከስቷል");
                    status.classList.remove('hidden');
@@ -415,8 +443,7 @@ BUYER_FORM_HTML = """
                    <option value="ቤት">🏠 ቤት</option>
                </select>
            </div>
-           
-           <!-- የዋጋ ክልል -->
+          
            <div>
                <label class="block text-sm font-medium text-gray-700 mb-1">💰 የበጀት ክልል (በብር)</label>
                <div class="flex gap-2">
@@ -424,17 +451,16 @@ BUYER_FORM_HTML = """
                    <input type="number" id="budgetMax" placeholder="እስከ" class="w-1/2 p-2 border rounded">
                </div>
            </div>
-           
-           <!-- ለፍለጋ ማንቂያ -->
+          
            <div class="flex items-center gap-2 bg-blue-50 p-3 rounded-lg border border-blue-200">
                <input type="checkbox" id="createAlert" class="w-4 h-4 text-blue-600">
-               <label for="createAlert" class="text-sm font-medium text-blue-700">🔔 ተመሳሳይ ንብረት ሲለቀቅ ማሳወቂያ ደርሶኝ</label>
+               <label for="createAlert" class="text-sm font-medium text-blue-700">🔔 ተመሳሳይ ንብረት ሲለቀቅ ይድረሰኝ</label>
            </div>
-           
+          
            <textarea id="details" placeholder="ዝርዝር ፍላጎትዎን ያስገቡ..." class="w-full p-2 border rounded h-24" required></textarea>
            <input type="tel" id="phone" placeholder="ስልክ ቁጥር" class="w-full p-2 border rounded" required>
            <input type="text" id="telegramUser" placeholder="Telegram Username (አማራጭ)" class="w-full p-2 border rounded">
-           
+          
            <div class="flex gap-3 pt-4">
                <button type="submit" id="submitBtn" class="flex-1 bg-green-600 text-white p-3 rounded font-bold hover:bg-green-700 transition">✅ ጥያቄውን ይላኩ</button>
                <button type="button" id="cancelBtn" class="flex-1 bg-gray-400 text-white p-3 rounded font-bold hover:bg-gray-500 transition">❌ ሰርዝ</button>
@@ -446,9 +472,9 @@ BUYER_FORM_HTML = """
        let tg = window.Telegram.WebApp;
        tg.expand();
        tg.ready();
-       
+      
        document.getElementById('cancelBtn').addEventListener('click', () => tg.close());
-       
+      
        document.getElementById('buyerForm').onsubmit = async (e) => {
            e.preventDefault();
            const btn = document.getElementById('submitBtn');
@@ -456,7 +482,7 @@ BUYER_FORM_HTML = """
            btn.disabled = true;
            btn.innerText = "እየተላከ ነው...";
            status.classList.add('hidden');
-           
+          
            const data = {
                user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "unknown",
                category: document.getElementById('category').value,
@@ -467,7 +493,7 @@ BUYER_FORM_HTML = """
                phone: document.getElementById('phone').value,
                telegram_user: document.getElementById('telegramUser').value || ''
            };
-           
+          
            try {
                const res = await fetch('/api/submit-request', {
                    method: 'POST',
@@ -475,7 +501,7 @@ BUYER_FORM_HTML = """
                    body: JSON.stringify(data)
                });
                const result = await res.json();
-               
+              
                if (result.status === "success") {
                    status.innerHTML = `<span class="text-green-600">✅ ጥያቄዎ ተመዝግቧል!</span><br>🆔 ቁጥር፦ <b>#ADK-${result.req_id}</b>`;
                    status.classList.remove('hidden');
@@ -512,17 +538,14 @@ def webapp_seller_form():
 def webapp_buyer_form():
    return render_template_string(BUYER_FORM_HTML)
 
-
 def _send_notification_safe(notification_text: str, req_id: int, buyer_id: int):
    """ከ Flask ውስጥ በአስተማማኝ መንገድ ለደላሎች ማሳወቂያ መላክ"""
    if not bot_app:
        logger.warning("bot_app is None – cannot send notification")
        return
-
    try:
        async def _notify():
            await notify_brokers(bot_app.bot, notification_text, req_id, buyer_id)
-
        def run_in_thread():
            try:
                loop = asyncio.new_event_loop()
@@ -532,13 +555,10 @@ def _send_notification_safe(notification_text: str, req_id: int, buyer_id: int):
                logger.info(f"✅ Notification sent for req_id={req_id}")
            except Exception as e:
                logger.error(f"❌ Notification thread error: {e}", exc_info=True)
-
        t = threading.Thread(target=run_in_thread, daemon=True)
        t.start()
-
    except Exception as e:
        logger.error(f"❌ Failed to start notification thread: {e}", exc_info=True)
-
 
 @web_app.route('/api/submit-listing', methods=['POST'])
 def submit_listing():
@@ -552,37 +572,32 @@ def submit_listing():
        description = data.get('description', '')
        phone = data.get('phone', '')
        telegram_user = data.get('telegram_user', '')
-       
-       # ተጨማሪ የመኪና መረጃ
+      
        fuel_type = data.get('fuel_type', '')
        transmission = data.get('transmission', '')
        mileage = data.get('mileage', '')
        condition = data.get('condition', '')
        car_type = data.get('car_type', '')
-       
-       # ተጨማሪ የቤት መረጃ
+      
        bedrooms = data.get('bedrooms', '')
        bathrooms = data.get('bathrooms', '')
        parking = data.get('parking', '')
        house_condition = data.get('condition', '')
        house_type = data.get('house_type', '')
-       
-       # ፎቶዎች
+      
        photos = data.get('photos', [])
-
        logger.info(f"📥 Seller WebApp data: {data}")
 
        if not user_id or user_id == "unknown":
            return jsonify({"status": "error", "message": "User ID አልተገኘም። Telegram ውስጥ ክፈት።"}), 400
 
-       # ሙሉ መግለጫ መገንባት
        negotiable_text = "✅ የሚደራደር" if negotiable else "❌ የማይደራደር"
        urgent_text = "⚡ **አስቸኳይ ሽያጭ!** " if urgent_sale else ""
-       
-       full_desc = f"{urgent_text}📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ (WebApp)**\n"
-       full_desc += f"📌 ምድብ: {category}\n"
+      
+       # ንጹህ መግለጫ (አላስፈላጊ ጽሁፎች ተወግደዋል)
+       full_desc = f"{urgent_text}"
        full_desc += f"💰 ዋጋ: {price} ብር ({negotiable_text})\n"
-       
+      
        if category == 'መኪና':
            if car_type: full_desc += f"🚗 አይነት: {car_type}\n"
            if fuel_type: full_desc += f"⛽ ነዳጅ: {fuel_type}\n"
@@ -595,7 +610,7 @@ def submit_listing():
            if bathrooms: full_desc += f"🛁 መታጠቢያ: {bathrooms}\n"
            if parking: full_desc += f"🚗 ፓርኪንግ: {parking}\n"
            if house_condition: full_desc += f"📊 ሁኔታ: {house_condition}\n"
-       
+      
        full_desc += f"📝 መግለጫ: {description}\n"
        full_desc += f"📞 ስልክ: {phone}\n"
        if telegram_user: full_desc += f"📱 Telegram: {telegram_user}\n"
@@ -623,21 +638,17 @@ def submit_listing():
 
        if req_id:
            logger.info(f"✅ Seller listing saved ID={req_id}")
-
            notification_text = (
-               f"📢 **አዲስ የሽያጭ ማስታወቂያ! (#ADK-{req_id})**\n\n"
+               f"🛍️ **አዲስ የሽያጭ ማስታወቂያ (#ADK-{req_id})**\n\n"
                f"{full_desc}"
            )
            _send_notification_safe(notification_text, req_id, int(user_id))
-
            return jsonify({"status": "success", "req_id": req_id})
        else:
            return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም።"}), 500
-
    except Exception as e:
        logger.error(f"❌ submit_listing error: {e}", exc_info=True)
        return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
-
 
 @web_app.route('/api/submit-request', methods=['POST'])
 def submit_request():
@@ -660,7 +671,6 @@ def submit_request():
        budget_range = f"{budget_min} - {budget_max}" if budget_min and budget_max else (budget_min or budget_max or "ያልተገለጸ")
 
        full_desc = (
-           f"📌 **አዲስ የ{category} ጥያቄ (WebApp)**\n"
            f"💰 በጀት ክልል: {budget_range} ብር\n"
            f"📝 ዝርዝር: {details}\n"
            f"📞 ስልክ: {phone}\n"
@@ -686,26 +696,21 @@ def submit_request():
 
        if req_id:
            logger.info(f"✅ Buyer request saved ID={req_id}")
-
            notification_text = (
-               f"🔔 **አዲስ የ{category} ጥያቄ! (#ADK-{req_id})**\n\n"
-               f"{full_desc}\n"
-               f"👉 ይህ ንብረት በእጅዎ ካለ **'🤝 ገዢ/ተከራይ አለኝ'** የሚለውን ይጫኑ!"
+               f"🔔 **አዲስ የ{category} ጥያቄ (#ADK-{req_id})**\n\n"
+               f"{full_desc}"
            )
            _send_notification_safe(notification_text, req_id, int(user_id))
 
-           # Search Alert ከተጠየቀ ያስቀምጡ
            if create_alert and str(user_id).isdigit():
                save_search_alert(int(user_id), category, budget_min, budget_max)
 
            return jsonify({"status": "success", "req_id": req_id})
        else:
            return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም።"}), 500
-
    except Exception as e:
        logger.error(f"❌ submit_request error: {e}", exc_info=True)
        return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
-
 
 def run_flask():
    port = int(os.environ.get("PORT", 8080))
