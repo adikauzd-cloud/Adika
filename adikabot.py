@@ -1920,9 +1920,9 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
    BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_SUBCITY, BROKER_NID_PHOTO,
    # Broker offer states (35-36 = 2 states)
    BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO,
-   # Notification prefs state (37 = 1 state)
+   # Extra state (37 = 1 state)
    NOTIFICATION_PREFS
-) = range(37)
+) = range(38)
 # ==============================================================================
 # 8. START & HOME HANDLERS
 # ==============================================================================
