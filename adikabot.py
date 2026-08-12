@@ -1963,6 +1963,32 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
        return BUYER_PHONE
 
    context.user_data["phone"] = phone
+   
+   # Telegram username መጠየቅ
+   await update.message.reply_text(
+       "📱 **Telegram Username ያስገቡ (አማራጭ)፦**\n\n"
+       "💡 *ለምሳሌ፦* @Abebe_Belay\n"
+       "ወይም 'ዝለል' ብለው ይጻፉ።",
+       parse_mode="Markdown",
+       reply_markup=ReplyKeyboardMarkup([["ዝለል"], ["🏠 ዋና ገጽ"]], resize_keyboard=True)
+   )
+   return BUYER_ALERT_CHOICE  # ይህን state ለ username እንጠቀማለን
+
+
+async def buyer_username_or_skip(update: Update, context: ContextTypes.DEFAULT_TYPE):
+   """Telegram username መቀበል ወይም መዝለል"""
+   if update.message.text == "🏠 ዋና ገጽ":
+       return await go_home(update, context)
+   
+   telegram_user = ""
+   if update.message.text.lower() != "ዝለል":
+       telegram_user = update.message.text.strip()
+       if telegram_user and not telegram_user.startswith("@"):
+           telegram_user = "@" + telegram_user
+   
+   context.user_data["telegram_user"] = telegram_user
+   
+   # አሁን ማስቀመጥ
    user = update.effective_user
    user_data = context.user_data
 
@@ -1971,49 +1997,81 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
    
    if user_data.get('property_subtype'):
        desc = f"🏠 {user_data.get('property_subtype')}\n{desc}"
+   
+   # Telegram username ካለ ማከል
+   if telegram_user:
+       desc += f"\n📱 Telegram: {telegram_user}"
 
-   req_id = add_listing(
-       user_chat_id=user.id,
-       user_name=user.first_name or "User",
-       req_type="BUY",
-       main_category=user_data.get('main_category', ''),
-       sub_category=user_data.get('sub_category', ''),
-       action_type=user_data.get('action_type', 'መግዛት'),
-       property_type=user_data.get('property_type', ''),
-       description=desc,
-       price=budget,
-       phone=phone,
-       extra_data={'create_alert': user_data.get('create_alert', False), 'budget_range': budget}
-   )
+   phone = user_data.get('phone', '')
+   main_category = user_data.get('main_category', '')
 
-   if req_id:
-       is_fav = False
-       reply_markup = build_request_keyboard(req_id, user.id, is_fav)
+   try:
+       req_id = add_listing(
+           user_chat_id=user.id,
+           user_name=user.first_name or "User",
+           req_type="BUY",
+           main_category=main_category,
+           sub_category=user_data.get('sub_category', ''),
+           action_type=user_data.get('action_type', 'መግዛት'),
+           property_type=user_data.get('property_type', ''),
+           description=desc,
+           price=budget,
+           phone=phone,
+           extra_data={
+               'create_alert': user_data.get('create_alert', False),
+               'budget_range': budget,
+               'telegram_user': telegram_user
+           }
+       )
+
+       if req_id:
+           is_fav = False
+           reply_markup = build_request_keyboard(req_id, user.id, is_fav)
+           await update.message.reply_text(
+               f"✅ **ጥያቄዎ በስኬት ተመዝግቧል!**\n\n"
+               f"🆔 **የጥያቄ ቁጥር:** #ADK-{req_id}\n"
+               f"📞 **ስልክ:** {phone}\n"
+               + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
+               f"\nአቅራቢዎች ወይም ደላሎች ጥያቄዎን አይተው መልስ ይሰጡዎታል።",
+               reply_markup=reply_markup,
+               parse_mode="Markdown",
+           )
+
+           # የ Search Alert ማስቀመጥ
+           if user_data.get('create_alert'):
+               try:
+                   save_search_alert(user.id, main_category, 
+                                   budget.split('-')[0].strip() if '-' in budget else budget,
+                                   budget.split('-')[1].strip() if '-' in budget else budget)
+               except Exception as e:
+                   logger.error(f"Failed to save search alert: {e}")
+
+           # Notify brokers
+           notification_text = (
+               f"🔔 **አዲስ ጥያቄ! (#ADK-{req_id})**\n\n"
+               f"📌 **ዘርፍ፦** {main_category}\n"
+               f"📝 **ፍላጎት፦** {user_data.get('description', '')}\n"
+               f"💰 **በጀት፦** {budget}\n"
+               f"📞 **ስልክ፦** {phone}\n"
+               + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
+               f"\n👉 ይህ ንብረት በእጅዎ ካለ **'🤝 ገዢ/ተከራይ አለኝ'** የሚለውን ይጫኑ!"
+           )
+           await notify_brokers(context.bot, notification_text, req_id, user.id)
+       else:
+           await update.message.reply_text(
+               "❌ **መረጃውን መመዝገብ አልተቻለም።**\n\n"
+               "እባክዎ እንደገና ይሞክሩ ወይም የድጋፍ ቡድናችንን ያነጋግሩ።",
+               reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+               parse_mode="Markdown"
+           )
+   except Exception as e:
+       logger.error(f"❌ Buyer save error: {e}", exc_info=True)
        await update.message.reply_text(
-           f"✅ **ጥያቄዎ በስኬት ተመዝግቧል!**\n\n"
-           f"🆔 **የጥያቄ ቁጥር:** #ADK-{req_id}\n"
-           f"📞 **ስልክ:** {phone}\n\n"
-           f"አቅራቢዎች ወይም ደላሎች ጥያቄዎን አይተው መልስ ይሰጡዎታል።",
-           reply_markup=reply_markup,
-           parse_mode="Markdown",
+           f"❌ **ስህተት ተከስቷል፦** {str(e)[:100]}\n\n"
+           "እባክዎ እንደገና ይሞክሩ።",
+           reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+           parse_mode="Markdown"
        )
-
-       # የ Search Alert ማስቀመጥ
-       if user_data.get('create_alert'):
-           save_search_alert(user.id, user_data.get('main_category', ''), 
-                           budget.split('-')[0].strip() if '-' in budget else budget,
-                           budget.split('-')[1].strip() if '-' in budget else budget)
-
-       # Notify brokers
-       notification_text = (
-           f"🔔 **አዲስ ጥያቄ! (#ADK-{req_id})**\n\n"
-           f"{desc}\n\n"
-           f"📞 ስልክ: {phone}\n\n"
-           f"👉 ይህ ንብረት በእጅዎ ካለ **'🤝 ገዢ/ተከራይ አለኝ'** የሚለውን ይጫኑ!"
-       )
-       await notify_brokers(context.bot, notification_text, req_id, user.id)
-   else:
-       await update.message.reply_text("❌ መረጃውን መመዝገብ አልተቻለም። እባክዎ እንደገና ይሞክሩ።")
 
    context.user_data.clear()
    return ConversationHandler.END
