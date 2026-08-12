@@ -3317,6 +3317,9 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 # ==============================================================================
 # 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY
 # ==============================================================================
+# ==============================================================================
+# 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY
+# ==============================================================================
 
 async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -3374,31 +3377,25 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የገበያ ቦታ - ሁሉም SELL type listings"""
+    items = get_public_marketplace_items(limit=10)
     user_id = update.effective_user.id
-    
-    # በቀጥታ ከዳታቤዝ አምጣ
-    items = get_public_marketplace_items(limit=20)
 
     if not items:
         await update.message.reply_text(
-            "📭 **በአሁኑ ሰዓት ለሽያጭ/ኪራይ የቀረቡ ንብረቶች የሉም።**\n\n"
-            "💡 *እባክዎ ቆይተው ይሞክሩ ወይም እርስዎ ማስታወቂያ ያስገቡ።*",
+            "📭 **በአሁኑ ሰዓት ለሽያጭ/ኪራይ የቀረቡ ንብረቶች የሉም።**",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
             parse_mode="Markdown"
         )
         return
 
     await update.message.reply_text(
-        f"🛍️ **ለሽያጭ እና ለኪራይ የቀረቡ ንብረቶች** ({len(items)} ንብረቶች)\n"
-        f"━━━━━━━━━━━━━━━━━━━",
+        "🛍️ **ለሽያጭ እና ለኪራይ የቀረቡ ንብረቶች ዝርዝር፦**",
         parse_mode="Markdown"
     )
 
     for item in items:
         card_text = format_seller_card(item)
-        photos = item.get('photos', [])
-        photo_id = photos[0] if photos else item.get('photo_id')
+        photo_id = item.get('photo_id')
         owner_id = item.get('user_chat_id')
         phone = item.get('phone', '')
         
@@ -3409,27 +3406,19 @@ async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_
             phone=phone
         )
 
-        try:
-            if photo_id:
+        if photo_id:
+            try:
                 await update.message.reply_photo(
                     photo=photo_id, 
                     caption=card_text, 
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
-            else:
-                await update.message.reply_text(
-                    card_text, 
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-        except Exception as e:
-            logger.error(f"Failed to send marketplace item: {e}")
-            await update.message.reply_text(
-                card_text, 
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
+            except Exception:
+                await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
+
 async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(sc, callback_data=f"dir_sc_{sc}")] for sc in SUB_CITIES]
     keyboard.append([InlineKeyboardButton("🌐 የሁሉም ክፍለ ከተሞች", callback_data="dir_sc_ሁሉም")])
