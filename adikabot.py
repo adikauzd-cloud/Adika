@@ -3022,6 +3022,294 @@ async def delete_request_callback(update: Update, context: ContextTypes.DEFAULT_
             )
     else:
         await query.message.reply_text("❌ ጥያቄውን ማጥፋት አልተቻለም።")
+        # ==============================================================================
+# 14B. FAVORITES, SOLD MARKER & NOTIFICATION PREFERENCES
+# ==============================================================================
+
+async def view_favorites(update: Update, context: ContextTypes.DEFAULT_TYPE):
+   """የተጠቃሚውን የተወዳጆች ዝርዝር ያሳያል"""
+   user_id = update.effective_user.id
+   favorites = get_user_favorites(user_id)
+   
+   if not favorites:
+       await update.message.reply_text(
+           "❤️ **የተወዳጆች ዝርዝር**\n\n"
+           "📭 እስካሁን ምንም የተወዳጅ ማስታወቂያ አላስቀመጡም።\n\n"
+           "💡 ማስታወቂያዎችን ሲያዩ ከስሩ ያለውን '❤️ ወደ ተወዳጆች ጨምር' የሚለውን ይጫኑ።",
+           reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+           parse_mode="Markdown"
+       )
+       return
+   
+   await update.message.reply_text(
+       f"❤️ **የተወዳጆች ዝርዝር** ({len(favorites)} ንብረቶች)\n"
+       f"━━━━━━━━━━━━━━━━━━━",
+       parse_mode="Markdown"
+   )
+   
+   for item in favorites:
+       card_text = format_seller_card(item)
+       is_fav = True
+       reply_markup = build_seller_card_keyboard(item['id'], user_id, is_fav)
+       
+       photos = item.get('photos', [])
+       if photos:
+           try:
+               await update.message.reply_photo(
+                   photo=photos[0],
+                   caption=card_text,
+                   reply_markup=reply_markup,
+                   parse_mode="Markdown"
+               )
+           except Exception:
+               await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
+       else:
+           await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
+
+
+async def toggle_favorite_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+   """Favorite መጨመር/ማስወገድ"""
+   query = update.callback_query
+   await query.answer()
+   
+   user_id = update.effective_user.id
+   data = query.data
+   
+   if data.startswith("fav_add_"):
+       listing_id = int(data.replace("fav_add_", ""))
+       success = add_favorite(user_id, listing_id)
+       if success:
+           await query.answer("❤️ ወደ ተወዳጆች ተጨምሯል!", show_alert=False)
+           # አዝራሩን ወደ remove ይቀይሩ
+           listing = get_listing_by_id(listing_id)
+           if listing:
+               is_fav = True
+               new_markup = build_seller_card_keyboard(listing_id, listing.get('user_chat_id', user_id), is_fav)
+               try:
+                   await query.edit_message_reply_markup(reply_markup=new_markup)
+               except Exception:
+                   pass
+       else:
+           await query.answer("❌ ስህተት ተከስቷል።", show_alert=True)
+   
+   elif data.startswith("fav_remove_"):
+       listing_id = int(data.replace("fav_remove_", ""))
+       success = remove_favorite(user_id, listing_id)
+       if success:
+           await query.answer("💔 ከተወዳጆች ተወግዷል!", show_alert=False)
+           listing = get_listing_by_id(listing_id)
+           if listing:
+               is_fav = False
+               new_markup = build_seller_card_keyboard(listing_id, listing.get('user_chat_id', user_id), is_fav)
+               try:
+                   await query.edit_message_reply_markup(reply_markup=new_markup)
+               except Exception:
+                   pass
+       else:
+           await query.answer("❌ ስህተት ተከስቷል።", show_alert=True)
+
+
+async def mark_sold_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+   """ማስታወቂያን እንደተሸጠ/ተከራየ ማድረግ"""
+   query = update.callback_query
+   await query.answer()
+   
+   user_id = update.effective_user.id
+   data = query.data
+   listing_id = int(data.replace("mark_sold_", ""))
+   
+   listing = get_listing_by_id(listing_id)
+   if not listing:
+       await query.answer("❌ ማስታወቂያው አልተገኘም።", show_alert=True)
+       return
+   
+   # የማስታወቂያው ባለቤት ብቻ ማርክ ማድረግ ይችላል
+   if listing.get('user_chat_id') != user_id:
+       await query.answer("⛔ ይህን ማድረግ የሚችሉት የማስታወቂያው ባለቤት ብቻ ነው!", show_alert=True)
+       return
+   
+   success = update_listing_status(listing_id, "sold")
+   if success:
+       try:
+           await query.edit_message_caption(
+               caption=f"{query.message.caption}\n\n✅ **ይህ ንብረት ተሸጧል/ተከራይቷል!**",
+               parse_mode="Markdown"
+           )
+       except Exception:
+           await query.edit_message_text(
+               f"✅ **ማስታወቂያ #ADK-{listing_id} እንደተሸጠ/እንደተከራየ ምልክት ተደርጎበታል!**",
+               parse_mode="Markdown"
+           )
+       await query.answer("✅ ማስታወቂያው እንደተሸጠ ምልክት ተደርጎበታል!", show_alert=True)
+   else:
+       await query.answer("❌ ስህተት ተከስቷል።", show_alert=True)
+
+
+async def need_item_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+   """ደላላ ለራሱ ሲፈልግ"""
+   query = update.callback_query
+   await query.answer()
+   
+   user_id = update.effective_user.id
+   data = query.data
+   parts = data.split('_')
+   req_id = parts[2] if len(parts) >= 3 else "?"
+   buyer_id = parts[3] if len(parts) >= 4 else user_id
+   
+   broker = get_broker(user_id)
+   broker_name = broker.get('full_name', 'ደላላ') if broker else 'ተጠቃሚ'
+   
+   await query.message.reply_text(
+       f"👤 **{broker_name}** እርስዎ ለራስዎ ይህን ንብረት ይፈልጋሉ።\n\n"
+       f"📞 እባክዎ የማስታወቂያውን ባለቤት በቀጥታ ያግኙ።",
+       parse_mode="Markdown"
+   )
+   
+   # ለገዢው ማሳወቅ
+   try:
+       await context.bot.send_message(
+           chat_id=int(buyer_id),
+           text=f"👤 **{broker_name}** የእርስዎን ጥያቄ #ADK-{req_id} አይቶታል።\n\n"
+                f"💡 ለራሳቸው ይህን ንብረት ይፈልጋሉ።",
+           parse_mode="Markdown"
+       )
+   except Exception as e:
+       logger.error(f"Failed to notify buyer: {e}")
+
+
+async def view_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+   """የማስታወቂያ ዝርዝር እይታ"""
+   query = update.callback_query
+   await query.answer()
+   
+   data = query.data
+   listing_id = int(data.replace("view_detail_", ""))
+   
+   listing = get_listing_by_id(listing_id)
+   if not listing:
+       await query.answer("❌ ማስታወቂያው አልተገኘም።", show_alert=True)
+       return
+   
+   card_text = format_seller_card(listing)
+   user_id = update.effective_user.id
+   is_fav = is_favorite(user_id, listing_id)
+   reply_markup = build_seller_card_keyboard(listing_id, listing.get('user_chat_id', user_id), is_fav)
+   
+   photos = listing.get('photos', [])
+   if photos:
+       await context.bot.send_photo(
+           chat_id=user_id,
+           photo=photos[0],
+           caption=card_text,
+           reply_markup=reply_markup,
+           parse_mode="Markdown"
+       )
+   else:
+       await context.bot.send_message(
+           chat_id=user_id,
+           text=card_text,
+           reply_markup=reply_markup,
+           parse_mode="Markdown"
+       )
+
+
+# ========== NOTIFICATION PREFERENCES ==========
+
+async def notification_prefs_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+   """የማሳወቂያ ምርጫ ማስተካከያ መክፈቻ"""
+   user_id = update.effective_user.id
+   broker = get_broker(user_id)
+   
+   if not broker:
+       await update.message.reply_text(
+           "⛔ ይህን ማድረግ የሚችሉት የተመዘገቡ ደላሎች/አቅራቢዎች ብቻ ናቸው!",
+           reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+       )
+       return
+   
+   prefs = broker.get('notification_prefs', {})
+   if isinstance(prefs, str):
+       try: prefs = json.loads(prefs)
+       except: prefs = {"car": True, "house": True, "price_min": 0, "price_max": 999999999, "enabled": True}
+   
+   enabled_text = "✅ በርተዋል" if prefs.get('enabled', True) else "❌ ጠፍተዋል"
+   car_text = "✅" if prefs.get('car', True) else "❌"
+   house_text = "✅" if prefs.get('house', True) else "❌"
+   
+   keyboard = [
+       [InlineKeyboardButton(f"🔔 ማሳወቂያዎች፦ {enabled_text}", callback_data="notif_pref_toggle")],
+       [InlineKeyboardButton(f"🚗 መኪና፦ {car_text}", callback_data="notif_pref_car"),
+        InlineKeyboardButton(f"🏠 ቤት፦ {house_text}", callback_data="notif_pref_house")],
+       [InlineKeyboardButton("💰 የዋጋ ክልል አስተካክል", callback_data="notif_pref_price")],
+       [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+   ]
+   
+   await update.message.reply_text(
+       f"⚙️ **የማሳወቂያ ምርጫዎች**\n\n"
+       f"🔔 **ሁኔታ፦** {enabled_text}\n"
+       f"🚗 **መኪና፦** {car_text}\n"
+       f"🏠 **ቤት፦** {house_text}\n"
+       f"💰 **የዋጋ ክልል፦** {prefs.get('price_min', 0):,} - {prefs.get('price_max', 999999999):,} ብር\n\n"
+       f"ከታች ያሉትን ቁልፎች በመጠቀም ማስተካከል ይችላሉ።",
+       reply_markup=InlineKeyboardMarkup(keyboard),
+       parse_mode="Markdown"
+   )
+
+
+async def notification_prefs_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+   """የማሳወቂያ ምርጫ ቁልፎች ምላሽ"""
+   query = update.callback_query
+   await query.answer()
+   
+   user_id = update.effective_user.id
+   broker = get_broker(user_id)
+   
+   if not broker:
+       await query.answer("⛔ አልተፈቀደም!", show_alert=True)
+       return
+   
+   prefs = broker.get('notification_prefs', {})
+   if isinstance(prefs, str):
+       try: prefs = json.loads(prefs)
+       except: prefs = {"car": True, "house": True, "price_min": 0, "price_max": 999999999, "enabled": True}
+   
+   data = query.data
+   
+   if data == "notif_pref_toggle":
+       prefs['enabled'] = not prefs.get('enabled', True)
+   elif data == "notif_pref_car":
+       prefs['car'] = not prefs.get('car', True)
+   elif data == "notif_pref_house":
+       prefs['house'] = not prefs.get('house', True)
+   
+   update_broker_notification_prefs(user_id, prefs)
+   
+   # መልእክቱን ማዘመን
+   enabled_text = "✅ በርተዋል" if prefs.get('enabled', True) else "❌ ጠፍተዋል"
+   car_text = "✅" if prefs.get('car', True) else "❌"
+   house_text = "✅" if prefs.get('house', True) else "❌"
+   
+   keyboard = [
+       [InlineKeyboardButton(f"🔔 ማሳወቂያዎች፦ {enabled_text}", callback_data="notif_pref_toggle")],
+       [InlineKeyboardButton(f"🚗 መኪና፦ {car_text}", callback_data="notif_pref_car"),
+        InlineKeyboardButton(f"🏠 ቤት፦ {house_text}", callback_data="notif_pref_house")],
+       [InlineKeyboardButton("💰 የዋጋ ክልል አስተካክል", callback_data="notif_pref_price")],
+       [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+   ]
+   
+   try:
+       await query.edit_message_text(
+           f"⚙️ **የማሳወቂያ ምርጫዎች**\n\n"
+           f"🔔 **ሁኔታ፦** {enabled_text}\n"
+           f"🚗 **መኪና፦** {car_text}\n"
+           f"🏠 **ቤት፦** {house_text}\n"
+           f"💰 **የዋጋ ክልል፦** {prefs.get('price_min', 0):,} - {prefs.get('price_max', 999999999):,} ብር\n\n"
+           f"ከታች ያሉትን ቁልፎች በመጠቀም ማስተካከል ይችላሉ።",
+           reply_markup=InlineKeyboardMarkup(keyboard),
+           parse_mode="Markdown"
+       )
+   except Exception:
+       pass
 
 # ==============================================================================
 # 15. SUPPORT HANDLER
@@ -3053,105 +3341,128 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==============================================================================
 
 def main():
-    global bot_app
+   global bot_app
 
-    init_db()
-    threading.Thread(target=run_flask, daemon=True).start()
+   init_db()
+   threading.Thread(target=run_flask, daemon=True).start()
 
-    app = Application.builder().token(BOT_TOKEN).build()
-    bot_app = app
+   app = Application.builder().token(BOT_TOKEN).build()
+   bot_app = app
 
-    cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
-    cancel_handler = MessageHandler(cancel_filter, go_home)
+   cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
+   cancel_handler = MessageHandler(cancel_filter, go_home)
 
-    # Buyer Conversation
-    buyer_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^🔍 መግዛት / መከራየት$"), buyer_start)],
-        states={
-            BUYER_MAIN: [CallbackQueryHandler(buyer_category_chosen, pattern="^flow_buy_cat_"), cancel_handler],
-            BUYER_ACTION: [CallbackQueryHandler(buyer_action_chosen, pattern="^flow_buy_action_"), cancel_handler],
-            BUYER_SUB: [CallbackQueryHandler(buyer_sub_chosen, pattern="^flow_buy_sub_"), cancel_handler],
-            BUYER_PROPERTY: [CallbackQueryHandler(buyer_property_chosen, pattern="^flow_buy_prop_"), cancel_handler],
-            BUYER_HTYPE: [CallbackQueryHandler(buyer_htype_chosen, pattern="^flow_buy_htype_"), cancel_handler],
-            BUYER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_details), cancel_handler],
-            BUYER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_phone), cancel_handler],
-        },
-        fallbacks=[CommandHandler("start", start), cancel_handler],
-        allow_reentry=True,
-    )
+   # Buyer Conversation
+   buyer_conv = ConversationHandler(
+       entry_points=[MessageHandler(filters.Regex("^🔍 መግዛት / መከራየት$"), buyer_start)],
+       states={
+           BUYER_MAIN: [CallbackQueryHandler(buyer_category_chosen, pattern="^flow_buy_cat_"), cancel_handler],
+           BUYER_ACTION: [CallbackQueryHandler(buyer_action_chosen, pattern="^flow_buy_action_"), cancel_handler],
+           BUYER_SUB: [CallbackQueryHandler(buyer_sub_chosen, pattern="^flow_buy_sub_"), cancel_handler],
+           BUYER_PROPERTY: [CallbackQueryHandler(buyer_property_chosen, pattern="^flow_buy_prop_"), cancel_handler],
+           BUYER_HTYPE: [CallbackQueryHandler(buyer_htype_chosen, pattern="^flow_buy_htype_"), cancel_handler],
+           BUYER_BUDGET_RANGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_budget_range), cancel_handler],
+           BUYER_ALERT: [CallbackQueryHandler(buyer_alert_choice, pattern="^alert_"), cancel_handler],
+           BUYER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_details), cancel_handler],
+           BUYER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_phone), cancel_handler],
+       },
+       fallbacks=[CommandHandler("start", start), cancel_handler],
+       allow_reentry=True,
+   )
 
-    # Seller Conversation
-    seller_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^📢 መሸጥ / ማከራየት$"), seller_start)],
-        states={
-            SELLER_MAIN: [CallbackQueryHandler(seller_category_chosen, pattern="^flow_sell_cat_"), cancel_handler],
-            SELLER_ACTION: [CallbackQueryHandler(seller_action_chosen, pattern="^flow_sell_action_"), cancel_handler],
-            SELLER_SUB: [CallbackQueryHandler(seller_sub_chosen, pattern="^flow_sell_sub_"), cancel_handler],
-            SELLER_PROPERTY: [CallbackQueryHandler(seller_property_chosen, pattern="^flow_sell_prop_"), cancel_handler],
-            SELLER_HTYPE: [CallbackQueryHandler(seller_htype_chosen, pattern="^flow_sell_htype_"), cancel_handler],
-            SELLER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_details), cancel_handler],
-            SELLER_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_price), cancel_handler],
-            SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_phone), cancel_handler],
-            SELLER_PHOTO: [
-                MessageHandler(filters.PHOTO, seller_photo),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, seller_photo),
-                cancel_handler
-            ],
-        },
-        fallbacks=[CommandHandler("start", start), cancel_handler],
-        allow_reentry=True,
-    )
+   # Seller Conversation
+   seller_conv = ConversationHandler(
+       entry_points=[MessageHandler(filters.Regex("^📢 መሸጥ / ማከራየት$"), seller_start)],
+       states={
+           SELLER_MAIN: [CallbackQueryHandler(seller_category_chosen, pattern="^flow_sell_cat_"), cancel_handler],
+           SELLER_ACTION: [CallbackQueryHandler(seller_action_chosen, pattern="^flow_sell_action_"), cancel_handler],
+           SELLER_SUB: [CallbackQueryHandler(seller_sub_chosen, pattern="^flow_sell_sub_"), cancel_handler],
+           SELLER_PROPERTY: [CallbackQueryHandler(seller_property_chosen, pattern="^flow_sell_prop_"), cancel_handler],
+           SELLER_HTYPE: [CallbackQueryHandler(seller_htype_chosen, pattern="^flow_sell_htype_"), cancel_handler],
+           SELLER_CONDITION: [
+               CallbackQueryHandler(seller_condition_chosen, pattern="^flow_sell_cond_"),
+               CallbackQueryHandler(seller_house_condition_chosen, pattern="^flow_sell_cond_"),
+               cancel_handler
+           ],
+           SELLER_FUEL: [CallbackQueryHandler(seller_fuel_chosen, pattern="^flow_sell_fuel_"), cancel_handler],
+           SELLER_TRANSMISSION: [CallbackQueryHandler(seller_transmission_chosen, pattern="^flow_sell_trans_"), cancel_handler],
+           SELLER_MILEAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_mileage), cancel_handler],
+           SELLER_BEDROOMS: [CallbackQueryHandler(seller_bedrooms_chosen, pattern="^bed_"), cancel_handler],
+           SELLER_PARKING: [CallbackQueryHandler(seller_parking_chosen, pattern="^park_"), cancel_handler],
+           SELLER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_details), cancel_handler],
+           SELLER_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_price), cancel_handler],
+           SELLER_NEGOTIABLE: [CallbackQueryHandler(seller_negotiable_chosen, pattern="^negotiable_"), cancel_handler],
+           SELLER_URGENT: [CallbackQueryHandler(seller_urgent_chosen, pattern="^urgent_"), cancel_handler],
+           SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_phone), cancel_handler],
+           SELLER_PHOTO: [
+               MessageHandler(filters.PHOTO, seller_photo),
+               MessageHandler(filters.TEXT & ~filters.COMMAND, seller_photo),
+               cancel_handler
+           ],
+       },
+       fallbacks=[CommandHandler("start", start), cancel_handler],
+       allow_reentry=True,
+   )
 
-    # Broker Registration
-    broker_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)],
-        states={
-            BROKER_ROLE: [CallbackQueryHandler(broker_role_chosen, pattern="^role_"), cancel_handler],
-            BROKER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name), cancel_handler],
-            BROKER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone), cancel_handler],
-            BROKER_SUBCITY: [CallbackQueryHandler(broker_reg_subcity, pattern="^broker_sc_"), cancel_handler],
-            BROKER_NID_PHOTO: [MessageHandler(filters.PHOTO, broker_reg_nid_photo), cancel_handler],
-        },
-        fallbacks=[CommandHandler("start", start), cancel_handler],
-        allow_reentry=True,
-    )
+   # Broker Registration
+   broker_conv = ConversationHandler(
+       entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)],
+       states={
+           BROKER_ROLE: [CallbackQueryHandler(broker_role_chosen, pattern="^role_"), cancel_handler],
+           BROKER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name), cancel_handler],
+           BROKER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone), cancel_handler],
+           BROKER_SUBCITY: [CallbackQueryHandler(broker_reg_subcity, pattern="^broker_sc_"), cancel_handler],
+           BROKER_NID_PHOTO: [MessageHandler(filters.PHOTO, broker_reg_nid_photo), cancel_handler],
+       },
+       fallbacks=[CommandHandler("start", start), cancel_handler],
+       allow_reentry=True,
+   )
 
-    # Broker Offer Response
-    broker_response_conv = ConversationHandler(
-        entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
-        states={
-            BROKER_OFFER_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_text), cancel_handler],
-            BROKER_OFFER_PHOTO: [
-                MessageHandler(filters.PHOTO, broker_offer_photo),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_photo),
-                cancel_handler
-            ],
-        },
-        fallbacks=[CommandHandler("start", start), cancel_handler],
-        allow_reentry=True,
-    )
+   # Broker Offer Response
+   broker_response_conv = ConversationHandler(
+       entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
+       states={
+           BROKER_OFFER_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_text), cancel_handler],
+           BROKER_OFFER_PHOTO: [
+               MessageHandler(filters.PHOTO, broker_offer_photo),
+               MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_photo),
+               cancel_handler
+           ],
+       },
+       fallbacks=[CommandHandler("start", start), cancel_handler],
+       allow_reentry=True,
+   )
 
-    # Register handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(buyer_conv)
-    app.add_handler(seller_conv)
-    app.add_handler(broker_conv)
-    app.add_handler(broker_response_conv)
+   # Register handlers
+   app.add_handler(CommandHandler("start", start))
+   app.add_handler(buyer_conv)
+   app.add_handler(seller_conv)
+   app.add_handler(broker_conv)
+   app.add_handler(broker_response_conv)
 
-    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
-    app.add_handler(MessageHandler(filters.Regex(r"^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
-    app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
-    app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
-    app.add_handler(cancel_handler)
+   # Regular message handlers
+   app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
+   app.add_handler(MessageHandler(filters.Regex(r"^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
+   app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
+   app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
+   app.add_handler(MessageHandler(filters.Regex("^❤️ የተወዳጆች ዝርዝር$"), view_favorites))
+   app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ምርጫ$"), notification_prefs_start))
+   app.add_handler(cancel_handler)
 
-    app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
-    app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
-    app.add_handler(CallbackQueryHandler(delete_request_callback, pattern=r"^delete_req_"))
-    app.add_handler(CallbackQueryHandler(nohave_item_callback, pattern="^nohave_item_"))
-    app.add_handler(CallbackQueryHandler(filter_brokers_by_subcity_callback, pattern="^dir_sc_"))
+   # Callback query handlers
+   app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
+   app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
+   app.add_handler(CallbackQueryHandler(delete_request_callback, pattern=r"^delete_req_"))
+   app.add_handler(CallbackQueryHandler(nohave_item_callback, pattern="^nohave_item_"))
+   app.add_handler(CallbackQueryHandler(filter_brokers_by_subcity_callback, pattern="^dir_sc_"))
+   app.add_handler(CallbackQueryHandler(toggle_favorite_callback, pattern="^fav_"))
+   app.add_handler(CallbackQueryHandler(mark_sold_callback, pattern="^mark_sold_"))
+   app.add_handler(CallbackQueryHandler(need_item_callback, pattern="^need_item_"))
+   app.add_handler(CallbackQueryHandler(notification_prefs_callback, pattern="^notif_pref_"))
+   app.add_handler(CallbackQueryHandler(view_detail_callback, pattern="^view_detail_"))
 
-    logger.info("🚀 Adika Marketplace Bot በስኬት ተጀምሯል...")
-    app.run_polling()
+   logger.info("🚀 Adika Marketplace Bot በስኬት ተጀምሯል...")
+   app.run_polling()
 
 if __name__ == "__main__":
-    main()
+   main()
