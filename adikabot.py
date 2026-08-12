@@ -1152,61 +1152,45 @@ def update_listing_status(req_id: int, status: str) -> bool:
            except:
                pass
 
-
-def get_public_marketplace_items(main_category=None, limit=10, offset=0):
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-
-       if main_category:
-           query = f"""
-               SELECT * FROM listings 
-               WHERE req_type = 'SELL' AND status = 'pending' AND main_category = {p}
-               ORDER BY created_at DESC 
-               LIMIT {p} OFFSET {p}
-           """
-           cursor.execute(query, (main_category, limit, offset))
-       else:
-           query = f"""
-               SELECT * FROM listings 
-               WHERE req_type = 'SELL' AND status = 'pending'
-               ORDER BY created_at DESC 
-               LIMIT {p} OFFSET {p}
-           """
-           cursor.execute(query, (limit, offset))
-
-       rows = cursor.fetchall()
-       results = []
-       for row in rows:
-           item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-           # Parse extra_data
-           if 'extra_data' in item and isinstance(item['extra_data'], str):
-               try:
-                   item['extra_data'] = json.loads(item['extra_data'])
-               except:
-                   item['extra_data'] = {}
-           # Load photos
-           try:
-               cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (item['id'],))
-               photo_rows = cursor.fetchall()
-               item['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
-           except Exception:
-               item['photos'] = []
-           results.append(item)
-       
-       logger.info(f"ðŸ›ï¸ Retrieved {len(results)} marketplace items")
-       return results
-   except Exception as e:
-       logger.error(f"Get public marketplace items error: {e}")
-       return []
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+def get_public_marketplace_items(limit: int = 20, offset: int = 0):
+    """የገበያ ቦታ ላይ የሚታዩ የሻጭ ማስታወቂያዎች (SELL)"""
+    conn = get_db_connection()
+    if not conn:
+        return []
+    try:
+        cur = conn.cursor()
+        if DATABASE_URL:
+            cur.execute("""
+                SELECT * FROM listings 
+                WHERE req_type = 'SELL' 
+                  AND status IN ('pending', 'active', 'approved')
+                ORDER BY created_at DESC
+                LIMIT %s OFFSET %s
+            """, (limit, offset))
+        else:
+            cur.execute("""
+                SELECT * FROM listings 
+                WHERE req_type = 'SELL' 
+                  AND status IN ('pending', 'active', 'approved')
+                ORDER BY created_at DESC
+                LIMIT ? OFFSET ?
+            """, (limit, offset))
+        
+        rows = cur.fetchall()
+        result = []
+        for row in rows:
+            if DATABASE_URL:
+                item = dict(row)
+            else:
+                columns = [desc[0] for desc in cur.description]
+                item = dict(zip(columns, row))
+            result.append(item)
+        return result
+    except Exception as e:
+        logger.error(f"get_public_marketplace_items error: {e}")
+        return []
+    finally:
+        conn.close()
 
 
 # ========== BROKER OPERATIONS ==========
