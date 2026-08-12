@@ -3260,7 +3260,8 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    items = get_public_marketplace_items(limit=10)
+    """የገበያ ቦታ - ሁሉም ለሽያጭ የቀረቡ ንብረቶች"""
+    items = get_public_marketplace_items(limit=20)  # 20 እናድርግ
     user_id = update.effective_user.id
 
     if not items:
@@ -3272,13 +3273,14 @@ async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_
         return
 
     await update.message.reply_text(
-        "🛍️ **ለሽያጭ እና ለኪራይ የቀረቡ ንብረቶች ዝርዝር፦**",
+        f"🛍️ **ለሽያጭ እና ለኪራይ የቀረቡ ንብረቶች ዝርዝር** ({len(items)} ንብረቶች)፦",
         parse_mode="Markdown"
     )
 
     for item in items:
         card_text = format_seller_card(item)
-        photo_id = item.get('photo_id')
+        photos = item.get('photos', [])
+        photo_id = photos[0] if photos else item.get('photo_id')
         owner_id = item.get('user_chat_id')
         phone = item.get('phone', '')
         
@@ -3297,6 +3299,10 @@ async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
+            except Exception:
+                await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
             except Exception:
                 await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
         else:
