@@ -3910,10 +3910,7 @@ def main():
                 CallbackQueryHandler(seller_house_condition_chosen, pattern="^flow_sell_hcond_"),
                 cancel_handler
             ],
-            SELLER_HOUSE_CONDITION: [
-                CallbackQueryHandler(seller_house_condition_chosen, pattern="^flow_sell_hcond_"),
-                cancel_handler
-            ],
+           
             SELLER_FUEL: [CallbackQueryHandler(seller_fuel_chosen, pattern="^flow_sell_fuel_"), cancel_handler],
             SELLER_TRANSMISSION: [CallbackQueryHandler(seller_transmission_chosen, pattern="^flow_sell_trans_"), cancel_handler],
             SELLER_MILEAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_mileage), cancel_handler],
