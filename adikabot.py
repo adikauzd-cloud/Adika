@@ -1568,7 +1568,7 @@ CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈ
 
 def validate_phone(phone: str) -> bool:
     phone = phone.replace(' ', '').replace('-', '')
-    pattern = r'^(09|07|01)\d{8}$|^\+251(9|7|1)\d{8}$'
+    pattern = r'^(09|07|01)\d{8}\( |^\+251(9|7|1)\d{8} \)'
     return bool(re.match(pattern, phone))
 
 def validate_price(price: str) -> bool:
@@ -1608,8 +1608,10 @@ def format_seller_card(item: dict) -> str:
     
     extra_data = item.get('extra_data', {})
     if isinstance(extra_data, str):
-        try: extra_data = json.loads(extra_data)
-        except: extra_data = {}
+        try: 
+            extra_data = json.loads(extra_data)
+        except: 
+            extra_data = {}
     
     is_urgent = extra_data.get('urgent_sale', False)
     is_negotiable = extra_data.get('negotiable', True)
@@ -1669,13 +1671,10 @@ def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int
         InlineKeyboardButton("👤 ለራሴ እፈልገዋለሁ", callback_data=f"want_myself_{item_id}")
     ])
 
-    # ስልክ ቁልፍ (ካለ)
-    if phone and not str(phone).startswith("@"):
-        clean_phone = phone.replace(' ', '').replace('-', '')
-        keyboard.append([InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
-    elif phone and str(phone).startswith("@"):
+    # Telegram username ብቻ እንደ URL ቁልፍ (tel: አይሰራም)
+    if phone and str(phone).startswith("@"):
         username = phone.lstrip("@")
-        keyboard.append([InlineKeyboardButton(f"💬 Telegram @{username}", url=f"https://t.me/{username}")])
+        keyboard.append([InlineKeyboardButton(f"💬 @{username}", url=f"https://t.me/{username}")])
 
     # ባለቤት ወይም አድሚን ብቻ
     if current_user_id == owner_id or current_user_id == ADMIN_CHAT_ID_INT:
@@ -1701,7 +1700,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
             return
 
         main_category = listing.get('main_category', '')
-        req_type = listing.get('req_type', 'BUY')   # SELL ወይም BUY
+        req_type = str(listing.get('req_type', 'BUY')).upper()
         phone = listing.get('phone', '')
         owner_id = listing.get('user_chat_id')
 
@@ -1727,9 +1726,9 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
                 
-                # ========== ቁልፎች በ req_type ይለያያሉ ==========
+                # ========== ቁልፎች ==========
                 if req_type == "SELL":
-                    # የሻጭ ማስታወቂያ → ገዢ አለኝ / ለራሴ / ይለፈኝ
+                    # የሻጭ ማስታወቂያ
                     kbd = [
                         [
                             InlineKeyboardButton("🤝 ገዢ/ተከራይ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
@@ -1739,15 +1738,12 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                             InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
                         ]
                     ]
-                    # ስልክ ካለ ቁልፍ ጨምር
-                    if phone and not str(phone).startswith("@"):
-                        clean_phone = phone.replace(' ', '').replace('-', '')
-                        kbd.insert(1, [InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
-                    elif phone and str(phone).startswith("@"):
+                    # Telegram username ብቻ (tel: አይሰራም)
+                    if phone and str(phone).startswith("@"):
                         username = phone.lstrip("@")
                         kbd.insert(1, [InlineKeyboardButton(f"💬 @{username}", url=f"https://t.me/{username}")])
                 else:
-                    # የፈላጊ ጥያቄ → አለኝ / ይለፈኝ
+                    # የፈላጊ ጥያቄ
                     kbd = [[
                         InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
                         InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
