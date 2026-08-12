@@ -720,202 +720,191 @@ def run_flask():
 # ==============================================================================
 
 def get_db_connection():
-   if DATABASE_URL:
-       cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
-       if cleaned_url.startswith("postgres://"):
-           cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
-       conn = psycopg2.connect(cleaned_url, cursor_factory=RealDictCursor)
-       conn.autocommit = True
-       return conn
-   else:
-       conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-       conn.row_factory = sqlite3.Row
-       return conn
+    if DATABASE_URL:
+        cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
+        if cleaned_url.startswith("postgres://"):
+            cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
+        conn = psycopg2.connect(cleaned_url, cursor_factory=RealDictCursor)
+        conn.autocommit = True
+        return conn
+    else:
+        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
 
 def get_placeholder():
-   return "%s" if DATABASE_URL else "?"
+    return "%s" if DATABASE_URL else "?"
 
 def init_db():
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-       if DATABASE_URL:
-           cursor.execute("""
-               CREATE TABLE IF NOT EXISTS listings (
-                   id SERIAL PRIMARY KEY,
-                   user_chat_id BIGINT NOT NULL,
-                   user_name TEXT,
-                   req_type TEXT NOT NULL,
-                   main_category TEXT NOT NULL,
-                   sub_category TEXT,
-                   action_type TEXT,
-                   property_type TEXT,
-                   description TEXT NOT NULL,
-                   price TEXT,
-                   phone TEXT,
-                   photo_id TEXT,
-                   extra_data JSONB DEFAULT '{}',
-                   status TEXT DEFAULT 'pending',
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               );
-               CREATE TABLE IF NOT EXISTS brokers (
-                   id SERIAL PRIMARY KEY,
-                   chat_id BIGINT NOT NULL UNIQUE,
-                   full_name TEXT NOT NULL,
-                   phone TEXT NOT NULL,
-                   role_type TEXT NOT NULL,
-                   national_id_photo TEXT,
-                   sub_city TEXT NOT NULL,
-                   rating REAL DEFAULT 5.0,
-                   total_ratings INT DEFAULT 0,
-                   notification_prefs JSONB DEFAULT '{"car": true, "house": true, "price_min": 0, "price_max": 999999999, "enabled": true}',
-                   status TEXT DEFAULT 'pending',
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               );
-               CREATE TABLE IF NOT EXISTS ratings (
-                   id SERIAL PRIMARY KEY,
-                   broker_chat_id BIGINT NOT NULL,
-                   user_chat_id BIGINT NOT NULL,
-                   stars INT NOT NULL,
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               );
-               CREATE TABLE IF NOT EXISTS broker_offers (
-                   id SERIAL PRIMARY KEY,
-                   request_id INTEGER NOT NULL,
-                   broker_id BIGINT NOT NULL,
-                   description TEXT,
-                   photo_id TEXT,
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               );
-               CREATE TABLE IF NOT EXISTS search_alerts (
-                   id SERIAL PRIMARY KEY,
-                   user_chat_id BIGINT NOT NULL,
-                   main_category TEXT NOT NULL,
-                   budget_min TEXT,
-                   budget_max TEXT,
-                   is_active BOOLEAN DEFAULT TRUE,
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               );
-               CREATE TABLE IF NOT EXISTS favorites (
-                   id SERIAL PRIMARY KEY,
-                   user_chat_id BIGINT NOT NULL,
-                   listing_id INTEGER NOT NULL,
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                   UNIQUE(user_chat_id, listing_id)
-               );
-               CREATE TABLE IF NOT EXISTS listing_photos (
-                   id SERIAL PRIMARY KEY,
-                   listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
-                   photo_id TEXT NOT NULL,
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               );
-           """)
-       else:
-           cursor.execute("""
-               CREATE TABLE IF NOT EXISTS listings (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   user_chat_id INTEGER NOT NULL,
-                   user_name TEXT,
-                   req_type TEXT NOT NULL,
-                   main_category TEXT NOT NULL,
-                   sub_category TEXT,
-                   action_type TEXT,
-                   property_type TEXT,
-                   description TEXT NOT NULL,
-                   price TEXT,
-                   phone TEXT,
-                   photo_id TEXT,
-                   extra_data TEXT DEFAULT '{}',
-                   status TEXT DEFAULT 'pending',
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               );
-           """)
-           cursor.execute("""
-               CREATE TABLE IF NOT EXISTS brokers (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   chat_id INTEGER NOT NULL UNIQUE,
-                   full_name TEXT NOT NULL,
-                   phone TEXT NOT NULL,
-                   role_type TEXT NOT NULL,
-                   national_id_photo TEXT,
-                   sub_city TEXT NOT NULL,
-                   rating REAL DEFAULT 5.0,
-                   total_ratings INTEGER DEFAULT 0,
-                   notification_prefs TEXT DEFAULT '{"car": true, "house": true, "price_min": 0, "price_max": 999999999, "enabled": true}',
-                   status TEXT DEFAULT 'pending',
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               );
-           """)
-           cursor.execute("""
-               CREATE TABLE IF NOT EXISTS ratings (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   broker_chat_id INTEGER NOT NULL,
-                   user_chat_id INTEGER NOT NULL,
-                   stars INTEGER NOT NULL,
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               );
-           """)
-           cursor.execute("""
-               CREATE TABLE IF NOT EXISTS broker_offers (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   request_id INTEGER NOT NULL,
-                   broker_id INTEGER NOT NULL,
-                   description TEXT,
-                   photo_id TEXT,
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               );
-           """)
-           cursor.execute("""
-               CREATE TABLE IF NOT EXISTS search_alerts (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   user_chat_id INTEGER NOT NULL,
-                   main_category TEXT NOT NULL,
-                   budget_min TEXT,
-                   budget_max TEXT,
-                   is_active BOOLEAN DEFAULT 1,
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               );
-           """)
-           cursor.execute("""
-               CREATE TABLE IF NOT EXISTS favorites (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   user_chat_id INTEGER NOT NULL,
-                   listing_id INTEGER NOT NULL,
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                   UNIQUE(user_chat_id, listing_id)
-               );
-           """)
-           cursor.execute("""
-               CREATE TABLE IF NOT EXISTS listing_photos (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   listing_id INTEGER NOT NULL,
-                   photo_id TEXT NOT NULL,
-                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-               );
-           """)
-           conn.commit()
+        if DATABASE_URL:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS listings (
+                    id SERIAL PRIMARY KEY,
+                    user_chat_id BIGINT NOT NULL,
+                    user_name TEXT,
+                    req_type TEXT NOT NULL,
+                    main_category TEXT NOT NULL,
+                    sub_category TEXT,
+                    action_type TEXT,
+                    property_type TEXT,
+                    description TEXT NOT NULL,
+                    price TEXT,
+                    phone TEXT,
+                    photo_id TEXT,
+                    extra_data JSONB DEFAULT '{}',
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS brokers (
+                    id SERIAL PRIMARY KEY,
+                    chat_id BIGINT NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    role_type TEXT NOT NULL,
+                    national_id_photo TEXT,
+                    sub_city TEXT NOT NULL,
+                    rating REAL DEFAULT 5.0,
+                    total_ratings INT DEFAULT 0,
+                    notification_prefs JSONB DEFAULT '{"car": true, "house": true, "price_min": 0, "price_max": 999999999, "enabled": true}',
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS ratings (
+                    id SERIAL PRIMARY KEY,
+                    broker_chat_id BIGINT NOT NULL,
+                    user_chat_id BIGINT NOT NULL,
+                    stars INT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS broker_offers (
+                    id SERIAL PRIMARY KEY,
+                    request_id INTEGER NOT NULL,
+                    broker_id BIGINT NOT NULL,
+                    description TEXT,
+                    photo_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS search_alerts (
+                    id SERIAL PRIMARY KEY,
+                    user_chat_id BIGINT NOT NULL,
+                    main_category TEXT NOT NULL,
+                    budget_min TEXT,
+                    budget_max TEXT,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS listing_photos (
+                    id SERIAL PRIMARY KEY,
+                    listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+                    photo_id TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+        else:
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS listings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_chat_id INTEGER NOT NULL,
+                    user_name TEXT,
+                    req_type TEXT NOT NULL,
+                    main_category TEXT NOT NULL,
+                    sub_category TEXT,
+                    action_type TEXT,
+                    property_type TEXT,
+                    description TEXT NOT NULL,
+                    price TEXT,
+                    phone TEXT,
+                    photo_id TEXT,
+                    extra_data TEXT DEFAULT '{}',
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS brokers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    phone TEXT NOT NULL,
+                    role_type TEXT NOT NULL,
+                    national_id_photo TEXT,
+                    sub_city TEXT NOT NULL,
+                    rating REAL DEFAULT 5.0,
+                    total_ratings INTEGER DEFAULT 0,
+                    notification_prefs TEXT DEFAULT '{"car": true, "house": true, "price_min": 0, "price_max": 999999999, "enabled": true}',
+                    status TEXT DEFAULT 'pending',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS ratings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    broker_chat_id INTEGER NOT NULL,
+                    user_chat_id INTEGER NOT NULL,
+                    stars INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS broker_offers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    request_id INTEGER NOT NULL,
+                    broker_id INTEGER NOT NULL,
+                    description TEXT,
+                    photo_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS search_alerts (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_chat_id INTEGER NOT NULL,
+                    main_category TEXT NOT NULL,
+                    budget_min TEXT,
+                    budget_max TEXT,
+                    is_active BOOLEAN DEFAULT 1,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS listing_photos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    listing_id INTEGER NOT NULL,
+                    photo_id TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+            """)
+            conn.commit()
 
-       # አዲስ columns ለነባር ዳታቤዝ
-       try:
-           if DATABASE_URL:
-               cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS extra_data JSONB DEFAULT '{}';")
-           else:
-               try: cursor.execute("ALTER TABLE listings ADD COLUMN extra_data TEXT DEFAULT '{}';")
-               except: pass
-           if not DATABASE_URL: conn.commit()
-       except Exception as alter_err:
-           logger.warning(f"ALTER TABLE warning: {alter_err}")
+        # አዲስ columns ለነባር ዳታቤዝ
+        try:
+            if DATABASE_URL:
+                cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS extra_data JSONB DEFAULT '{}';")
+            else:
+                try:
+                    cursor.execute("ALTER TABLE listings ADD COLUMN extra_data TEXT DEFAULT '{}';")
+                except:
+                    pass
+            if not DATABASE_URL:
+                conn.commit()
+        except Exception as alter_err:
+            logger.warning(f"ALTER TABLE warning: {alter_err}")
 
-       logger.info("✅ Adika Database initialized successfully")
-   except Exception as e:
-       logger.error(f"❌ Database initialization error: {e}")
-       if conn and not DATABASE_URL:
-           conn.rollback()
-   finally:
-       if conn:
-           conn.close()
+        logger.info("✅ Adika Database initialized successfully")
+    except Exception as e:
+        logger.error(f"❌ Database initialization error: {e}")
+        if conn and not DATABASE_URL:
+            conn.rollback()
+    finally:
+        if conn:
+            conn.close()
+
+
 # ==============================================================================
 # 4. DATABASE OPERATIONS
 # ==============================================================================
@@ -923,262 +912,263 @@ def init_db():
 import json
 
 def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
-               action_type, property_type, description, price=None, phone=None, 
-               photo_id=None, extra_data=None, photos=None):
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
+                action_type, property_type, description, price=None, phone=None, 
+                photo_id=None, extra_data=None, photos=None):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
 
-       # JSON serialization for extra_data
-       if extra_data is None:
-           extra_data = {}
-       extra_json = json.dumps(extra_data, ensure_ascii=False) if not isinstance(extra_data, str) else extra_data
+        if extra_data is None:
+            extra_data = {}
+        extra_json = json.dumps(extra_data, ensure_ascii=False) if not isinstance(extra_data, str) else extra_data
 
-       # Ensure all required fields have values
-       user_chat_id = int(user_chat_id) if user_chat_id else 0
-       user_name = str(user_name or "User")
-       req_type = str(req_type or "BUY")
-       main_category = str(main_category or "መኪና")
-       sub_category = str(sub_category or "")
-       action_type = str(action_type or "")
-       property_type = str(property_type or "")
-       description = str(description or "")
-       price = str(price or "")
-       phone = str(phone or "")
-       photo_id = str(photo_id) if photo_id else None
+        user_chat_id = int(user_chat_id) if user_chat_id else 0
+        user_name = str(user_name or "User")
+        req_type = str(req_type or "BUY").upper()          # ← አስፈላጊ: SELL / BUY በትልቅ ፊደል
+        main_category = str(main_category or "መኪና")
+        sub_category = str(sub_category or "")
+        action_type = str(action_type or "")
+        property_type = str(property_type or "")
+        description = str(description or "")
+        price = str(price or "")
+        phone = str(phone or "")
+        photo_id = str(photo_id) if photo_id else None
 
-       query = f"""
-           INSERT INTO listings 
-           (user_chat_id, user_name, req_type, main_category, sub_category, 
-            action_type, property_type, description, price, phone, photo_id, extra_data, status)
-           VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending')
-       """
-       params = (
-           user_chat_id, user_name, req_type, main_category, 
-           sub_category, action_type, property_type, 
-           description, price, phone, photo_id,
-           extra_json
-       )
+        query = f"""
+            INSERT INTO listings 
+            (user_chat_id, user_name, req_type, main_category, sub_category, 
+             action_type, property_type, description, price, phone, photo_id, extra_data, status)
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending')
+        """
+        params = (
+            user_chat_id, user_name, req_type, main_category, 
+            sub_category, action_type, property_type, 
+            description, price, phone, photo_id,
+            extra_json
+        )
 
-       logger.info(f"📝 Attempting to insert listing: user={user_chat_id}, type={req_type}, cat={main_category}")
+        logger.info(f"📝 Inserting listing: user={user_chat_id}, type={req_type}, cat={main_category}")
 
-       if DATABASE_URL:
-           cursor.execute(query + " RETURNING id", params)
-           row = cursor.fetchone()
-           if row is None:
-               logger.error("RETURNING id returned None")
-               return None
-           req_id = row["id"] if isinstance(row, dict) else row[0]
-       else:
-           cursor.execute(query, params)
-           req_id = cursor.lastrowid
-           conn.commit()
+        if DATABASE_URL:
+            cursor.execute(query + " RETURNING id", params)
+            row = cursor.fetchone()
+            if row is None:
+                logger.error("RETURNING id returned None")
+                return None
+            req_id = row["id"] if isinstance(row, dict) else row[0]
+        else:
+            cursor.execute(query, params)
+            req_id = cursor.lastrowid
+            conn.commit()
 
-       logger.info(f"✅ Listing inserted with ID: {req_id}")
+        logger.info(f"✅ Listing inserted with ID: {req_id}")
 
-       # Save photos if any
-       if photos and req_id:
-           logger.info(f"📸 Saving {len(photos)} photos for listing {req_id}")
-           for photo in photos:
-               try:
-                   photo_str = str(photo)
-                   cursor.execute(
-                       f"INSERT INTO listing_photos (listing_id, photo_id) VALUES ({p}, {p})",
-                       (req_id, photo_str)
-                   )
-               except Exception as pe:
-                   logger.error(f"Failed to save photo for listing {req_id}: {pe}")
-           
-           if not DATABASE_URL:
-               conn.commit()
+        # Save photos
+        if photos and req_id:
+            logger.info(f"📸 Saving {len(photos)} photos for listing {req_id}")
+            for photo in photos:
+                try:
+                    photo_str = str(photo)
+                    cursor.execute(
+                        f"INSERT INTO listing_photos (listing_id, photo_id) VALUES ({p}, {p})",
+                        (req_id, photo_str)
+                    )
+                except Exception as pe:
+                    logger.error(f"Failed to save photo for listing {req_id}: {pe}")
+            
+            if not DATABASE_URL:
+                conn.commit()
 
-       logger.info(f"✅ Listing added successfully with ID: {req_id} (ADK-{req_id})")
-       return req_id
+        logger.info(f"✅ Listing added successfully → #ADK-{req_id}")
+        return req_id
 
-   except Exception as e:
-       logger.error(f"❌ Add listing error: {e}", exc_info=True)
-       if conn and not DATABASE_URL:
-           try:
-               conn.rollback()
-           except:
-               pass
-       return None
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+    except Exception as e:
+        logger.error(f"❌ Add listing error: {e}", exc_info=True)
+        if conn and not DATABASE_URL:
+            try:
+                conn.rollback()
+            except:
+                pass
+        return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 def get_listing_by_id(listing_id: int):
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       
-       cursor.execute(f"SELECT * FROM listings WHERE id = {p}", (listing_id,))
-       row = cursor.fetchone()
-       
-       if not row:
-           return None
-           
-       result = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-       
-       # Parse extra_data JSON
-       if 'extra_data' in result and isinstance(result['extra_data'], str):
-           try:
-               result['extra_data'] = json.loads(result['extra_data'])
-           except:
-               result['extra_data'] = {}
-       
-       # Load photos
-       try:
-           cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (listing_id,))
-           photo_rows = cursor.fetchall()
-           result['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
-       except Exception as e:
-           logger.warning(f"Could not load photos for listing {listing_id}: {e}")
-           result['photos'] = []
-       
-       return result
-   except Exception as e:
-       logger.error(f"Get listing by id error: {e}")
-       return None
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        
+        cursor.execute(f"SELECT * FROM listings WHERE id = {p}", (listing_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            return None
+            
+        result = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
+        
+        if 'extra_data' in result and isinstance(result['extra_data'], str):
+            try:
+                result['extra_data'] = json.loads(result['extra_data'])
+            except:
+                result['extra_data'] = {}
+        
+        try:
+            cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (listing_id,))
+            photo_rows = cursor.fetchall()
+            result['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
+        except Exception as e:
+            logger.warning(f"Could not load photos for listing {listing_id}: {e}")
+            result['photos'] = []
+        
+        return result
+    except Exception as e:
+        logger.error(f"Get listing by id error: {e}")
+        return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 def get_listings_by_category(limit=10, offset=0, req_type=None):
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
+    """ለፈላጊዎች ዝርዝር (BUY)"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
 
-       if req_type:
-           query = f"""
-               SELECT * FROM listings 
-               WHERE status = 'pending' AND req_type = {p} 
-               ORDER BY created_at DESC 
-               LIMIT {p} OFFSET {p}
-           """
-           cursor.execute(query, (req_type, limit, offset))
-       else:
-           query = f"""
-               SELECT * FROM listings 
-               WHERE status = 'pending' 
-               ORDER BY created_at DESC 
-               LIMIT {p} OFFSET {p}
-           """
-           cursor.execute(query, (limit, offset))
+        if req_type:
+            query = f"""
+                SELECT * FROM listings 
+                WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})
+                ORDER BY created_at DESC 
+                LIMIT {p} OFFSET {p}
+            """
+            cursor.execute(query, (req_type, limit, offset))
+        else:
+            query = f"""
+                SELECT * FROM listings 
+                WHERE status = 'pending' 
+                ORDER BY created_at DESC 
+                LIMIT {p} OFFSET {p}
+            """
+            cursor.execute(query, (limit, offset))
 
-       rows = cursor.fetchall()
-       results = []
-       for row in rows:
-           item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-           # Parse extra_data
-           if 'extra_data' in item and isinstance(item['extra_data'], str):
-               try:
-                   item['extra_data'] = json.loads(item['extra_data'])
-               except:
-                   item['extra_data'] = {}
-           results.append(item)
-       
-       logger.info(f"📋 Retrieved {len(results)} listings (type={req_type})")
-       return results
-   except Exception as e:
-       logger.error(f"Get listings error: {e}")
-       return []
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+        rows = cursor.fetchall()
+        results = []
+        for row in rows:
+            item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
+            if 'extra_data' in item and isinstance(item['extra_data'], str):
+                try:
+                    item['extra_data'] = json.loads(item['extra_data'])
+                except:
+                    item['extra_data'] = {}
+            results.append(item)
+        
+        logger.info(f"📋 Retrieved {len(results)} listings (type={req_type})")
+        return results
+    except Exception as e:
+        logger.error(f"Get listings error: {e}")
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 def count_listings(req_type=None):
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       if req_type:
-           p = get_placeholder()
-           cursor.execute(f"SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending' AND req_type = {p}", (req_type,))
-       else:
-           cursor.execute("SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending'")
-       row = cursor.fetchone()
-       if isinstance(row, dict):
-           return row.get('cnt', 0)
-       else:
-           return row[0] if row else 0
-   except Exception as e:
-       logger.error(f"Count listings error: {e}")
-       return 0
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        if req_type:
+            p = get_placeholder()
+            cursor.execute(
+                f"SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})",
+                (req_type,)
+            )
+        else:
+            cursor.execute("SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending'")
+        row = cursor.fetchone()
+        if isinstance(row, dict):
+            return row.get('cnt', 0)
+        else:
+            return row[0] if row else 0
+    except Exception as e:
+        logger.error(f"Count listings error: {e}")
+        return 0
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 def update_listing_status(req_id: int, status: str) -> bool:
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
-       if not DATABASE_URL:
-           conn.commit()
-       logger.info(f"✅ Listing {req_id} status updated to {status}")
-       return True
-   except Exception as e:
-       logger.error(f"Update listing error: {e}")
-       return False
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
-def get_public_marketplace_items(limit: int = 20, offset: int = 0):
-    """የገበያ ቦታ ላይ የሚታዩ የሻጭ ማስታወቂያዎች"""
-    conn = get_db_connection()
-    if not conn:
-        logger.error("get_public_marketplace_items: no DB connection")
-        return []
-    
+    conn = None
     try:
-        cur = conn.cursor()
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
+        if not DATABASE_URL:
+            conn.commit()
+        logger.info(f"✅ Listing {req_id} status updated to {status}")
+        return True
+    except Exception as e:
+        logger.error(f"Update listing error: {e}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+
+
+def get_public_marketplace_items(limit: int = 20, offset: int = 0):
+    """የገበያ ቦታ ላይ የሚታዩ የሻጭ ማስታወቂያዎች (SELL)"""
+    conn = None
+    try:
+        conn = get_db_connection()
+        if not conn:
+            logger.error("get_public_marketplace_items: no DB connection")
+            return []
         
-        # ሁለቱንም (Postgres + SQLite) የሚደግፍ query
+        cur = conn.cursor()
+        p = get_placeholder()
+
+        # በጣም ሰፊ filter – ሁሉንም SELL ያሳያል
         if DATABASE_URL:
-            # PostgreSQL
             cur.execute("""
                 SELECT * FROM listings 
-                WHERE UPPER(req_type) IN ('SELL', 'SALE')
-                  AND (status IS NULL OR status IN ('pending', 'active', 'approved', 'sold'))
+                WHERE UPPER(req_type) = 'SELL'
+                  AND status != 'deleted'
                 ORDER BY created_at DESC NULLS LAST
                 LIMIT %s OFFSET %s
             """, (limit, offset))
             rows = cur.fetchall()
             result = [dict(row) for row in rows]
         else:
-            # SQLite
             cur.execute("""
                 SELECT * FROM listings 
-                WHERE UPPER(req_type) IN ('SELL', 'SALE')
-                  AND (status IS NULL OR status IN ('pending', 'active', 'approved', 'sold'))
+                WHERE UPPER(req_type) = 'SELL'
+                  AND status != 'deleted'
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?
             """, (limit, offset))
@@ -1186,518 +1176,369 @@ def get_public_marketplace_items(limit: int = 20, offset: int = 0):
             columns = [desc[0] for desc in cur.description]
             result = [dict(zip(columns, row)) for row in rows]
         
-        logger.info(f"Marketplace returned {len(result)} items")
+        # extra_data parse
+        for item in result:
+            if 'extra_data' in item and isinstance(item['extra_data'], str):
+                try:
+                    item['extra_data'] = json.loads(item['extra_data'])
+                except:
+                    item['extra_data'] = {}
+        
+        logger.info(f"🛍️ Marketplace returned {len(result)} SELL items")
         return result
         
     except Exception as e:
         logger.error(f"get_public_marketplace_items error: {e}", exc_info=True)
         return []
     finally:
-        try:
-            conn.close()
-        except:
-            pass
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 # ========== BROKER OPERATIONS ==========
 
 def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city):
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
 
-       cursor.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
-       existing = cursor.fetchone()
+        cursor.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
+        existing = cursor.fetchone()
 
-       default_prefs = json.dumps({"car": True, "house": True, "price_min": 0, "price_max": 999999999, "enabled": True}, ensure_ascii=False)
+        default_prefs = json.dumps({"car": True, "house": True, "price_min": 0, "price_max": 999999999, "enabled": True}, ensure_ascii=False)
 
-       if existing:
-           if DATABASE_URL:
-               query = f"""
-                   UPDATE brokers 
-                   SET full_name = {p}, phone = {p}, role_type = {p},
-                       national_id_photo = {p}, sub_city = {p}, status = 'pending'
-                   WHERE chat_id = {p} RETURNING id
-               """
-               cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
-               row = cursor.fetchone()
-               broker_id = row["id"] if isinstance(row, dict) else row[0]
-           else:
-               query = """
-                   UPDATE brokers 
-                   SET full_name = ?, phone = ?, role_type = ?,
-                       national_id_photo = ?, sub_city = ?, status = 'pending'
-                   WHERE chat_id = ?
-               """
-               cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
-               broker_id = existing[0] if not isinstance(existing, dict) else existing["id"]
-               conn.commit()
-       else:
-           if DATABASE_URL:
-               query = f"""
-                   INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, notification_prefs, status)
-                   VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending') RETURNING id
-               """
-               cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city, default_prefs))
-               row = cursor.fetchone()
-               broker_id = row["id"] if isinstance(row, dict) else row[0]
-           else:
-               query = """
-                   INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, notification_prefs, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-               """
-               cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city, default_prefs))
-               broker_id = cursor.lastrowid
-               conn.commit()
+        if existing:
+            if DATABASE_URL:
+                query = f"""
+                    UPDATE brokers 
+                    SET full_name = {p}, phone = {p}, role_type = {p},
+                        national_id_photo = {p}, sub_city = {p}, status = 'pending'
+                    WHERE chat_id = {p} RETURNING id
+                """
+                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
+                row = cursor.fetchone()
+                broker_id = row["id"] if isinstance(row, dict) else row[0]
+            else:
+                query = """
+                    UPDATE brokers 
+                    SET full_name = ?, phone = ?, role_type = ?,
+                        national_id_photo = ?, sub_city = ?, status = 'pending'
+                    WHERE chat_id = ?
+                """
+                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
+                broker_id = existing[0] if not isinstance(existing, dict) else existing["id"]
+                conn.commit()
+        else:
+            if DATABASE_URL:
+                query = f"""
+                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, notification_prefs, status)
+                    VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending') RETURNING id
+                """
+                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city, default_prefs))
+                row = cursor.fetchone()
+                broker_id = row["id"] if isinstance(row, dict) else row[0]
+            else:
+                query = """
+                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, notification_prefs, status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+                """
+                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city, default_prefs))
+                broker_id = cursor.lastrowid
+                conn.commit()
 
-       logger.info(f"✅ Broker registered: {broker_id}")
-       return broker_id
-   except Exception as e:
-       logger.error(f"Add broker error: {e}")
-       return None
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+        logger.info(f"✅ Broker registered: {broker_id}")
+        return broker_id
+    except Exception as e:
+        logger.error(f"Add broker error: {e}")
+        return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 def get_broker(chat_id: int):
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       cursor.execute(f"SELECT * FROM brokers WHERE chat_id = {p}", (chat_id,))
-       row = cursor.fetchone()
-       if row:
-           return dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-       return None
-   except Exception as e:
-       logger.error(f"Get broker error: {e}")
-       return None
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"SELECT * FROM brokers WHERE chat_id = {p}", (chat_id,))
+        row = cursor.fetchone()
+        if row:
+            return dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
+        return None
+    except Exception as e:
+        logger.error(f"Get broker error: {e}")
+        return None
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 def update_broker_status(chat_id: int, status: str) -> bool:
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       cursor.execute(f"UPDATE brokers SET status = {p} WHERE chat_id = {p}", (status.lower(), chat_id))
-       if not DATABASE_URL:
-           conn.commit()
-       return True
-   except Exception as e:
-       logger.error(f"Update broker status error: {e}")
-       return False
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"UPDATE brokers SET status = {p} WHERE chat_id = {p}", (status.lower(), chat_id))
+        if not DATABASE_URL:
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Update broker status error: {e}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 def update_broker_notification_prefs(chat_id: int, prefs: dict) -> bool:
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       prefs_json = json.dumps(prefs, ensure_ascii=False)
-       cursor.execute(f"UPDATE brokers SET notification_prefs = {p} WHERE chat_id = {p}", (prefs_json, chat_id))
-       if not DATABASE_URL:
-           conn.commit()
-       return True
-   except Exception as e:
-       logger.error(f"Update broker notification prefs error: {e}")
-       return False
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        prefs_json = json.dumps(prefs, ensure_ascii=False)
+        cursor.execute(f"UPDATE brokers SET notification_prefs = {p} WHERE chat_id = {p}", (prefs_json, chat_id))
+        if not DATABASE_URL:
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Update broker notification prefs error: {e}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 def get_approved_brokers():
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       cursor.execute("SELECT * FROM brokers WHERE status = 'approved'")
-       rows = cursor.fetchall()
-       results = []
-       for row in rows:
-           broker = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-           # Parse notification_prefs
-           if 'notification_prefs' in broker and isinstance(broker['notification_prefs'], str):
-               try:
-                   broker['notification_prefs'] = json.loads(broker['notification_prefs'])
-               except:
-                   broker['notification_prefs'] = {"car": True, "house": True, "enabled": True}
-           results.append(broker)
-       
-       logger.info(f"👥 Retrieved {len(results)} approved brokers")
-       return results
-   except Exception as e:
-       logger.error(f"Get approved brokers error: {e}")
-       return []
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM brokers WHERE status = 'approved'")
+        rows = cursor.fetchall()
+        results = []
+        for row in rows:
+            broker = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
+            if 'notification_prefs' in broker and isinstance(broker['notification_prefs'], str):
+                try:
+                    broker['notification_prefs'] = json.loads(broker['notification_prefs'])
+                except:
+                    broker['notification_prefs'] = {"car": True, "house": True, "enabled": True}
+            results.append(broker)
+        
+        logger.info(f"👥 Retrieved {len(results)} approved brokers")
+        return results
+    except Exception as e:
+        logger.error(f"Get approved brokers error: {e}")
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 def get_approved_brokers_directory(sub_city=None):
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
 
-       if sub_city and sub_city != "ሁሉም":
-           query = f"""
-               SELECT full_name, phone, role_type, sub_city, rating, total_ratings 
-               FROM brokers WHERE status = 'approved' AND sub_city = {p}
-               ORDER BY rating DESC
-           """
-           cursor.execute(query, (sub_city,))
-       else:
-           query = """
-               SELECT full_name, phone, role_type, sub_city, rating, total_ratings 
-               FROM brokers WHERE status = 'approved' ORDER BY rating DESC
-           """
-           cursor.execute(query)
+        if sub_city and sub_city != "ሁሉም":
+            query = f"""
+                SELECT full_name, phone, role_type, sub_city, rating, total_ratings 
+                FROM brokers WHERE status = 'approved' AND sub_city = {p}
+                ORDER BY rating DESC
+            """
+            cursor.execute(query, (sub_city,))
+        else:
+            query = """
+                SELECT full_name, phone, role_type, sub_city, rating, total_ratings 
+                FROM brokers WHERE status = 'approved' ORDER BY rating DESC
+            """
+            cursor.execute(query)
 
-       rows = cursor.fetchall()
-       return [dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row)) for row in rows]
-   except Exception as e:
-       logger.error(f"Get approved brokers directory error: {e}")
-       return []
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+        rows = cursor.fetchall()
+        return [dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row)) for row in rows]
+    except Exception as e:
+        logger.error(f"Get approved brokers directory error: {e}")
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 # ========== BROKER OFFERS ==========
 
 def save_broker_offer(request_id: int, broker_id: int, description: str, photo_id: str = None) -> bool:
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       cursor.execute(f"""
-           INSERT INTO broker_offers (request_id, broker_id, description, photo_id)
-           VALUES ({p}, {p}, {p}, {p})
-       """, (request_id, broker_id, description, photo_id))
-       if not DATABASE_URL:
-           conn.commit()
-       return True
-   except Exception as e:
-       logger.error(f"Save broker offer error: {e}")
-       return False
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"""
+            INSERT INTO broker_offers (request_id, broker_id, description, photo_id)
+            VALUES ({p}, {p}, {p}, {p})
+        """, (request_id, broker_id, description, photo_id))
+        if not DATABASE_URL:
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Save broker offer error: {e}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 # ========== RATINGS ==========
 
 def add_broker_rating(broker_chat_id, user_chat_id, stars):
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
 
-       cursor.execute(
-           f"INSERT INTO ratings (broker_chat_id, user_chat_id, stars) VALUES ({p}, {p}, {p})",
-           (broker_chat_id, user_chat_id, stars)
-       )
+        cursor.execute(
+            f"INSERT INTO ratings (broker_chat_id, user_chat_id, stars) VALUES ({p}, {p}, {p})",
+            (broker_chat_id, user_chat_id, stars)
+        )
 
-       cursor.execute(
-           f"SELECT AVG(stars) as avg_stars, COUNT(*) as total_count FROM ratings WHERE broker_chat_id = {p}",
-           (broker_chat_id,)
-       )
-       result = cursor.fetchone()
-       
-       if isinstance(result, dict):
-           avg_stars = result.get('avg_stars', 5.0)
-           total_count = result.get('total_count', 0)
-       else:
-           avg_stars = result[0] if result[0] else 5.0
-           total_count = result[1] if result[1] else 0
+        cursor.execute(
+            f"SELECT AVG(stars) as avg_stars, COUNT(*) as total_count FROM ratings WHERE broker_chat_id = {p}",
+            (broker_chat_id,)
+        )
+        result = cursor.fetchone()
+        
+        if isinstance(result, dict):
+            avg_stars = result.get('avg_stars', 5.0)
+            total_count = result.get('total_count', 0)
+        else:
+            avg_stars = result[0] if result[0] else 5.0
+            total_count = result[1] if result[1] else 0
 
-       cursor.execute(
-           f"UPDATE brokers SET rating = {p}, total_ratings = {p} WHERE chat_id = {p}",
-           (round(float(avg_stars), 1), total_count, broker_chat_id)
-       )
+        cursor.execute(
+            f"UPDATE brokers SET rating = {p}, total_ratings = {p} WHERE chat_id = {p}",
+            (round(float(avg_stars), 1), total_count, broker_chat_id)
+        )
 
-       if not DATABASE_URL:
-           conn.commit()
-       return True
-   except Exception as e:
-       logger.error(f"Add broker rating error: {e}")
-       return False
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+        if not DATABASE_URL:
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Add broker rating error: {e}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 # ========== SEARCH ALERTS ==========
 
 def save_search_alert(user_chat_id: int, main_category: str, budget_min: str, budget_max: str) -> int:
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       cursor.execute(f"""
-           INSERT INTO search_alerts (user_chat_id, main_category, budget_min, budget_max)
-           VALUES ({p}, {p}, {p}, {p})
-       """, (user_chat_id, main_category, budget_min or "", budget_max or ""))
-       
-       if DATABASE_URL:
-           # For PostgreSQL, we need RETURNING
-           cursor.execute("SELECT lastval()")
-           row = cursor.fetchone()
-           alert_id = row[0] if not isinstance(row, dict) else list(row.values())[0]
-       else:
-           alert_id = cursor.lastrowid
-           conn.commit()
-       
-       logger.info(f"✅ Search alert saved for user {user_chat_id}")
-       return alert_id or 0
-   except Exception as e:
-       logger.error(f"Save search alert error: {e}")
-       return 0
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"""
+            INSERT INTO search_alerts (user_chat_id, main_category, budget_min, budget_max)
+            VALUES ({p}, {p}, {p}, {p})
+        """, (user_chat_id, main_category, budget_min or "", budget_max or ""))
+        
+        if DATABASE_URL:
+            cursor.execute("SELECT lastval()")
+            row = cursor.fetchone()
+            alert_id = row[0] if not isinstance(row, dict) else list(row.values())[0]
+        else:
+            alert_id = cursor.lastrowid
+            conn.commit()
+        
+        logger.info(f"✅ Search alert saved for user {user_chat_id}")
+        return alert_id or 0
+    except Exception as e:
+        logger.error(f"Save search alert error: {e}")
+        return 0
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 
 def get_matching_alerts(main_category: str, price: str) -> list:
-   """ከአዲስ ማስታወቂያ ጋር የሚዛመዱ Search Alerts ያግኙ"""
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       query = f"""
-           SELECT * FROM search_alerts 
-           WHERE is_active = TRUE AND main_category = {p}
-           ORDER BY created_at DESC
-       """
-       cursor.execute(query, (main_category,))
-       rows = cursor.fetchall()
-       
-       matching = []
-       try:
-           price_num = float(price) if price else 0
-       except (ValueError, TypeError):
-           price_num = 0
-       
-       for row in rows:
-           alert = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-           try:
-               alert_min = float(alert.get('budget_min', 0) or 0)
-               alert_max = float(alert.get('budget_max', 999999999) or 999999999)
-               if alert_min <= price_num <= alert_max:
-                   matching.append(alert)
-           except (ValueError, TypeError):
-               matching.append(alert)
-       
-       return matching
-   except Exception as e:
-       logger.error(f"Get matching alerts error: {e}")
-       return []
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
-
-
-# ========== FAVORITES ==========
-
-def add_favorite(user_chat_id: int, listing_id: int) -> bool:
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       
-       # Check if already exists
-       cursor.execute(f"SELECT id FROM favorites WHERE user_chat_id = {p} AND listing_id = {p}", (user_chat_id, listing_id))
-       if cursor.fetchone():
-           return True  # Already favorited
-       
-       cursor.execute(f"""
-           INSERT INTO favorites (user_chat_id, listing_id)
-           VALUES ({p}, {p})
-       """, (user_chat_id, listing_id))
-       if not DATABASE_URL:
-           conn.commit()
-       return True
-   except Exception as e:
-       logger.error(f"Add favorite error: {e}")
-       return False
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
-
-
-def remove_favorite(user_chat_id: int, listing_id: int) -> bool:
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       cursor.execute(f"DELETE FROM favorites WHERE user_chat_id = {p} AND listing_id = {p}", (user_chat_id, listing_id))
-       if not DATABASE_URL:
-           conn.commit()
-       return True
-   except Exception as e:
-       logger.error(f"Remove favorite error: {e}")
-       return False
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
-
-
-def get_user_favorites(user_chat_id: int, limit=20) -> list:
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       query = f"""
-           SELECT l.* FROM listings l
-           INNER JOIN favorites f ON l.id = f.listing_id
-           WHERE f.user_chat_id = {p} AND l.status = 'pending'
-           ORDER BY f.created_at DESC
-           LIMIT {p}
-       """
-       cursor.execute(query, (user_chat_id, limit))
-       rows = cursor.fetchall()
-       results = []
-       for row in rows:
-           item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-           if 'extra_data' in item and isinstance(item['extra_data'], str):
-               try:
-                   item['extra_data'] = json.loads(item['extra_data'])
-               except:
-                   item['extra_data'] = {}
-           # Load photos
-           try:
-               cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (item['id'],))
-               photo_rows = cursor.fetchall()
-               item['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
-           except Exception:
-               item['photos'] = []
-           results.append(item)
-       return results
-   except Exception as e:
-       logger.error(f"Get user favorites error: {e}")
-       return []
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
-
-
-def is_favorite(user_chat_id: int, listing_id: int) -> bool:
-   conn = None
-   try:
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       cursor.execute(f"SELECT 1 FROM favorites WHERE user_chat_id = {p} AND listing_id = {p}", (user_chat_id, listing_id))
-       return cursor.fetchone() is not None
-   except Exception as e:
-       logger.error(f"Check favorite error: {e}")
-       return False
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
-
-
-# ========== SIMILAR LISTINGS ==========
-
-def get_similar_listings(listing_id: int, limit=5) -> list:
-   """ተመሳሳይ ምድብ እና የዋጋ ክልል ያላቸው ማስታወቂያዎችን ያግኙ"""
-   conn = None
-   try:
-       listing = get_listing_by_id(listing_id)
-       if not listing:
-           return []
-       
-       conn = get_db_connection()
-       cursor = conn.cursor()
-       p = get_placeholder()
-       
-       main_cat = listing.get('main_category', '')
-       try:
-           price = float(listing.get('price', 0) or 0)
-       except (ValueError, TypeError):
-           price = 0
-       
-       query = f"""
-           SELECT * FROM listings 
-           WHERE id != {p} AND status = 'pending' AND main_category = {p}
-           ORDER BY created_at DESC
-           LIMIT {p}
-       """
-       cursor.execute(query, (listing_id, main_cat, limit))
-       rows = cursor.fetchall()
-       return [dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row)) for row in rows]
-   except Exception as e:
-       logger.error(f"Get similar listings error: {e}")
-       return []
-   finally:
-       if conn:
-           try:
-               conn.close()
-           except:
-               pass
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        query = f"""
+            SELECT * FROM search_alerts 
+            WHERE is_active = TRUE AND main_category = {p}
+            ORDER BY created_at DESC
+        """
+        cursor.execute(query, (main_category,))
+        rows = cursor.fetchall()
+        
+        matching = []
+        try:
+            price_num = float(price) if price else 0
+        except (ValueError, TypeError):
+            price_num = 0
+        
+        for row in rows:
+            alert = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
+            try:
+                alert_min = float(alert.get('budget_min', 0) or 0)
+                alert_max = float(alert.get('budget_max', 999999999) or 999999999)
+                if alert_min <= price_num <= alert_max:
+                    matching.append(alert)
+            except (ValueError, TypeError):
+                matching.append(alert)
+        
+        return matching
+    except Exception as e:
+        logger.error(f"Get matching alerts error: {e}")
+        return []
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 # ==============================================================================
 # 5. CONSTANTS & KEYBOARDS
 # ==============================================================================
