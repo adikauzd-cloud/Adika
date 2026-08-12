@@ -1988,7 +1988,6 @@ async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
    )
    return BUYER_MAIN
 
-
 async def buyer_category_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
    if query.data == "flow_home":
@@ -2020,7 +2019,6 @@ async def buyer_category_chosen(update: Update, context: ContextTypes.DEFAULT_TY
        )
        return BUYER_ACTION
 
-
 async def buyer_sub_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
    if query.data == "flow_home":
@@ -2042,7 +2040,6 @@ async def buyer_sub_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    )
    return BUYER_ACTION
 
-
 async def buyer_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
    if query.data == "flow_home":
@@ -2052,7 +2049,6 @@ async def buyer_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
    action = query.data.replace("flow_buy_action_", "")
    context.user_data['action_type'] = "መግዛት" if action == "buy" else "መከራየት"
 
-   # የበጀት ክልል መጠየቅ
    await query.edit_message_text(
        "💰 **የበጀት ክልልዎን ያስገቡ፦**\n\n"
        "💡 *ምሳሌ፦* `500000-1000000` (ከ 500ሺህ እስከ 1 ሚሊዮን ብር)\n"
@@ -2061,14 +2057,12 @@ async def buyer_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
    )
    return BUYER_BUDGET_RANGE
 
-
 async def buyer_budget_range(update: Update, context: ContextTypes.DEFAULT_TYPE):
    if update.message.text == "🏠 ዋና ገጽ":
        return await go_home(update, context)
    
    context.user_data['budget_range'] = update.message.text.strip()
    
-   # Search Alert ምርጫ
    keyboard = [
        [InlineKeyboardButton("✅ አዎ - ማሳወቂያ ደርሶኝ", callback_data="alert_yes")],
        [InlineKeyboardButton("❌ አይ - አያስፈልገኝም", callback_data="alert_no")],
@@ -2080,7 +2074,6 @@ async def buyer_budget_range(update: Update, context: ContextTypes.DEFAULT_TYPE)
        parse_mode="Markdown"
    )
    return BUYER_ALERT
-
 
 async def buyer_alert_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
@@ -2106,7 +2099,6 @@ async def buyer_alert_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
        )
        return BUYER_PROPERTY
 
-
 async def buyer_property_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
    if query.data == "flow_home":
@@ -2118,14 +2110,12 @@ async def buyer_property_chosen(update: Update, context: ContextTypes.DEFAULT_TY
 
    keyboard = [[InlineKeyboardButton(htype, callback_data=f"flow_buy_htype_{htype}")] for htype in HOUSE_TYPES]
    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
-
    await query.edit_message_text(
        "🏠 **የቤቱ አይነት ይምረጡ፦**",
        reply_markup=InlineKeyboardMarkup(keyboard),
        parse_mode="Markdown"
    )
    return BUYER_HTYPE
-
 
 async def buyer_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
@@ -2142,7 +2132,6 @@ async def buyer_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE)
    )
    return BUYER_DETAILS
 
-
 async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
    if update.message.text == "🏠 ዋና ገጽ":
        return await go_home(update, context)
@@ -2153,7 +2142,6 @@ async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
    )
    return BUYER_PHONE
-
 
 async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
    if update.message.text == "🏠 ዋና ገጽ":
@@ -2174,11 +2162,11 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
        parse_mode="Markdown",
        reply_markup=ReplyKeyboardMarkup([["ዝለል"], ["🏠 ዋና ገጽ"]], resize_keyboard=True)
    )
-   return BUYER_TELEGRAM_USER  # አዲስ state እንጠቀማለን
+   return BUYER_TELEGRAM_USER
 
 
 async def buyer_telegram_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-   """Telegram username መቀበል ወይም መዝለል እና ማስቀመጥ"""
+   """Telegram username ተቀብሎ ማስቀመጥ"""
    if update.message.text == "🏠 ዋና ገጽ":
        return await go_home(update, context)
    
@@ -2190,18 +2178,19 @@ async def buyer_telegram_user(update: Update, context: ContextTypes.DEFAULT_TYPE
    
    context.user_data["telegram_user"] = telegram_user
    
-   # አሁን ማስቀመጥ እንጀምር
+   # ማስቀመጥ ጀምር
    user = update.effective_user
    user_data = context.user_data
 
    desc = user_data.get('description', '')
    budget = user_data.get('budget_range', '')
+   phone = user_data.get('phone', '')
+   main_category = user_data.get('main_category', '')
    
    if user_data.get('property_subtype'):
        desc = f"🏠 {user_data.get('property_subtype')}\n{desc}"
-   
-   phone = user_data.get('phone', '')
-   main_category = user_data.get('main_category', '')
+
+   logger.info(f"📝 Saving buyer request: user={user.id}, cat={main_category}, phone={phone}")
 
    try:
        req_id = add_listing(
@@ -2223,6 +2212,8 @@ async def buyer_telegram_user(update: Update, context: ContextTypes.DEFAULT_TYPE
        )
 
        if req_id:
+           logger.info(f"✅ Buyer request saved: #ADK-{req_id}")
+           
            await update.message.reply_text(
                f"✅ **ጥያቄዎ በስኬት ተመዝግቧል!** 🎉\n\n"
                f"🆔 **የጥያቄ ቁጥር:** #ADK-{req_id}\n"
@@ -2234,7 +2225,7 @@ async def buyer_telegram_user(update: Update, context: ContextTypes.DEFAULT_TYPE
                parse_mode="Markdown",
            )
 
-           # Search Alert ማስቀመጥ
+           # Search Alert
            if user_data.get('create_alert'):
                try:
                    save_search_alert(user.id, main_category, 
@@ -2243,7 +2234,7 @@ async def buyer_telegram_user(update: Update, context: ContextTypes.DEFAULT_TYPE
                except Exception as e:
                    logger.error(f"Failed to save search alert: {e}")
 
-           # ለደላሎች ማሳወቂያ
+           # ለደላሎች ማሳወቂያ መላክ
            notification_text = (
                f"🔔 **አዲስ ጥያቄ! (#ADK-{req_id})**\n\n"
                f"📌 **ዘርፍ፦** {main_category}\n"
@@ -2253,8 +2244,14 @@ async def buyer_telegram_user(update: Update, context: ContextTypes.DEFAULT_TYPE
                + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
                f"\n👉 ይህ ንብረት በእጅዎ ካለ **'🤝 ገዢ/ተከራይ አለኝ'** የሚለውን ይጫኑ!"
            )
-           await notify_brokers(context.bot, notification_text, req_id, user.id)
+           
+           try:
+               await notify_brokers(context.bot, notification_text, req_id, user.id)
+               logger.info(f"✅ Broker notification sent for #ADK-{req_id}")
+           except Exception as e:
+               logger.error(f"❌ Failed to notify brokers for #ADK-{req_id}: {e}")
        else:
+           logger.error(f"❌ add_listing returned None for buyer {user.id}")
            await update.message.reply_text(
                "❌ **መረጃውን መመዝገብ አልተቻለም።**\n\n"
                "እባክዎ እንደገና ይሞክሩ ወይም የድጋፍ ቡድናችንን ያነጋግሩ።",
