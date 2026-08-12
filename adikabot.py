@@ -1818,34 +1818,49 @@ def build_request_keyboard(req_id: int, user_id: int, is_fav: bool = False) -> I
    
    # ደላላ ቁልፎች
    keyboard.append([
-       InlineKeyboardButton("🤝 ገዢ/ተከራይ አለኝ", callback_data=f"have_item_{req_id}_{user_id}"),
+       InlineKeyboardButton("🤝 አለኝ", callback_data=f"have_item_{req_id}_{user_id}"),
+       InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}"),
    ])
+   
+   # ለራሴ እፈልጋለሁ
    keyboard.append([
-       InlineKeyboardButton("👤 ለራሴ እፈልገዋለሁ", callback_data=f"need_item_{req_id}_{user_id}"),
+       InlineKeyboardButton("👤 ለራሴ ነው", callback_data=f"need_item_{req_id}_{user_id}"),
    ])
    
    # Favorite
-   fav_text = "❤️ ከተወዳጆች አስወግድ" if is_fav else "🤍 ወደ ተወዳጆች ጨምር"
+   fav_text = "❤️" if is_fav else "🤍"
    fav_callback = f"fav_remove_{req_id}" if is_fav else f"fav_add_{req_id}"
    keyboard.append([InlineKeyboardButton(fav_text, callback_data=fav_callback)])
    
+   # ማጥፊያ (ለባለቤቱ ብቻ)
+   keyboard.append([InlineKeyboardButton("🗑️ አጥፋ", callback_data=f"delete_req_{req_id}")])
+   
    keyboard.append(get_nav_buttons("flow_home"))
    return InlineKeyboardMarkup(keyboard)
+
 
 def build_seller_card_keyboard(item_id: int, user_id: int, is_fav: bool = False) -> InlineKeyboardMarkup:
    keyboard = []
    
+   # ደላላ ቁልፎች
+   keyboard.append([
+       InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{item_id}_{user_id}"),
+       InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"skip_listing_{item_id}"),
+   ])
+   
    # Favorite
-   fav_text = "❤️ ከተወዳጆች አስወግድ" if is_fav else "🤍 ወደ ተወዳጆች ጨምር"
+   fav_text = "❤️" if is_fav else "🤍"
    fav_callback = f"fav_remove_{item_id}" if is_fav else f"fav_add_{item_id}"
    keyboard.append([InlineKeyboardButton(fav_text, callback_data=fav_callback)])
    
-   # ለባለቤቱ "ተሸጧል" ቁልፍ
-   keyboard.append([InlineKeyboardButton("✅ ተሸጧል / ተከራይቷል", callback_data=f"mark_sold_{item_id}")])
+   # "ተሸጧል" እና "አጥፋ" (ለባለቤቱ ብቻ)
+   keyboard.append([
+       InlineKeyboardButton("✅ ተሸጧል", callback_data=f"mark_sold_{item_id}"),
+       InlineKeyboardButton("🗑️ አጥፋ", callback_data=f"delete_req_{item_id}"),
+   ])
    
    keyboard.append(get_nav_buttons("flow_home"))
    return InlineKeyboardMarkup(keyboard)
-
 async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
    """ለተፈቀዱ ደላሎች ማሳወቂያ መላክ"""
    try:
