@@ -3117,7 +3117,7 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ደላላ 'ገዢ/ተከራይ አለኝ' ሲጫን - ሻጭ ማስታወቂያ ላይ"""
+    """ደላላ 'ገዢ አለኝ' ሲጫን - ለሻጩ ማሳወቂያ"""
     query = update.callback_query
     await query.answer()
 
@@ -3126,40 +3126,111 @@ async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if not broker or broker.get('status') != 'approved':
         await query.answer("⛔ የተረጋገጡ ደላሎች ብቻ ነው!", show_alert=True)
-        return
+        return ConversationHandler.END
 
     parts = query.data.split('_')
-    if len(parts) < 3:
+    # have_buyer_{item_id}_{owner_id}
+    if len(parts) < 4:
         await query.answer("❌ የተሳሳተ መረጃ", show_alert=True)
-        return
+        return ConversationHandler.END
 
     item_id = parts[2]
-    owner_id = parts[3] if len(parts) >= 4 else None
+    owner_id = parts[3]
 
-    listing = get_listing_by_id(int(item_id)) if item_id.isdigit() else None
+    listing = get_listing_by_id(int(item_id)) if str(item_id).isdigit() else None
     if not listing:
         await query.answer("❌ ማስታወቂያው አልተገኘም።", show_alert=True)
-        return
+        return ConversationHandler.END
 
     phone = listing.get('phone', '')
     owner_name = listing.get('user_name', 'ባለቤት')
+    broker_name = broker.get('full_name', 'ደላላ')
 
-    # ስልክ ካለ ቀጥታ መደወያ ቁልፍ
-    keyboard = []
-    if phone and not str(phone).startswith("@"):
-        # Telegram tel: link
-        clean_phone = phone.replace(' ', '').replace('-', '')
-        keyboard.append([InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
-    
-    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
-
-    text = (
+    # ለደላላው - የባለቤቱን ስልክ ቁጥር አሳይ
+    text_for_broker = (
         f"🤝 **ገዢ/ተከራይ አለዎት**\n\n"
         f"📦 ማስታወቂያ: #ADK-{item_id}\n"
         f"👤 ባለቤት: {owner_name}\n"
         f"📞 ስልክ: `{phone}`\n\n"
         f"💡 ከታች ያለውን ቁልፍ በመጫን በቀጥታ መደወል ይችላሉ።"
     )
+
+    keyboard = []
+    if phone and phone != '-' and not str(phone).startswith('@'):
+        clean_phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+        if clean_phone.isdigit() and len(clean_phone) >= 9:
+            keyboard.append([InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
+    elif phone and str(phone).startswith('@'):
+        username = str(phone).lstrip('@')
+        keyboard.append([InlineKeyboardButton(f"💬 Telegram @{username}", url=f"https://t.me/{username}")])
+    
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+
+    try:
+        await query.edit_message_text(
+            text=text_for_broker,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+    except Exception:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=text_for_broker,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+    
+    # ለሻጩ ማሳወቂያ
+    try:
+        seller_msg = (
+            f"🔔 **ማስታወቂያዎ (#ADK-{item_id}) ላይ ፍላጎት አለ!**\n\n"
+            f"👤 **ደላላ፦** {broker_name}\n"
+            f"📞 **የደላላው ስልክ፦** `{broker.get('phone', 'አልተገለጸም')}`\n\n"
+            f"💡 ደላላው ገዢ/ተከራይ እንዳላቸው ገልጸዋል። በቀጥታ ማነጋገር ይችላሉ።"
+        )
+        await context.bot.send_message(
+            chat_id=int(owner_id),
+            text=seller_msg,
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"Failed to notify seller {owner_id}: {e}")
+    
+    return ConversationHandler.END
+
+
+async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ደላላ 'ለራሴ' ሲጫን"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    parts = query.data.split('_')
+    item_id = parts[2] if len(parts) >= 3 else "?"
+
+    listing = get_listing_by_id(int(item_id)) if str(item_id).isdigit() else None
+    if not listing:
+        await query.answer("❌ ማስታወቂያው አልተገኘም።", show_alert=True)
+        return ConversationHandler.END
+    
+    phone = listing.get('phone', 'አልተገኘም')
+    owner_name = listing.get('user_name', 'ባለቤት')
+
+    text = (
+        f"👤 **ለራስዎ ይፈልጋሉ**\n\n"
+        f"📦 ማስታወቂያ: #ADK-{item_id}\n"
+        f"👤 ባለቤት: {owner_name}\n"
+        f"📞 ስልክ: `{phone}`\n\n"
+        f"💡 በቀጥታ ደውለው መገበያየት ይችላሉ።"
+    )
+
+    keyboard = []
+    if phone and phone != '-' and not str(phone).startswith('@'):
+        clean_phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
+        if clean_phone.isdigit() and len(clean_phone) >= 9:
+            keyboard.append([InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
+    
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
 
     try:
         await query.edit_message_text(
@@ -3174,29 +3245,8 @@ async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
-
-
-async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ደላላ 'ለራሴ እፈልገዋለሁ' ሲጫን"""
-    query = update.callback_query
-    await query.answer()
-
-    user_id = query.from_user.id
-    parts = query.data.split('_')
-    item_id = parts[2] if len(parts) >= 3 else "?"
-
-    listing = get_listing_by_id(int(item_id)) if str(item_id).isdigit() else None
-    phone = listing.get('phone', 'አልተገኘም') if listing else 'አልተገኘም'
-
-    await query.answer(f"📞 ስልክ: {phone}", show_alert=True)
-
-    try:
-        await query.edit_message_text(
-            f"👤 **ለራስዎ ይፈልጋሉ**\n\n"
-            f"📦 ማስታወቂያ: #ADK-{item_id}\n"
-            f"📞 የባለቤቱ ስልክ: `{phone}`\n\n"
-            f"💡 በቀጥታ ደውለው መገበያየት ይችላሉ።",
-            parse_mode="Markdown"
+    
+    return ConversationHandler.END
         )
     except Exception:
         pass
