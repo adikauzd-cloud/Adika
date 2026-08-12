@@ -3729,6 +3729,9 @@ def main():
    app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ምርጫ$"), notification_prefs_start))
    app.add_handler(cancel_handler)
 
+      # Broker offer callbacks
+    app.add_handler(CallbackQueryHandler(have_buyer_callback, pattern="^have_buyer_"))
+   app.add_handler(CallbackQueryHandler(skip_listing_callback, pattern="^skip_listing_"))
    # Callback query handlers
    app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
    app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
