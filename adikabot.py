@@ -1151,46 +1151,52 @@ def update_listing_status(req_id: int, status: str) -> bool:
                conn.close()
            except:
                pass
-
 def get_public_marketplace_items(limit: int = 20, offset: int = 0):
-    """የገበያ ቦታ ላይ የሚታዩ የሻጭ ማስታወቂያዎች (SELL)"""
+    """የገበያ ቦታ ላይ የሚታዩ የሻጭ ማስታወቂያዎች"""
     conn = get_db_connection()
     if not conn:
+        logger.error("get_public_marketplace_items: no DB connection")
         return []
+    
     try:
         cur = conn.cursor()
+        
+        # ሁለቱንም (Postgres + SQLite) የሚደግፍ query
         if DATABASE_URL:
+            # PostgreSQL
             cur.execute("""
                 SELECT * FROM listings 
-                WHERE req_type = 'SELL' 
-                  AND status IN ('pending', 'active', 'approved')
-                ORDER BY created_at DESC
+                WHERE UPPER(req_type) IN ('SELL', 'SALE')
+                  AND (status IS NULL OR status IN ('pending', 'active', 'approved', 'sold'))
+                ORDER BY created_at DESC NULLS LAST
                 LIMIT %s OFFSET %s
             """, (limit, offset))
+            rows = cur.fetchall()
+            result = [dict(row) for row in rows]
         else:
+            # SQLite
             cur.execute("""
                 SELECT * FROM listings 
-                WHERE req_type = 'SELL' 
-                  AND status IN ('pending', 'active', 'approved')
+                WHERE UPPER(req_type) IN ('SELL', 'SALE')
+                  AND (status IS NULL OR status IN ('pending', 'active', 'approved', 'sold'))
                 ORDER BY created_at DESC
                 LIMIT ? OFFSET ?
             """, (limit, offset))
+            rows = cur.fetchall()
+            columns = [desc[0] for desc in cur.description]
+            result = [dict(zip(columns, row)) for row in rows]
         
-        rows = cur.fetchall()
-        result = []
-        for row in rows:
-            if DATABASE_URL:
-                item = dict(row)
-            else:
-                columns = [desc[0] for desc in cur.description]
-                item = dict(zip(columns, row))
-            result.append(item)
+        logger.info(f"Marketplace returned {len(result)} items")
         return result
+        
     except Exception as e:
-        logger.error(f"get_public_marketplace_items error: {e}")
+        logger.error(f"get_public_marketplace_items error: {e}", exc_info=True)
         return []
     finally:
-        conn.close()
+        try:
+            conn.close()
+        except:
+            pass
 
 
 # ========== BROKER OPERATIONS ==========
