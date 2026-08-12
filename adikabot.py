@@ -3701,6 +3701,7 @@ def main():
    cancel_handler = MessageHandler(cancel_filter, go_home)
    # Buyer Conversation
    # Buyer Conversation
+     # Buyer Conversation
    buyer_conv = ConversationHandler(
        entry_points=[MessageHandler(filters.Regex("^🔍 መግዛት / መከራየት$"), buyer_start)],
        states={
@@ -3730,7 +3731,6 @@ def main():
            SELLER_HTYPE: [CallbackQueryHandler(seller_htype_chosen, pattern="^flow_sell_htype_"), cancel_handler],
            SELLER_CONDITION: [
                CallbackQueryHandler(seller_condition_chosen, pattern="^flow_sell_cond_"),
-               CallbackQueryHandler(seller_house_condition_chosen, pattern="^flow_sell_cond_"),
                cancel_handler
            ],
            SELLER_FUEL: [CallbackQueryHandler(seller_fuel_chosen, pattern="^flow_sell_fuel_"), cancel_handler],
