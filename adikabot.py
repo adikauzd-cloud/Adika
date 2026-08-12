@@ -2774,22 +2774,21 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
    photo_id = photos[0] if photos else None
 
    try:
-       req_id = add_listing(
-           user_chat_id=user.id,
-           user_name=user.first_name or "User",
-           req_type="SELL",
-           main_category=user_data.get('main_category', ''),
-           sub_category=user_data.get('sub_category', ''),
-           action_type=user_data.get('action_type', 'መሸጥ'),
-           property_type=user_data.get('property_type', ''),
-           description=desc,
-           price=user_data.get('price'),
-           phone=user_data.get('phone'),
-           photo_id=photo_id,
-           extra_data=extra_data,
-           photos=photos
-       )
-
+      req_id = add_listing(
+        user_chat_id=user.id,
+        user_name=user.first_name or "User",
+        req_type="SELL",  # ← ይህ በትክክል 'SELL' መሆን አለበት
+        main_category=user_data.get('main_category', ''),
+        sub_category=user_data.get('sub_category', ''),
+        action_type=user_data.get('action_type', 'መሸጥ'),
+        property_type=user_data.get('property_type', ''),
+        description=desc,
+        price=user_data.get('price'),
+        phone=user_data.get('phone'),
+        photo_id=photo_id,
+        extra_data=extra_data,
+        photos=photos
+    )
        if req_id:
            await update.message.reply_text(
                f"✅ **ማስታወቂያዎ በስኬት ተመዝግቧል!** 🎉\n\n"
