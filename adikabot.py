@@ -1841,7 +1841,7 @@ def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int
     return InlineKeyboardMarkup(keyboard)
 
 async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
-    """ለተፈቀዱ ደላሎች ማሳወቂያ መላክ"""
+    """ለተፈቀዱ ደላሎች ማሳወቂያ መላክ - SELL እና BUY በተለየ ቁልፍ"""
     try:
         approved_brokers = get_approved_brokers()
         if not approved_brokers:
@@ -1849,8 +1849,15 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
             return
 
         listing = get_listing_by_id(req_id)
-        main_category = listing.get('main_category', '') if listing else ''
-        
+        if not listing:
+            logger.warning(f"Listing {req_id} not found for notification")
+            return
+
+        main_category = listing.get('main_category', '')
+        req_type = listing.get('req_type', 'BUY')   # SELL ወይም BUY
+        phone = listing.get('phone', '')
+        owner_id = listing.get('user_chat_id')
+
         sent_count = 0
         for broker in approved_brokers:
             try:
@@ -1868,16 +1875,36 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                 if not prefs.get('enabled', True):
                     continue
                 
-                if main_category == 'መኪና' and not prefs.get('car', True):
+                if main_category in ['መኪና', 'car', 'CAR'] and not prefs.get('car', True):
                     continue
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
                 
-                # ለፈላጊ ጥያቄዎች ቁልፍ
-                kbd = [[
-                    InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
-                    InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
-                ]]
+                # ========== ቁልፎች በ req_type ይለያያሉ ==========
+                if req_type == "SELL":
+                    # የሻጭ ማስታወቂያ → ገዢ አለኝ / ለራሴ / ይለፈኝ
+                    kbd = [
+                        [
+                            InlineKeyboardButton("🤝 ገዢ/ተከራይ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
+                            InlineKeyboardButton("👤 ለራሴ እፈልገዋለሁ", callback_data=f"want_myself_{req_id}")
+                        ],
+                        [
+                            InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
+                        ]
+                    ]
+                    # ስልክ ካለ ቁልፍ ጨምር
+                    if phone and not str(phone).startswith("@"):
+                        clean_phone = phone.replace(' ', '').replace('-', '')
+                        kbd.insert(1, [InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
+                    elif phone and str(phone).startswith("@"):
+                        username = phone.lstrip("@")
+                        kbd.insert(1, [InlineKeyboardButton(f"💬 @{username}", url=f"https://t.me/{username}")])
+                else:
+                    # የፈላጊ ጥያቄ → አለኝ / ይለፈኝ
+                    kbd = [[
+                        InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
+                        InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
+                    ]]
                 
                 await bot.send_message(
                     chat_id=b_id,
@@ -1890,11 +1917,10 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
             except Exception as e:
                 logger.error(f"Failed to send notification to broker {broker.get('chat_id')}: {e}")
         
-        logger.info(f"✅ Sent notifications to {sent_count}/{len(approved_brokers)} brokers for listing #ADK-{req_id}")
+        logger.info(f"✅ Sent notifications to {sent_count}/{len(approved_brokers)} brokers for listing #ADK-{req_id} (type={req_type})")
         
     except Exception as e:
         logger.error(f"❌ notify_brokers error: {e}", exc_info=True)
-
 # ==============================================================================
 # 7. CONVERSATION STATES
 # ==============================================================================
