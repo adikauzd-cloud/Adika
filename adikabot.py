@@ -2249,6 +2249,134 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
    context.user_data.clear()
    return ConversationHandler.END
+
+# ==============================================================================
+# SELLER SUBMISSION & BROKER NOTIFICATION HANDLERS
+# ==============================================================================
+
+async def finish_seller_submission(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    1. የሻጩን መረጃ በዲቢ/ገበያ ቦታ (Marketplace) ላይ ያስቀምጣል።
+    2. መረጃውን ለተመዘገቡ ደላሎች በሙሉ ከነ 'ገዢ አለኝ' እና 'ለራሴ ነው' ቁልፎች ጋር ይልካል።
+    """
+    query = update.callback_query
+    await query.answer()
+    
+    user_data = context.user_data
+    user = update.effective_user
+    
+    # 1. መረጃውን በገበያ ቦታ (Marketplace Database) መመዝገብ
+    property_id = save_property_to_marketplace(user.id, user_data)
+    
+    # ለደላሎች የሚላክ የንብረት ዝርዝር መረጃ ጽሁፍ
+    seller_summary_text = (
+        "📥 **አዲስ የሚሸጥ ንብረት ማስታወቂያ**\n\n"
+        f"🆔 **የንብረት ID:** #{property_id}\n"
+        f"👤 **የሻጭ ስም:** {user.full_name} (@{user.username if user.username else 'የለውም'})\n"
+        f"📞 **ስልክ ቁጥር:** {user_data.get('phone_number', 'ያልተገለጸ')}\n"
+        "──────────────────────\n"
+        f"🏠 **የንብረት ዓይነት:** {user_data.get('property_type', 'N/A')}\n"
+        f"📍 **ቦታ/አድራሻ:** {user_data.get('location', 'N/A')}\n"
+        f"📐 **ስፋት (ካሬ):** {user_data.get('area_sqm', 'N/A')}\n"
+        f"🛏 **የክፍል ብዛት:** {user_data.get('bedrooms', 'N/A')}\n"
+        f"💰 **የመሸጫ ዋጋ:** {user_data.get('price', 'N/A')} ብር\n"
+        f"📝 **ተጨማሪ ማብራሪያ:** {user_data.get('description', 'የለውም')}\n"
+        "──────────────────────\n"
+        "🛒 *ይህ ንብረት በገበያ ቦታ (Marketplace) ላይም ተለጥፏል።*"
+    )
+    
+    # ደላላው የሚመልስባቸው ቁልፎች (Broker Response Buttons)
+    broker_keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🙋‍♂️ ገዢ አለኝ", callback_data=f"broker_resp_buyer_{property_id}"),
+            InlineKeyboardButton("🏠 ለራሴ ነው", callback_data=f"broker_resp_self_{property_id}")
+        ],
+        [
+            InlineKeyboardButton("📞 ሻጩን ለማነጋገር", url=f"tg://user?id={user.id}")
+        ]
+    ])
+    
+    # 2. ለተመዘገቡ ደላሎች በሙሉ መረጃውን መላክ
+    registered_brokers = get_all_registered_brokers()  # ከተመዘገቡ ደላሎች ዝርዝር የሚያመጣ ፈንክሽን
+    
+    for broker_id in registered_brokers:
+        try:
+            if 'property_photo' in user_data:
+                await context.bot.send_photo(
+                    chat_id=broker_id,
+                    photo=user_data['property_photo'],
+                    caption=seller_summary_text,
+                    parse_mode='Markdown',
+                    reply_markup=broker_keyboard
+                )
+            else:
+                await context.bot.send_message(
+                    chat_id=broker_id,
+                    text=seller_summary_text,
+                    parse_mode='Markdown',
+                    reply_markup=broker_keyboard
+                )
+        except Exception:
+            continue
+            
+    # 3. ለሻጩ ማረጋገጫ መስጠት
+    await query.edit_message_text(
+        text=(
+            "✅ **የንብረት መረጃዎ በትክክል ተመዝግቧል!**\n\n"
+            "• በገበያ ቦታ (Marketplace) ላይ ተለጥፏል።\n"
+            "• ለተመዘገቡ ደላሎች በሙሉ ማሳወቂያ ተልኳል።\n\n"
+            "አመሰግናለሁ!"
+        )
+    )
+    
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+# ==============================================================================
+# BROKER RESPONSE CALLBACK HANDLER
+# ==============================================================================
+
+async def handle_broker_response(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    ደላላው 'ገዢ አለኝ' ወይም 'ለራሴ ነው' ሲል የሚሰጠውን ምላሽ የሚያስተናግድ Handler።
+    """
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    broker = update.effective_user
+    
+    if data.startswith("broker_resp_buyer_"):
+        property_id = data.replace("broker_resp_buyer_", "")
+        
+        status_text = f"\n\n✅ **ምላሽዎ ተመዝግቧል (ገዢ አለኝ):** ደላላ @{broker.username or broker.full_name}"
+        
+        if query.message.photo:
+            await query.edit_message_caption(caption=query.message.caption + status_text, parse_mode='Markdown')
+        else:
+            await query.edit_message_text(text=query.message.text + status_text, parse_mode='Markdown')
+            
+        await context.bot.send_message(
+            chat_id=broker.id,
+            text=f"📌 **ለንብረት ID #{property_id} የሻጩን መረጃ አግኝተዋል። በቀጥታ ማነጋገር ይችላሉ።**"
+        )
+
+    elif data.startswith("broker_resp_self_"):
+        property_id = data.replace("broker_resp_self_", "")
+        
+        status_text = f"\n\n🏠 **ምላሽዎ ተመዝግቧል (ለራሴ ነው):** ደላላ @{broker.username or broker.full_name}"
+        
+        if query.message.photo:
+            await query.edit_message_caption(caption=query.message.caption + status_text, parse_mode='Markdown')
+        else:
+            await query.edit_message_text(text=query.message.text + status_text, parse_mode='Markdown')
+            
+        await context.bot.send_message(
+            chat_id=broker.id,
+            text=f"📌 **ለንብረት ID #{property_id} የሻጩን መረጃ አግኝተዋል። በቀጥታ ማነጋገር ይችላሉ።**"
+        )
+
 # ==============================================================================
 # 10. SELLER FLOW
 # ==============================================================================
