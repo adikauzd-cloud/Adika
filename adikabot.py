@@ -1812,46 +1812,42 @@ def get_nav_buttons(back_callback: str = None) -> list:
     buttons.append(InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home"))
     return buttons
 
-def build_request_keyboard(req_id: int, user_id: int, is_fav: bool = False) -> InlineKeyboardMarkup:
-    """ለፈላጊ ጥያቄዎች (Buyer Requests) የደላላ ቁልፎች"""
-    keyboard = []
-    
-    # ዋና ደላላ ቁልፎች
-    keyboard.append([
-        InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{user_id}"),
-        InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
-    ])
-    
-    # Favorite
-    fav_text = "❤️ ከተወዳጆች አስወግድ" if is_fav else "🤍 ወደ ተወዳጆች ጨምር"
-    fav_callback = f"fav_remove_{req_id}" if is_fav else f"fav_add_{req_id}"
-    keyboard.append([InlineKeyboardButton(fav_text, callback_data=fav_callback)])
-    
-    keyboard.append(get_nav_buttons("flow_home"))
+def build_request_keyboard(req_id: int, user_id: int) -> InlineKeyboardMarkup:
+    """ለፈላጊ ጥያቄዎች (Buyer Requests)"""
+    keyboard = [
+        [
+            InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{user_id}"),
+            InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
+        ],
+        get_nav_buttons("flow_home")
+    ]
     return InlineKeyboardMarkup(keyboard)
 
-def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int, is_fav: bool = False) -> InlineKeyboardMarkup:
-    """ለሻጭ ማስታወቂያዎች (Seller Listings) ቁልፎች"""
+def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int, phone: str = "") -> InlineKeyboardMarkup:
+    """ለሻጭ ማስታወቂያዎች (Seller Listings) - ደላሎች + ባለቤት"""
     keyboard = []
-    
-    # Favorite ለሁሉም
-    fav_text = "❤️ ከተወዳጆች አስወግድ" if is_fav else "🤍 ወደ ተወዳጆች ጨምር"
-    fav_callback = f"fav_remove_{item_id}" if is_fav else f"fav_add_{item_id}"
-    keyboard.append([InlineKeyboardButton(fav_text, callback_data=fav_callback)])
-    
+
     # ደላላ ቁልፎች
     keyboard.append([
         InlineKeyboardButton("🤝 ገዢ/ተከራይ አለኝ", callback_data=f"have_buyer_{item_id}_{owner_id}"),
         InlineKeyboardButton("👤 ለራሴ እፈልገዋለሁ", callback_data=f"want_myself_{item_id}")
     ])
-    
-    # ማጥፊያ + ተሸጧል - ባለቤቱ ወይም አድሚን ብቻ
+
+    # ስልክ ቁልፍ (ካለ)
+    if phone and not str(phone).startswith("@"):
+        clean_phone = phone.replace(' ', '').replace('-', '')
+        keyboard.append([InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
+    elif phone and str(phone).startswith("@"):
+        username = phone.lstrip("@")
+        keyboard.append([InlineKeyboardButton(f"💬 Telegram @{username}", url=f"https://t.me/{username}")])
+
+    # ባለቤት ወይም አድሚን ብቻ
     if current_user_id == owner_id or current_user_id == ADMIN_CHAT_ID_INT:
         keyboard.append([
             InlineKeyboardButton("✅ ተሸጧል / ተከራይቷል", callback_data=f"mark_sold_{item_id}"),
             InlineKeyboardButton("🗑️ አጥፋ", callback_data=f"delete_req_{item_id}")
         ])
-    
+
     keyboard.append(get_nav_buttons("flow_home"))
     return InlineKeyboardMarkup(keyboard)
 
@@ -1888,6 +1884,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
                 
+                # ለፈላጊ ጥያቄዎች ቁልፍ
                 kbd = [[
                     InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
                     InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
