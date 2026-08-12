@@ -2975,6 +2975,7 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
 # ==============================================================================
 
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ደላላ 'አለኝ' ሲጫን - ለፈላጊ ጥያቄ"""
     query = update.callback_query
     await query.answer()
 
@@ -3009,13 +3010,14 @@ async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_T
     context.user_data['target_buyer_id'] = buyer_id
 
     await query.message.reply_text(
-        f"✅ **ጥያቄ #{req_id}**\n\n"
-        f"✍️ **ያለዎትን ንብረት ዝርዝር መረጃ እና ዋጋ ያስገቡ፦**\n"
-        f"(ለምሳሌ፦ ቶዮታ ቪትዝ 2021፣ 30,000 KM የሄደ፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...)",
+        f"✅ **ጥያቄ #ADK-{req_id}**\n\n"
+        f"✍️ **ያለዎትን ንብረት ዝርዝር መረጃ እና ዋጋ ያስገቡ፦**\n\n"
+        f"💡 *ምሳሌ፦* ቶዮታ ቪትዝ 2021፣ 30,000 KM፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...",
         reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True),
         parse_mode="Markdown"
     )
     return BROKER_OFFER_TEXT
+
 
 async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
@@ -3024,11 +3026,13 @@ async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data['offer_text'] = text
     await update.message.reply_text(
-        "📸 **የንብረቱን ፎቶ ይላኩ፦**\n\n(ፎቶ ከሌልዎት 'ፎቶ የለውም' ብለው ይጻፉ)",
+        "📸 **የንብረቱን ፎቶ ይላኩ፦**\n\n"
+        "(ፎቶ ከሌልዎት 'ፎቶ የለውም' ብለው ይጻፉ)",
         reply_markup=ReplyKeyboardMarkup([["ፎቶ የለውም"], ["🏠 ዋና ገጽ"]], resize_keyboard=True),
         parse_mode="Markdown"
     )
     return BROKER_OFFER_PHOTO
+
 
 async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.text == "🏠 ዋና ገጽ":
@@ -3047,14 +3051,14 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     buyer_id = int(raw_buyer_id)
     broker_user = update.effective_user
-    broker_name = broker_user.first_name or "ደላላ/አቅራቢ"
     broker = get_broker(broker_user.id)
+    broker_name = broker.get('full_name') if broker else (broker_user.first_name or "ደላላ/አቅራቢ")
     broker_phone = broker.get('phone', 'አልተጠቀሰም') if broker else 'አልተጠቀሰም'
 
     message_to_buyer = (
-        f"🎉 **ለጥያቄዎ (#REQ-{req_id}) አዲስ የቀረበ አማራጭ አለ!**\n\n"
+        f"🎉 **ለጥያቄዎ (#ADK-{req_id}) አዲስ የቀረበ አማራጭ አለ!**\n\n"
         f"👤 **ደላላ/አቅራቢ፦** {broker_name}\n"
-        f"📞 **ስልክ፦** {broker_phone}\n"
+        f"📞 **ስልክ፦** `{broker_phone}`\n\n"
         f"📝 **የንብረቱ ዝርዝር፦**\n{offer_text}\n\n"
         f"💡 *ከፈለጉ ደውለው መገበያየት ይችላሉ!*"
     )
@@ -3063,8 +3067,6 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
         photo_id = None
         if update.message.photo:
             photo_id = update.message.photo[-1].file_id
-        elif update.message.text and update.message.text != "ፎቶ የለውም":
-            pass
 
         save_broker_offer(int(req_id), broker_user.id, offer_text, photo_id)
 
@@ -3097,25 +3099,91 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.clear()
     return ConversationHandler.END
 
-async def nohave_item_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ደላላ 'ገዢ/ተከራይ አለኝ' ሲጫን - ሻጭ ማስታወቂያ ላይ"""
     query = update.callback_query
+    await query.answer()
+
     user_id = query.from_user.id
     broker = get_broker(user_id)
 
     if not broker or broker.get('status') != 'approved':
-        await query.answer("⛔ ይህን ማድረግ የሚችሉት በአድሚን የተረጋገጡ ደላሎች/አቅራቢዎች ብቻ ናቸው!", show_alert=True)
+        await query.answer("⛔ የተረጋገጡ ደላሎች ብቻ ነው!", show_alert=True)
         return
 
     parts = query.data.split('_')
-    req_id = parts[-1] if parts else "?"
-    await query.answer(f"ℹ️ ጥያቄ #{req_id} አልፎታል።", show_alert=False)
+    if len(parts) < 3:
+        await query.answer("❌ የተሳሳተ መረጃ", show_alert=True)
+        return
 
-    await query.message.reply_text(
-        f"ℹ️ **ጥያቄ #{req_id} አልፎታል።**\n\n"
-        f"💡 ሌላ አዲስ ጥያቄ ለማየት '📋 የፈላጊዎች ዝርዝር' የሚለውን ይጫኑ።",
-        parse_mode="Markdown"
+    item_id = parts[2]
+    owner_id = parts[3] if len(parts) >= 4 else None
+
+    listing = get_listing_by_id(int(item_id)) if item_id.isdigit() else None
+    if not listing:
+        await query.answer("❌ ማስታወቂያው አልተገኘም።", show_alert=True)
+        return
+
+    phone = listing.get('phone', '')
+    owner_name = listing.get('user_name', 'ባለቤት')
+
+    # ስልክ ካለ ቀጥታ መደወያ ቁልፍ
+    keyboard = []
+    if phone and not str(phone).startswith("@"):
+        # Telegram tel: link
+        clean_phone = phone.replace(' ', '').replace('-', '')
+        keyboard.append([InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
+    
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+
+    text = (
+        f"🤝 **ገዢ/ተከራይ አለዎት**\n\n"
+        f"📦 ማስታወቂያ: #ADK-{item_id}\n"
+        f"👤 ባለቤት: {owner_name}\n"
+        f"📞 ስልክ: `{phone}`\n\n"
+        f"💡 ከታች ያለውን ቁልፍ በመጫን በቀጥታ መደወል ይችላሉ።"
     )
 
+    try:
+        await query.edit_message_text(
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+    except Exception:
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=text,
+            reply_markup=InlineKeyboardMarkup(keyboard),
+            parse_mode="Markdown"
+        )
+
+
+async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ደላላ 'ለራሴ እፈልገዋለሁ' ሲጫን"""
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    parts = query.data.split('_')
+    item_id = parts[2] if len(parts) >= 3 else "?"
+
+    listing = get_listing_by_id(int(item_id)) if str(item_id).isdigit() else None
+    phone = listing.get('phone', 'አልተገኘም') if listing else 'አልተገኘም'
+
+    await query.answer(f"📞 ስልክ: {phone}", show_alert=True)
+
+    try:
+        await query.edit_message_text(
+            f"👤 **ለራስዎ ይፈልጋሉ**\n\n"
+            f"📦 ማስታወቂያ: #ADK-{item_id}\n"
+            f"📞 የባለቤቱ ስልክ: `{phone}`\n\n"
+            f"💡 በቀጥታ ደውለው መገበያየት ይችላሉ።",
+            parse_mode="Markdown"
+        )
+    except Exception:
+        pass
 # ==============================================================================
 # 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY
 # ==============================================================================
