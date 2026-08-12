@@ -2646,33 +2646,57 @@ async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
    return SELLER_PHOTO  # ወደ ፎቶ ከመሄድ በፊት username እንቀበላለን
 
 
+async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+   if update.message.text == "🏠 ዋና ገጽ":
+       return await go_home(update, context)
+
+   if not validate_phone(update.message.text):
+       await update.message.reply_text("❌ ትክክለኛ የስልክ ቁጥር ያስገቡ።")
+       return SELLER_PHONE
+
+   context.user_data['phone'] = update.message.text
+   
+   # Telegram username መጠየቅ
+   await update.message.reply_text(
+       "📱 **Telegram Username ያስገቡ (አማራጭ)፦**\n\n"
+       "💡 *ለምሳሌ፦* @Abebe_Belay\n"
+       "ወይም 'ዝለል' ብለው ይጻፉ።",
+       parse_mode="Markdown",
+       reply_markup=ReplyKeyboardMarkup([["ዝለል"], ["🏠 ዋና ገጽ"]], resize_keyboard=True)
+   )
+   return SELLER_TELEGRAM_USER  # አዲስ state
+
+
+async def seller_telegram_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+   """Telegram username መቀበል እና ወደ ፎቶ ማምራት"""
+   if update.message.text == "🏠 ዋና ገጽ":
+       return await go_home(update, context)
+   
+   telegram_user = ""
+   if update.message.text.lower() != "ዝለል":
+       telegram_user = update.message.text.strip()
+       if telegram_user and not telegram_user.startswith("@"):
+           telegram_user = "@" + telegram_user
+   
+   context.user_data['telegram_user'] = telegram_user
+   
+   # አሁን ወደ ፎቶ እንሂድ
+   await update.message.reply_text(
+       "📸 **የንብረቱን ፎቶ ይላኩ (ወይም 'ዝለል' የሚለውን ይጻፉ)፦**\n\n"
+       "💡 *እስከ 5 ፎቶዎች መላክ ይችላሉ። ሲጨርሱ 'ጨረስኩ' ብለው ይጻፉ።*",
+       parse_mode="Markdown",
+       reply_markup=ReplyKeyboardMarkup([["ዝለል"], ["ጨረስኩ"], ["🏠 ዋና ገጽ"]], resize_keyboard=True)
+   )
+   return SELLER_PHOTO
+
+
 async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
    user = update.effective_user
    
    if update.message.text == "🏠 ዋና ገጽ":
        return await go_home(update, context)
    
-   # Telegram username መቀበል
-   if 'telegram_user' not in context.user_data:
-       if update.message.text and update.message.text.lower() == "ዝለል":
-           context.user_data['telegram_user'] = ""
-       elif update.message.text and not update.message.photo:
-           tg_user = update.message.text.strip()
-           if tg_user and not tg_user.startswith("@"):
-               tg_user = "@" + tg_user
-           context.user_data['telegram_user'] = tg_user
-           await update.message.reply_text(
-               "📸 **አሁን የንብረቱን ፎቶ ይላኩ (ወይም 'ዝለል' የሚለውን ይጻፉ)፦**\n\n"
-               "💡 *እስከ 5 ፎቶዎች መላክ ይችላሉ። ሲጨርሱ 'ጨረስኩ' ብለው ይጻፉ።*",
-               parse_mode="Markdown",
-               reply_markup=ReplyKeyboardMarkup([["ዝለል"], ["ጨረስኩ"], ["🏠 ዋና ገጽ"]], resize_keyboard=True)
-           )
-           return SELLER_PHOTO
-       else:
-           # ፎቶ ከሆነ username ባዶ አድርገን እንቀጥል
-           context.user_data['telegram_user'] = ""
-   
-   # አሁን ፎቶ ማስተናገድ
+   # ፎቶ ማስተናገድ
    if update.message.text and update.message.text.lower() in ['ዝለል', 'ጨረስኩ', 'ቀጥል']:
        return await save_seller_listing(update, context)
    
@@ -2696,7 +2720,6 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
        return SELLER_PHOTO
    
    return SELLER_PHOTO
-
 
 async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE):
    user = update.effective_user
