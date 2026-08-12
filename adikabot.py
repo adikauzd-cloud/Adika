@@ -3663,23 +3663,41 @@ def main():
    # Buyer Conversation
      # Buyer Conversation
       # Buyer Conversation
-   buyer_conv = ConversationHandler(
-       entry_points=[MessageHandler(filters.Regex("^🔍 መግዛት / መከራየት$"), buyer_start)],
-       states={
-           BUYER_MAIN: [CallbackQueryHandler(buyer_category_chosen, pattern="^flow_buy_cat_"), cancel_handler],
-           BUYER_ACTION: [CallbackQueryHandler(buyer_action_chosen, pattern="^flow_buy_action_"), cancel_handler],
-           BUYER_SUB: [CallbackQueryHandler(buyer_sub_chosen, pattern="^flow_buy_sub_"), cancel_handler],
-           BUYER_PROPERTY: [CallbackQueryHandler(buyer_property_chosen, pattern="^flow_buy_prop_"), cancel_handler],
-           BUYER_HTYPE: [CallbackQueryHandler(buyer_htype_chosen, pattern="^flow_buy_htype_"), cancel_handler],
-           BUYER_BUDGET_RANGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_budget_range), cancel_handler],
-           BUYER_ALERT: [CallbackQueryHandler(buyer_alert_choice, pattern="^alert_"), cancel_handler],
-           BUYER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_details), cancel_handler],
-           BUYER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_phone), cancel_handler],
-       },
-       fallbacks=[CommandHandler("start", start), cancel_handler],
-       allow_reentry=True,
-   )
+   # Broker Registration
+broker_conv = ConversationHandler(
+    entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)],
+    states={
+        BROKER_ROLE: [CallbackQueryHandler(broker_role_chosen, pattern="^role_"), cancel_handler],
+        BROKER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name), cancel_handler],
+        BROKER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone), cancel_handler],
+        BROKER_SUBCITY: [CallbackQueryHandler(broker_reg_subcity, pattern="^broker_sc_"), cancel_handler],
+        BROKER_NID_PHOTO: [MessageHandler(filters.PHOTO, broker_reg_nid_photo), cancel_handler],
+    },
+    fallbacks=[CommandHandler("start", start), cancel_handler],
+    allow_reentry=True,
+)
 
+# Broker Offer Response
+broker_response_conv = ConversationHandler(
+    entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
+    states={
+        BROKER_OFFER_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_text), cancel_handler],
+        BROKER_OFFER_PHOTO: [
+            MessageHandler(filters.PHOTO, broker_offer_photo),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_photo),
+            cancel_handler
+        ],
+    },
+    fallbacks=[CommandHandler("start", start), cancel_handler],
+    allow_reentry=True,
+)
+
+# Register handlers
+app.add_handler(CommandHandler("start", start))
+app.add_handler(buyer_conv)
+app.add_handler(seller_conv)
+app.add_handler(broker_conv)
+app.add_handler(broker_response_conv)
    # Seller Conversation
    seller_conv = ConversationHandler(
        entry_points=[MessageHandler(filters.Regex("^📢 መሸጥ / ማከራየት$"), seller_start)],
