@@ -3698,7 +3698,7 @@ def main():
        allow_reentry=True,
    )
 
-   # Broker Offer Response
+   # Broker Offer Response (for "አለኝ" button)
    broker_response_conv = ConversationHandler(
        entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
        states={
@@ -3713,7 +3713,7 @@ def main():
        allow_reentry=True,
    )
 
-   # Register handlers
+   # Register conversation handlers
    app.add_handler(CommandHandler("start", start))
    app.add_handler(buyer_conv)
    app.add_handler(seller_conv)
@@ -3729,10 +3729,7 @@ def main():
    app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ምርጫ$"), notification_prefs_start))
    app.add_handler(cancel_handler)
 
-      # Broker offer callbacks
-    app.add_handler(CallbackQueryHandler(have_buyer_callback, pattern="^have_buyer_"))
-   app.add_handler(CallbackQueryHandler(skip_listing_callback, pattern="^skip_listing_"))
-   # Callback query handlers
+   # Callback query handlers - ሁሉም በትክክለኛ indentation
    app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
    app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
    app.add_handler(CallbackQueryHandler(delete_request_callback, pattern=r"^delete_req_"))
@@ -3743,6 +3740,10 @@ def main():
    app.add_handler(CallbackQueryHandler(need_item_callback, pattern="^need_item_"))
    app.add_handler(CallbackQueryHandler(notification_prefs_callback, pattern="^notif_pref_"))
    app.add_handler(CallbackQueryHandler(view_detail_callback, pattern="^view_detail_"))
+   
+   # Broker-specific callbacks
+   app.add_handler(CallbackQueryHandler(have_buyer_callback, pattern="^have_buyer_"))
+   app.add_handler(CallbackQueryHandler(skip_listing_callback, pattern="^skip_listing_"))
 
    logger.info("🚀 Adika Marketplace Bot በስኬት ተጀምሯል...")
    app.run_polling()
