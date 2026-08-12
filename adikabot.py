@@ -3234,9 +3234,8 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         req_id = listing.get('id')
         user_chat_id = listing.get('user_chat_id')
         card_text = format_buyer_card(listing)
-        is_fav = is_favorite(user_id, req_id)
         
-        reply_markup = build_request_keyboard(req_id, user_chat_id, is_fav)
+        reply_markup = build_request_keyboard(req_id, user_chat_id)
 
         await update.message.reply_text(
             card_text,
@@ -3265,13 +3264,13 @@ async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_
         card_text = format_seller_card(item)
         photo_id = item.get('photo_id')
         owner_id = item.get('user_chat_id')
-        is_fav = is_favorite(user_id, item.get('id'))
+        phone = item.get('phone', '')
         
         reply_markup = build_seller_card_keyboard(
             item_id=item.get('id'),
             owner_id=owner_id,
             current_user_id=user_id,
-            is_fav=is_fav
+            phone=phone
         )
 
         if photo_id:
