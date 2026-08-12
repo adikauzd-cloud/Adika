@@ -715,138 +715,202 @@ def run_flask():
 # ==============================================================================
 
 def get_db_connection():
-    if DATABASE_URL:
-        cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
-        if cleaned_url.startswith("postgres://"):
-            cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
-        conn = psycopg2.connect(cleaned_url, cursor_factory=RealDictCursor)
-        conn.autocommit = True
-        return conn
-    else:
-        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
+   if DATABASE_URL:
+       cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
+       if cleaned_url.startswith("postgres://"):
+           cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
+       conn = psycopg2.connect(cleaned_url, cursor_factory=RealDictCursor)
+       conn.autocommit = True
+       return conn
+   else:
+       conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+       conn.row_factory = sqlite3.Row
+       return conn
 
 def get_placeholder():
-    return "%s" if DATABASE_URL else "?"
+   return "%s" if DATABASE_URL else "?"
 
 def init_db():
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+   conn = None
+   try:
+       conn = get_db_connection()
+       cursor = conn.cursor()
 
-        if DATABASE_URL:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS listings (
-                    id SERIAL PRIMARY KEY,
-                    user_chat_id BIGINT NOT NULL,
-                    user_name TEXT,
-                    req_type TEXT NOT NULL,
-                    main_category TEXT NOT NULL,
-                    sub_category TEXT,
-                    action_type TEXT,
-                    property_type TEXT,
-                    description TEXT NOT NULL,
-                    price TEXT,
-                    phone TEXT,
-                    photo_id TEXT,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS brokers (
-                    id SERIAL PRIMARY KEY,
-                    chat_id BIGINT NOT NULL UNIQUE,
-                    full_name TEXT NOT NULL,
-                    phone TEXT NOT NULL,
-                    role_type TEXT NOT NULL,
-                    national_id_photo TEXT,
-                    sub_city TEXT NOT NULL,
-                    rating REAL DEFAULT 5.0,
-                    total_ratings INT DEFAULT 0,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS ratings (
-                    id SERIAL PRIMARY KEY,
-                    broker_chat_id BIGINT NOT NULL,
-                    user_chat_id BIGINT NOT NULL,
-                    stars INT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS broker_offers (
-                    id SERIAL PRIMARY KEY,
-                    request_id INTEGER NOT NULL,
-                    broker_id BIGINT NOT NULL,
-                    description TEXT,
-                    photo_id TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-        else:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS listings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_chat_id INTEGER NOT NULL,
-                    user_name TEXT,
-                    req_type TEXT NOT NULL,
-                    main_category TEXT NOT NULL,
-                    sub_category TEXT,
-                    action_type TEXT,
-                    property_type TEXT,
-                    description TEXT NOT NULL,
-                    price TEXT,
-                    phone TEXT,
-                    photo_id TEXT,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS brokers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chat_id INTEGER NOT NULL UNIQUE,
-                    full_name TEXT NOT NULL,
-                    phone TEXT NOT NULL,
-                    role_type TEXT NOT NULL,
-                    national_id_photo TEXT,
-                    sub_city TEXT NOT NULL,
-                    rating REAL DEFAULT 5.0,
-                    total_ratings INTEGER DEFAULT 0,
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS ratings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    broker_chat_id INTEGER NOT NULL,
-                    user_chat_id INTEGER NOT NULL,
-                    stars INTEGER NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS broker_offers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    request_id INTEGER NOT NULL,
-                    broker_id INTEGER NOT NULL,
-                    description TEXT,
-                    photo_id TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            conn.commit()
+       if DATABASE_URL:
+           cursor.execute("""
+               CREATE TABLE IF NOT EXISTS listings (
+                   id SERIAL PRIMARY KEY,
+                   user_chat_id BIGINT NOT NULL,
+                   user_name TEXT,
+                   req_type TEXT NOT NULL,
+                   main_category TEXT NOT NULL,
+                   sub_category TEXT,
+                   action_type TEXT,
+                   property_type TEXT,
+                   description TEXT NOT NULL,
+                   price TEXT,
+                   phone TEXT,
+                   photo_id TEXT,
+                   extra_data JSONB DEFAULT '{}',
+                   status TEXT DEFAULT 'pending',
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );
+               CREATE TABLE IF NOT EXISTS brokers (
+                   id SERIAL PRIMARY KEY,
+                   chat_id BIGINT NOT NULL UNIQUE,
+                   full_name TEXT NOT NULL,
+                   phone TEXT NOT NULL,
+                   role_type TEXT NOT NULL,
+                   national_id_photo TEXT,
+                   sub_city TEXT NOT NULL,
+                   rating REAL DEFAULT 5.0,
+                   total_ratings INT DEFAULT 0,
+                   notification_prefs JSONB DEFAULT '{"car": true, "house": true, "price_min": 0, "price_max": 999999999, "enabled": true}',
+                   status TEXT DEFAULT 'pending',
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );
+               CREATE TABLE IF NOT EXISTS ratings (
+                   id SERIAL PRIMARY KEY,
+                   broker_chat_id BIGINT NOT NULL,
+                   user_chat_id BIGINT NOT NULL,
+                   stars INT NOT NULL,
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );
+               CREATE TABLE IF NOT EXISTS broker_offers (
+                   id SERIAL PRIMARY KEY,
+                   request_id INTEGER NOT NULL,
+                   broker_id BIGINT NOT NULL,
+                   description TEXT,
+                   photo_id TEXT,
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );
+               CREATE TABLE IF NOT EXISTS search_alerts (
+                   id SERIAL PRIMARY KEY,
+                   user_chat_id BIGINT NOT NULL,
+                   main_category TEXT NOT NULL,
+                   budget_min TEXT,
+                   budget_max TEXT,
+                   is_active BOOLEAN DEFAULT TRUE,
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );
+               CREATE TABLE IF NOT EXISTS favorites (
+                   id SERIAL PRIMARY KEY,
+                   user_chat_id BIGINT NOT NULL,
+                   listing_id INTEGER NOT NULL,
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                   UNIQUE(user_chat_id, listing_id)
+               );
+               CREATE TABLE IF NOT EXISTS listing_photos (
+                   id SERIAL PRIMARY KEY,
+                   listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
+                   photo_id TEXT NOT NULL,
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );
+           """)
+       else:
+           cursor.execute("""
+               CREATE TABLE IF NOT EXISTS listings (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   user_chat_id INTEGER NOT NULL,
+                   user_name TEXT,
+                   req_type TEXT NOT NULL,
+                   main_category TEXT NOT NULL,
+                   sub_category TEXT,
+                   action_type TEXT,
+                   property_type TEXT,
+                   description TEXT NOT NULL,
+                   price TEXT,
+                   phone TEXT,
+                   photo_id TEXT,
+                   extra_data TEXT DEFAULT '{}',
+                   status TEXT DEFAULT 'pending',
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );
+           """)
+           cursor.execute("""
+               CREATE TABLE IF NOT EXISTS brokers (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   chat_id INTEGER NOT NULL UNIQUE,
+                   full_name TEXT NOT NULL,
+                   phone TEXT NOT NULL,
+                   role_type TEXT NOT NULL,
+                   national_id_photo TEXT,
+                   sub_city TEXT NOT NULL,
+                   rating REAL DEFAULT 5.0,
+                   total_ratings INTEGER DEFAULT 0,
+                   notification_prefs TEXT DEFAULT '{"car": true, "house": true, "price_min": 0, "price_max": 999999999, "enabled": true}',
+                   status TEXT DEFAULT 'pending',
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );
+           """)
+           cursor.execute("""
+               CREATE TABLE IF NOT EXISTS ratings (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   broker_chat_id INTEGER NOT NULL,
+                   user_chat_id INTEGER NOT NULL,
+                   stars INTEGER NOT NULL,
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );
+           """)
+           cursor.execute("""
+               CREATE TABLE IF NOT EXISTS broker_offers (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   request_id INTEGER NOT NULL,
+                   broker_id INTEGER NOT NULL,
+                   description TEXT,
+                   photo_id TEXT,
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );
+           """)
+           cursor.execute("""
+               CREATE TABLE IF NOT EXISTS search_alerts (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   user_chat_id INTEGER NOT NULL,
+                   main_category TEXT NOT NULL,
+                   budget_min TEXT,
+                   budget_max TEXT,
+                   is_active BOOLEAN DEFAULT 1,
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );
+           """)
+           cursor.execute("""
+               CREATE TABLE IF NOT EXISTS favorites (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   user_chat_id INTEGER NOT NULL,
+                   listing_id INTEGER NOT NULL,
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                   UNIQUE(user_chat_id, listing_id)
+               );
+           """)
+           cursor.execute("""
+               CREATE TABLE IF NOT EXISTS listing_photos (
+                   id INTEGER PRIMARY KEY AUTOINCREMENT,
+                   listing_id INTEGER NOT NULL,
+                   photo_id TEXT NOT NULL,
+                   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+               );
+           """)
+           conn.commit()
 
-        logger.info("✅ Adika Database initialized successfully")
-    except Exception as e:
-        logger.error(f"❌ Database initialization error: {e}")
-        if conn and not DATABASE_URL:
-            conn.rollback()
-    finally:
-        if conn:
-            conn.close()
+       # አዲስ columns ለነባር ዳታቤዝ
+       try:
+           if DATABASE_URL:
+               cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS extra_data JSONB DEFAULT '{}';")
+           else:
+               try: cursor.execute("ALTER TABLE listings ADD COLUMN extra_data TEXT DEFAULT '{}';")
+               except: pass
+           if not DATABASE_URL: conn.commit()
+       except Exception as alter_err:
+           logger.warning(f"ALTER TABLE warning: {alter_err}")
 
+       logger.info("✅ Adika Database initialized successfully")
+   except Exception as e:
+       logger.error(f"❌ Database initialization error: {e}")
+       if conn and not DATABASE_URL:
+           conn.rollback()
+   finally:
+       if conn:
+           conn.close()
 # ==============================================================================
 # 4. DATABASE OPERATIONS
 # ==============================================================================
