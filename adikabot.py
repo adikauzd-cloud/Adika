@@ -1865,7 +1865,13 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
             return
 
         listing = get_listing_by_id(req_id)
-        main_category = listing.get('main_category', '') if listing else ''
+        if not listing:
+            logger.warning(f"Listing #{req_id} not found for notification")
+            return
+            
+        main_category = listing.get('main_category', '')
+        req_type = listing.get('req_type', '')
+        owner_id = listing.get('user_chat_id', buyer_id)
         
         sent_count = 0
         for broker in approved_brokers:
@@ -1889,11 +1895,19 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
                 
-                # ለፈላጊ ጥያቄዎች ቁልፍ
-                kbd = [[
-                    InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
-                    InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
-                ]]
+                # እንደ ጥያቄው አይነት ተለያይ ቁልፍ
+                if req_type == "BUY":
+                    # ለፈላጊ ጥያቄ - "አለኝ" እና "ይለፈኝ"
+                    kbd = [[
+                        InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{owner_id}"),
+                        InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
+                    ]]
+                else:
+                    # ለሻጭ ማስታወቂያ - "ገዢ አለኝ" እና "ለራሴ"
+                    kbd = [[
+                        InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
+                        InlineKeyboardButton("👤 ለራሴ", callback_data=f"want_myself_{req_id}")
+                    ]]
                 
                 await bot.send_message(
                     chat_id=b_id,
