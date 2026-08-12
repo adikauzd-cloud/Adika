@@ -1154,60 +1154,59 @@ def update_listing_status(req_id: int, status: str) -> bool:
 
 
 def get_public_marketplace_items(main_category=None, limit=10, offset=0):
-    """ለገበያ ቦታ - SELL type listings ብቻ"""
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
+   conn = None
+   try:
+       conn = get_db_connection()
+       cursor = conn.cursor()
+       p = get_placeholder()
 
-        if main_category:
-            query = f"""
-                SELECT * FROM listings 
-                WHERE req_type = 'SELL' AND status = 'pending' AND main_category = {p}
-                ORDER BY created_at DESC 
-                LIMIT {p} OFFSET {p}
-            """
-            cursor.execute(query, (main_category, limit, offset))
-        else:
-            query = f"""
-                SELECT * FROM listings 
-                WHERE req_type = 'SELL' AND status = 'pending'
-                ORDER BY created_at DESC 
-                LIMIT {p} OFFSET {p}
-            """
-            cursor.execute(query, (limit, offset))
+       if main_category:
+           query = f"""
+               SELECT * FROM listings 
+               WHERE req_type = 'SELL' AND status = 'pending' AND main_category = {p}
+               ORDER BY created_at DESC 
+               LIMIT {p} OFFSET {p}
+           """
+           cursor.execute(query, (main_category, limit, offset))
+       else:
+           query = f"""
+               SELECT * FROM listings 
+               WHERE req_type = 'SELL' AND status = 'pending'
+               ORDER BY created_at DESC 
+               LIMIT {p} OFFSET {p}
+           """
+           cursor.execute(query, (limit, offset))
 
-        rows = cursor.fetchall()
-        results = []
-        for row in rows:
-            item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-            # Parse extra_data
-            if 'extra_data' in item and isinstance(item['extra_data'], str):
-                try:
-                    item['extra_data'] = json.loads(item['extra_data'])
-                except:
-                    item['extra_data'] = {}
-            # Load photos
-            try:
-                cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (item['id'],))
-                photo_rows = cursor.fetchall()
-                item['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
-            except Exception:
-                item['photos'] = []
-            results.append(item)
-        
-        logger.info(f"🛍️ Retrieved {len(results)} marketplace items (SELL only)")
-        return results
-    except Exception as e:
-        logger.error(f"Get public marketplace items error: {e}")
-        return []
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
+       rows = cursor.fetchall()
+       results = []
+       for row in rows:
+           item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
+           # Parse extra_data
+           if 'extra_data' in item and isinstance(item['extra_data'], str):
+               try:
+                   item['extra_data'] = json.loads(item['extra_data'])
+               except:
+                   item['extra_data'] = {}
+           # Load photos
+           try:
+               cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (item['id'],))
+               photo_rows = cursor.fetchall()
+               item['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
+           except Exception:
+               item['photos'] = []
+           results.append(item)
+       
+       logger.info(f"🛍️ Retrieved {len(results)} marketplace items")
+       return results
+   except Exception as e:
+       logger.error(f"Get public marketplace items error: {e}")
+       return []
+   finally:
+       if conn:
+           try:
+               conn.close()
+           except:
+               pass
 
 
 # ========== BROKER OPERATIONS ==========
@@ -1866,13 +1865,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
             return
 
         listing = get_listing_by_id(req_id)
-        if not listing:
-            logger.warning(f"Listing #{req_id} not found for notification")
-            return
-            
-        main_category = listing.get('main_category', '')
-        req_type = listing.get('req_type', '')
-        owner_id = listing.get('user_chat_id', buyer_id)
+        main_category = listing.get('main_category', '') if listing else ''
         
         sent_count = 0
         for broker in approved_brokers:
@@ -1896,19 +1889,11 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
                 
-                # እንደ ጥያቄው አይነት ተለያይ ቁልፍ
-                if req_type == "BUY":
-                    # ለፈላጊ ጥያቄ - "አለኝ" እና "ይለፈኝ"
-                    kbd = [[
-                        InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{owner_id}"),
-                        InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
-                    ]]
-                else:
-                    # ለሻጭ ማስታወቂያ - "ገዢ አለኝ" እና "ለራሴ"
-                    kbd = [[
-                        InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
-                        InlineKeyboardButton("👤 ለራሴ", callback_data=f"want_myself_{req_id}")
-                    ]]
+                # ለፈላጊ ጥያቄዎች ቁልፍ
+                kbd = [[
+                    InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
+                    InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
+                ]]
                 
                 await bot.send_message(
                     chat_id=b_id,
@@ -2774,21 +2759,22 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
    photo_id = photos[0] if photos else None
 
    try:
-      req_id = add_listing(
-        user_chat_id=user.id,
-        user_name=user.first_name or "User",
-        req_type="SELL",  # ← ይህ በትክክል 'SELL' መሆን አለበት
-        main_category=user_data.get('main_category', ''),
-        sub_category=user_data.get('sub_category', ''),
-        action_type=user_data.get('action_type', 'መሸጥ'),
-        property_type=user_data.get('property_type', ''),
-        description=desc,
-        price=user_data.get('price'),
-        phone=user_data.get('phone'),
-        photo_id=photo_id,
-        extra_data=extra_data,
-        photos=photos
-    )
+       req_id = add_listing(
+           user_chat_id=user.id,
+           user_name=user.first_name or "User",
+           req_type="SELL",
+           main_category=user_data.get('main_category', ''),
+           sub_category=user_data.get('sub_category', ''),
+           action_type=user_data.get('action_type', 'መሸጥ'),
+           property_type=user_data.get('property_type', ''),
+           description=desc,
+           price=user_data.get('price'),
+           phone=user_data.get('phone'),
+           photo_id=photo_id,
+           extra_data=extra_data,
+           photos=photos
+       )
+
        if req_id:
            await update.message.reply_text(
                f"✅ **ማስታወቂያዎ በስኬት ተመዝግቧል!** 🎉\n\n"
@@ -2986,7 +2972,12 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data.clear()
     return ConversationHandler.END
 
+# ==============================================================================
+# 12. BROKER OFFER FLOW
+# ==============================================================================
+
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ደላላ 'አለኝ' ሲጫን - ለፈላጊ ጥያቄ"""
     query = update.callback_query
     await query.answer()
 
@@ -3112,6 +3103,7 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ደላላ 'ገዢ/ተከራይ አለኝ' ሲጫን - ሻጭ ማስታወቂያ ላይ"""
     query = update.callback_query
     await query.answer()
 
@@ -3120,26 +3112,34 @@ async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     if not broker or broker.get('status') != 'approved':
         await query.answer("⛔ የተረጋገጡ ደላሎች ብቻ ነው!", show_alert=True)
-        return ConversationHandler.END
+        return
 
     parts = query.data.split('_')
-    if len(parts) < 4:
+    if len(parts) < 3:
         await query.answer("❌ የተሳሳተ መረጃ", show_alert=True)
-        return ConversationHandler.END
+        return
 
     item_id = parts[2]
-    owner_id = parts[3]
+    owner_id = parts[3] if len(parts) >= 4 else None
 
-    listing = get_listing_by_id(int(item_id)) if str(item_id).isdigit() else None
+    listing = get_listing_by_id(int(item_id)) if item_id.isdigit() else None
     if not listing:
         await query.answer("❌ ማስታወቂያው አልተገኘም።", show_alert=True)
-        return ConversationHandler.END
+        return
 
     phone = listing.get('phone', '')
     owner_name = listing.get('user_name', 'ባለቤት')
-    broker_name = broker.get('full_name', 'ደላላ')
 
-    text_for_broker = (
+    # ስልክ ካለ ቀጥታ መደወያ ቁልፍ
+    keyboard = []
+    if phone and not str(phone).startswith("@"):
+        # Telegram tel: link
+        clean_phone = phone.replace(' ', '').replace('-', '')
+        keyboard.append([InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
+    
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+
+    text = (
         f"🤝 **ገዢ/ተከራይ አለዎት**\n\n"
         f"📦 ማስታወቂያ: #ADK-{item_id}\n"
         f"👤 ባለቤት: {owner_name}\n"
@@ -3147,50 +3147,23 @@ async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"💡 ከታች ያለውን ቁልፍ በመጫን በቀጥታ መደወል ይችላሉ።"
     )
 
-    keyboard = []
-    if phone and phone != '-' and not str(phone).startswith('@'):
-        clean_phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
-        if clean_phone.isdigit() and len(clean_phone) >= 9:
-            keyboard.append([InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
-    elif phone and str(phone).startswith('@'):
-        username = str(phone).lstrip('@')
-        keyboard.append([InlineKeyboardButton(f"💬 Telegram @{username}", url=f"https://t.me/{username}")])
-
-    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
-
     try:
         await query.edit_message_text(
-            text=text_for_broker,
+            text=text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
     except Exception:
         await context.bot.send_message(
             chat_id=user_id,
-            text=text_for_broker,
+            text=text,
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
 
-    try:
-        seller_msg = (
-            f"🔔 **ማስታወቂያዎ (#ADK-{item_id}) ላይ ፍላጎት አለ!**\n\n"
-            f"👤 **ደላላ፦** {broker_name}\n"
-            f"📞 **የደላላው ስልክ፦** `{broker.get('phone', 'አልተገለጸም')}`\n\n"
-            f"💡 ደላላው ገዢ/ተከራይ እንዳላቸው ገልጸዋል። በቀጥታ ማነጋገር ይችላሉ።"
-        )
-        await context.bot.send_message(
-            chat_id=int(owner_id),
-            text=seller_msg,
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        logger.error(f"Failed to notify seller {owner_id}: {e}")
-
-    return ConversationHandler.END
-
 
 async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ደላላ 'ለራሴ እፈልገዋለሁ' ሲጫን"""
     query = update.callback_query
     await query.answer()
 
@@ -3199,44 +3172,20 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     item_id = parts[2] if len(parts) >= 3 else "?"
 
     listing = get_listing_by_id(int(item_id)) if str(item_id).isdigit() else None
-    if not listing:
-        await query.answer("❌ ማስታወቂያው አልተገኘም።", show_alert=True)
-        return ConversationHandler.END
+    phone = listing.get('phone', 'አልተገኘም') if listing else 'አልተገኘም'
 
-    phone = listing.get('phone', 'አልተገኘም')
-    owner_name = listing.get('user_name', 'ባለቤት')
-
-    text = (
-        f"👤 **ለራስዎ ይፈልጋሉ**\n\n"
-        f"📦 ማስታወቂያ: #ADK-{item_id}\n"
-        f"👤 ባለቤት: {owner_name}\n"
-        f"📞 ስልክ: `{phone}`\n\n"
-        f"💡 በቀጥታ ደውለው መገበያየት ይችላሉ።"
-    )
-
-    keyboard = []
-    if phone and phone != '-' and not str(phone).startswith('@'):
-        clean_phone = phone.replace(' ', '').replace('-', '').replace('(', '').replace(')', '')
-        if clean_phone.isdigit() and len(clean_phone) >= 9:
-            keyboard.append([InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
-
-    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+    await query.answer(f"📞 ስልክ: {phone}", show_alert=True)
 
     try:
         await query.edit_message_text(
-            text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
+            f"👤 **ለራስዎ ይፈልጋሉ**\n\n"
+            f"📦 ማስታወቂያ: #ADK-{item_id}\n"
+            f"📞 የባለቤቱ ስልክ: `{phone}`\n\n"
+            f"💡 በቀጥታ ደውለው መገበያየት ይችላሉ።",
             parse_mode="Markdown"
         )
     except Exception:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-
-    return ConversationHandler.END
+        pass
 # ==============================================================================
 # 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY
 # ==============================================================================
@@ -3287,6 +3236,7 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
         req_id = listing.get('id')
         user_chat_id = listing.get('user_chat_id')
         card_text = format_buyer_card(listing)
+        
         reply_markup = build_request_keyboard(req_id, user_chat_id)
 
         await update.message.reply_text(
@@ -3295,9 +3245,8 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
-
 async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    items = get_public_marketplace_items(limit=20)
+    items = get_public_marketplace_items(limit=10)
     user_id = update.effective_user.id
 
     if not items:
@@ -3309,15 +3258,13 @@ async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_
         return
 
     await update.message.reply_text(
-        f"🛍️ **ለሽያጭ እና ለኪራይ የቀረቡ ንብረቶች** ({len(items)} ንብረቶች)\n"
-        f"━━━━━━━━━━━━━━━━━━━",
+        "🛍️ **ለሽያጭ እና ለኪራይ የቀረቡ ንብረቶች ዝርዝር፦**",
         parse_mode="Markdown"
     )
 
     for item in items:
         card_text = format_seller_card(item)
-        photos = item.get('photos', [])
-        photo_id = photos[0] if photos else item.get('photo_id')
+        photo_id = item.get('photo_id')
         owner_id = item.get('user_chat_id')
         phone = item.get('phone', '')
         
@@ -3328,28 +3275,18 @@ async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_
             phone=phone
         )
 
-        try:
-            if photo_id:
+        if photo_id:
+            try:
                 await update.message.reply_photo(
-                    photo=photo_id,
-                    caption=card_text,
+                    photo=photo_id, 
+                    caption=card_text, 
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
-            else:
-                await update.message.reply_text(
-                    card_text,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-        except Exception as e:
-            logger.error(f"Failed to send marketplace item {item.get('id')}: {e}")
-            await update.message.reply_text(
-                card_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
-
+            except Exception:
+                await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
+        else:
+            await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
 
 async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(sc, callback_data=f"dir_sc_{sc}")] for sc in SUB_CITIES]
@@ -3357,12 +3294,10 @@ async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_T
     keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
 
     await update.message.reply_text(
-        "📍 **የደላሎችና አቅራቢዎች ማውጫ**\n\n"
-        "እባክዎን ማየት የሚፈልጉበትን ክፍለ ከተማ ይምረጡ፦",
+        "📍 **የደላሎችና አቅራቢዎች ማውጫ**\n\nእባክዎን ማየት የሚፈልጉበትን ክፍለ ከተማ ይምረጡ፦",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-
 
 async def filter_brokers_by_subcity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -3372,13 +3307,10 @@ async def filter_brokers_by_subcity_callback(update: Update, context: ContextTyp
     brokers = get_approved_brokers_directory(sub_city=sub_city)
 
     if not brokers:
-        await query.edit_message_text(
-            f"📭 በ{sub_city} ክፍለ ከተማ የተመዘገቡ ደላሎች አልተገኙም።"
-        )
+        await query.edit_message_text(f"📭 በ{sub_city} ክፍለ ከተማ የተመዘገቡ ደላሎች አልተገኙም።")
         return
 
-    msg = f"📋 **የተረጋገጡ ደላሎች ዝርዝር ({sub_city})፦**\n"
-    msg += "━━━━━━━━━━━━━━━━━━━\n\n"
+    msg = f"📋 **የተረጋገጡ ደላሎች ዝርዝር ({sub_city})፦**\n━━━━━━━━━━━━━━━━━━━\n\n"
     for b in brokers:
         msg += format_broker_profile(b) + "\n\n"
 
@@ -3910,7 +3842,10 @@ def main():
                 CallbackQueryHandler(seller_house_condition_chosen, pattern="^flow_sell_hcond_"),
                 cancel_handler
             ],
-           
+            SELLER_HOUSE_CONDITION: [
+                CallbackQueryHandler(seller_house_condition_chosen, pattern="^flow_sell_hcond_"),
+                cancel_handler
+            ],
             SELLER_FUEL: [CallbackQueryHandler(seller_fuel_chosen, pattern="^flow_sell_fuel_"), cancel_handler],
             SELLER_TRANSMISSION: [CallbackQueryHandler(seller_transmission_chosen, pattern="^flow_sell_trans_"), cancel_handler],
             SELLER_MILEAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_mileage), cancel_handler],
