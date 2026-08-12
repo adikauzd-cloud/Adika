@@ -1848,65 +1848,59 @@ def build_seller_card_keyboard(item_id: int, user_id: int, is_fav: bool = False)
    return InlineKeyboardMarkup(keyboard)
 
 async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
-   approved_brokers = get_approved_brokers()
-   if not approved_brokers:
-       logger.info("No approved brokers found to notify")
-       return
+   """ለተፈቀዱ ደላሎች ማሳወቂያ መላክ"""
+   try:
+       approved_brokers = get_approved_brokers()
+       if not approved_brokers:
+           logger.info("No approved brokers found to notify")
+           return
 
-   listing = get_listing_by_id(req_id)
-   main_category = listing.get('main_category', '') if listing else ''
-   
-   for broker in approved_brokers:
-       try:
-           b_id = broker.get('chat_id')
-           if not b_id:
-               continue
-           
-           # የደላላውን የማሳወቂያ ምርጫ ማረጋገጥ
-           prefs = broker.get('notification_prefs', {})
-           if isinstance(prefs, str):
-               try: prefs = json.loads(prefs)
-               except: prefs = {}
-           
-           if not prefs.get('enabled', True):
-               continue
-           
-           if main_category == 'መኪና' and not prefs.get('car', True):
-               continue
-           if main_category == 'ቤት' and not prefs.get('house', True):
-               continue
-           
-           # የተሻሻለ ቁልፍ
-           kbd = [[InlineKeyboardButton(f"🤝 ገዢ/ተከራይ አለኝ - #ADK-{req_id}", callback_data=f"have_item_{req_id}_{buyer_id}")]]
-           await bot.send_message(
-               chat_id=b_id,
-               text=message_text,
-               parse_mode="Markdown",
-               reply_markup=InlineKeyboardMarkup(kbd)
-           )
-           await asyncio.sleep(0.05)
-       except Exception as e:
-           logger.error(f"Failed to send notification to broker {broker.get('chat_id')}: {e}")
-   
-   # ከ Search Alerts ጋር የሚዛመዱ ተጠቃሚዎችን ማሳወቅ
-   if listing and listing.get('req_type') == 'SELL':
-       matching_alerts = get_matching_alerts(listing.get('main_category', ''), listing.get('price', '0'))
-       for alert in matching_alerts:
+       listing = get_listing_by_id(req_id)
+       main_category = listing.get('main_category', '') if listing else ''
+       
+       sent_count = 0
+       for broker in approved_brokers:
            try:
-               alert_user_id = alert.get('user_chat_id')
-               if alert_user_id:
-                   await bot.send_message(
-                       chat_id=alert_user_id,
-                       text=f"🔔 **የፍለጋ ማንቂያ!**\n\n"
-                            f"እርስዎ ከፈለጉት መስፈርት ጋር የሚዛመድ አዲስ {listing.get('main_category')} ተለቋል!\n\n"
-                            f"{format_seller_card(listing)}",
-                       parse_mode="Markdown",
-                       reply_markup=InlineKeyboardMarkup([[
-                           InlineKeyboardButton("👀 ሙሉ መረጃ ይመልከቱ", callback_data=f"view_detail_{req_id}")
-                       ]])
-                   )
+               b_id = broker.get('chat_id')
+               if not b_id:
+                   continue
+               
+               # Check notification preferences
+               prefs = broker.get('notification_prefs', {})
+               if isinstance(prefs, str):
+                   try: 
+                       prefs = json.loads(prefs)
+                   except: 
+                       prefs = {}
+               
+               if not prefs.get('enabled', True):
+                   continue
+               
+               if main_category == 'መኪና' and not prefs.get('car', True):
+                   continue
+               if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
+                   continue
+               
+               kbd = [[InlineKeyboardButton(
+                   f"🤝 ገዢ/ተከራይ አለኝ - #ADK-{req_id}", 
+                   callback_data=f"have_item_{req_id}_{buyer_id}"
+               )]]
+               
+               await bot.send_message(
+                   chat_id=b_id,
+                   text=message_text,
+                   parse_mode="Markdown",
+                   reply_markup=InlineKeyboardMarkup(kbd)
+               )
+               sent_count += 1
+               await asyncio.sleep(0.05)
            except Exception as e:
-               logger.error(f"Failed to send alert to user {alert.get('user_chat_id')}: {e}")
+               logger.error(f"Failed to send notification to broker {broker.get('chat_id')}: {e}")
+       
+       logger.info(f"✅ Sent notifications to {sent_count}/{len(approved_brokers)} brokers for listing #ADK-{req_id}")
+       
+   except Exception as e:
+       logger.error(f"❌ notify_brokers error: {e}", exc_info=True)
 
 # ==============================================================================
 # 7. CONVERSATION STATES
