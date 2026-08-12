@@ -3255,6 +3255,7 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 # ==============================================================================
 
 async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የፈላጊዎች ዝርዝር - ለደላሎች እና አድሚን ብቻ"""
     user_id = update.effective_user.id
     is_admin = (user_id == ADMIN_CHAT_ID_INT)
     broker = get_broker(user_id)
@@ -3309,9 +3310,10 @@ async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
+
 async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የገበያ ቦታ - ሁሉም ለሽያጭ የቀረቡ ንብረቶች"""
-    items = get_public_marketplace_items(limit=20)  # 20 እናድርግ
+    """የገበያ ቦታ - ሁሉም SELL type listings ይታያሉ"""
+    items = get_public_marketplace_items(limit=20)
     user_id = update.effective_user.id
 
     if not items:
@@ -3323,7 +3325,8 @@ async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_
         return
 
     await update.message.reply_text(
-        f"🛍️ **ለሽያጭ እና ለኪራይ የቀረቡ ንብረቶች ዝርዝር** ({len(items)} ንብረቶች)፦",
+        f"🛍️ **ለሽያጭ እና ለኪራይ የቀረቡ ንብረቶች** ({len(items)} ንብረቶች)\n"
+        f"━━━━━━━━━━━━━━━━━━━",
         parse_mode="Markdown"
     )
 
@@ -3341,35 +3344,45 @@ async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_
             phone=phone
         )
 
-        if photo_id:
-            try:
+        try:
+            if photo_id:
                 await update.message.reply_photo(
                     photo=photo_id, 
                     caption=card_text, 
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
-            except Exception:
-                await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
-        else:
-            await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
-            except Exception:
-                await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
-        else:
-            await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
+            else:
+                await update.message.reply_text(
+                    card_text, 
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+        except Exception as e:
+            logger.error(f"Failed to send marketplace item {item.get('id')}: {e}")
+            await update.message.reply_text(
+                card_text, 
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
 
 async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የደላሎች ማውጫ - በክፍለ ከተማ"""
     keyboard = [[InlineKeyboardButton(sc, callback_data=f"dir_sc_{sc}")] for sc in SUB_CITIES]
     keyboard.append([InlineKeyboardButton("🌐 የሁሉም ክፍለ ከተሞች", callback_data="dir_sc_ሁሉም")])
     keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
 
     await update.message.reply_text(
-        "📍 **የደላሎችና አቅራቢዎች ማውጫ**\n\nእባክዎን ማየት የሚፈልጉበትን ክፍለ ከተማ ይምረጡ፦",
+        "📍 **የደላሎችና አቅራቢዎች ማውጫ**\n\n"
+        "እባክዎን ማየት የሚፈልጉበትን ክፍለ ከተማ ይምረጡ፦",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
 
+
 async def filter_brokers_by_subcity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """በተመረጠው ክፍለ ከተማ የተረጋገጡ ደላሎችን አሳይ"""
     query = update.callback_query
     await query.answer()
 
@@ -3377,10 +3390,13 @@ async def filter_brokers_by_subcity_callback(update: Update, context: ContextTyp
     brokers = get_approved_brokers_directory(sub_city=sub_city)
 
     if not brokers:
-        await query.edit_message_text(f"📭 በ{sub_city} ክፍለ ከተማ የተመዘገቡ ደላሎች አልተገኙም።")
+        await query.edit_message_text(
+            f"📭 በ{sub_city} ክፍለ ከተማ የተመዘገቡ ደላሎች አልተገኙም።"
+        )
         return
 
-    msg = f"📋 **የተረጋገጡ ደላሎች ዝርዝር ({sub_city})፦**\n━━━━━━━━━━━━━━━━━━━\n\n"
+    msg = f"📋 **የተረጋገጡ ደላሎች ዝርዝር ({sub_city})፦**\n"
+    msg += "━━━━━━━━━━━━━━━━━━━\n\n"
     for b in brokers:
         msg += format_broker_profile(b) + "\n\n"
 
