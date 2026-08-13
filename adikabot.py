@@ -6070,7 +6070,224 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 # ==============================================================================
 # 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY
 # ==============================================================================
+# ==============================================================================
+# MARKETPLACE - CLEAN VERSION (Duplicates Removed)
+# ==============================================================================
 
+def format_marketplace_card_clean(item: dict) -> str:
+    """የሻጭ ማስታወቂያ - ተደጋጋሚ ጽሁፎች ተወግደዋል"""
+    item_id = item.get('id', 'N/A')
+    main_cat = item.get('main_category', '')
+    price = item.get('price', '-')
+    phone = item.get('phone', '-')
+    
+    extra_data = item.get('extra_data', {})
+    if isinstance(extra_data, str):
+        try:
+            extra_data = json.loads(extra_data)
+        except:
+            extra_data = {}
+    
+    # አዶ
+    icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
+    
+    # ዋና መረጃ ብቻ
+    negotiable = "የሚደራደር" if extra_data.get('negotiable', True) else "የማይደራደር"
+    
+    # ዝርዝሮች
+    details = []
+    if extra_data.get('condition'):
+        details.append(extra_data['condition'])
+    if extra_data.get('fuel_type'):
+        details.append(extra_data['fuel_type'])
+    if extra_data.get('transmission'):
+        details.append(extra_data['transmission'])
+    if extra_data.get('mileage'):
+        details.append(f"{extra_data['mileage']}KM")
+    if extra_data.get('bedrooms'):
+        details.append(f"{extra_data['bedrooms']} መኝታ")
+    if extra_data.get('bathrooms'):
+        details.append(f"{extra_data['bathrooms']} መታጠቢያ")
+    if extra_data.get('parking'):
+        details.append(f"ፓርኪንግ: {extra_data['parking']}")
+    
+    details_text = " • ".join(details) if details else ""
+    
+    # መግለጫ (ንፁህ)
+    desc = item.get('description', '')
+    clean_desc = clean_description(desc, 40)
+    
+    # ካርድ - ተደጋጋሚ ጽሁፎች ተወግደዋል
+    lines = [
+        "┌──────────────────────────┐",
+        f"│ {icon} #{item_id}",
+        f"│ {main_cat}",
+        f"│ 💰 {price} ብር • {negotiable}",
+    ]
+    
+    if details_text:
+        lines.append(f"│ {details_text}")
+    
+    if clean_desc:
+        lines.append("├──────────────────────────┤")
+        lines.append(f"│ {clean_desc}")
+    
+    lines.extend([
+        "├──────────────────────────┤",
+        f"│ 📞 {phone}",
+        "└──────────────────────────┘"
+    ])
+    
+    return "\n".join(lines)
+
+def clean_description(desc: str, max_len: int = 40) -> str:
+    """መግለጫን ንፁህ ማድረግ - የማያስፈልጉ ነገሮችን ማስወገድ"""
+    if not desc:
+        return ""
+    
+    # የሚወገዱ ነገሮች
+    junk = [
+        'ዋጋ:', 'ስልክ:', 'አዲስ የሽያጭ', 'WebApp', 
+        'አስቸኳይ ሽያጭ', 'መግለጫ:', '📝', '💰', '📞',
+        '⚡', '📢', '🔄', '📦', 'NEW', 'እዱስ',
+        '🔥 ለሽያጭ', '🔥 አሸጋጭ', 'የገበያ ቦታ'
+    ]
+    
+    clean = desc
+    for j in junk:
+        clean = clean.replace(j, '')
+    
+    # ባዶ መስመሮችን ማስወገድ
+    clean = '\n'.join(line.strip() for line in clean.split('\n') if line.strip())
+    
+    # አጭር ማድረግ
+    if len(clean) > max_len:
+        clean = clean[:max_len] + "..."
+    
+    return clean.strip()
+
+def format_buyer_request_clean(req: dict) -> str:
+    """የፈላጊ ጥያቄ - ተደጋጋሚ ጽሁፎች ተወግደዋል"""
+    req_id = req.get('id', 'N/A')
+    main_cat = req.get('main_category', '')
+    desc = req.get('description', '')
+    phone = req.get('phone', '-')
+    
+    icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
+    clean_desc = clean_description(desc, 40)
+    
+    return (
+        f"┌──────────────────────────┐\n"
+        f"│ 🔍 #{req_id}\n"
+        f"│ {icon} {main_cat}\n"
+        f"├──────────────────────────┤\n"
+        f"│ {clean_desc}\n"
+        f"├──────────────────────────┤\n"
+        f"│ 📞 {phone}\n"
+        f"└──────────────────────────┘"
+    )
+
+async def view_marketplace_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የገበያ ቦታ - ንፁህ እትም"""
+    items = get_public_marketplace_items(limit=15)
+    user_id = update.effective_user.id
+    
+    if not items:
+        await update.message.reply_text(
+            "📭 ምንም ንብረቶች የሉም",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+    
+    # አጭር መግቢያ (ያለ ተደጋጋሚ ጽሁፎች)
+    await update.message.reply_text(
+        f"🛍️ {len(items)} ንብረቶች",
+        parse_mode="Markdown"
+    )
+    
+    for item in items:
+        card_text = format_marketplace_card_clean(item)
+        
+        # ቁልፎች
+        keyboard = [
+            [
+                InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{item.get('id')}_{item.get('user_chat_id')}"),
+                InlineKeyboardButton("👤 ለራሴ", callback_data=f"want_myself_{item.get('id')}")
+            ]
+        ]
+        
+        # ባለቤት ወይም አድሚን ብቻ
+        if user_id == item.get('user_chat_id') or user_id == ADMIN_CHAT_ID_INT:
+            keyboard.append([
+                InlineKeyboardButton("✅ ተሸጧል", callback_data=f"mark_sold_{item.get('id')}")
+            ])
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        if item.get('photo_id'):
+            try:
+                await update.message.reply_photo(
+                    photo=item['photo_id'],
+                    caption=card_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            except:
+                await update.message.reply_text(
+                    card_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+        else:
+            await update.message.reply_text(
+                card_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+
+async def view_requests_final(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የፈላጊዎች ዝርዝር - ንፁህ እትም"""
+    user_id = update.effective_user.id
+    broker = get_broker(user_id)
+    
+    if not broker or broker.get('status') != 'approved':
+        await update.message.reply_text(
+            "⛔ ይህን ማየት የሚችሉት የተረጋገጡ ደላሎች ብቻ ናቸው",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+    
+    listings = get_listings_by_category(limit=20, offset=0, req_type="BUY")
+    total = count_listings(req_type="BUY")
+    
+    if not listings:
+        await update.message.reply_text(
+            f"📭 ምንም ጥያቄዎች የሉም",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+    
+    # አጭር መግቢያ
+    await update.message.reply_text(
+        f"🔍 {total} ጥያቄዎች",
+        parse_mode="Markdown"
+    )
+    
+    for listing in listings:
+        card_text = format_buyer_request_clean(listing)
+        
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{listing.get('id')}_{listing.get('user_chat_id')}"),
+                InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{listing.get('id')}")
+            ]
+        ])
+        
+        await update.message.reply_text(
+            card_text,
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
 async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     is_admin = (user_id == ADMIN_CHAT_ID_INT)
