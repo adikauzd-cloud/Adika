@@ -838,7 +838,7 @@ def init_db():
 import json
 
 def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
-                action_type, property_type, description, price=None, phone=None,
+                action_type, property_type, description, price=None, phone=None, 
                 photo_id=None, extra_data=None, photos=None):
     conn = None
     try:
@@ -851,8 +851,6 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
         user_chat_id = int(user_chat_id) if user_chat_id else 0
         user_name = str(user_name or "User")
         req_type = str(req_type or "BUY").upper()
-        if req_type not in ("SELL", "BUY"):
-            req_type = "SELL" if "ሽያጭ" in str(action_type) or "መሸጥ" in str(action_type) else "BUY"
         main_category = str(main_category or "መኪና")
         sub_category = str(sub_category or "")
         action_type = str(action_type or "")
@@ -860,25 +858,18 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
         description = str(description or "")
         price = str(price or "")
         phone = str(phone or "")
-
-        # የመጀመሪያ ፎቶ ለ listings.photo_id
-        if not photo_id and photos:
-            first = str(photos[0])
-            # Telegram file_id ብቻ (base64 አይደለም)
-            if first and not first.startswith("data:"):
-                photo_id = first
         photo_id = str(photo_id) if photo_id else None
-
         query = f"""
-            INSERT INTO listings
-            (user_chat_id, user_name, req_type, main_category, sub_category,
+            INSERT INTO listings 
+            (user_chat_id, user_name, req_type, main_category, sub_category, 
              action_type, property_type, description, price, phone, photo_id, extra_data, status)
             VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending')
         """
         params = (
-            user_chat_id, user_name, req_type, main_category,
-            sub_category, action_type, property_type,
-            description, price, phone, photo_id, extra_json
+            user_chat_id, user_name, req_type, main_category, 
+            sub_category, action_type, property_type, 
+            description, price, phone, photo_id,
+            extra_json
         )
         logger.info(f"📝 Inserting listing: user={user_chat_id}, type={req_type}, cat={main_category}")
         if DATABASE_URL:
@@ -893,7 +884,6 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
             req_id = cursor.lastrowid
             conn.commit()
         logger.info(f"✅ Listing inserted with ID: {req_id}")
-
         if photos and req_id:
             logger.info(f"📸 Saving {len(photos)} photos for listing {req_id}")
             for photo in photos:
@@ -907,7 +897,6 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                     logger.error(f"Failed to save photo for listing {req_id}: {pe}")
             if not DATABASE_URL:
                 conn.commit()
-            # base64 ከሆነ listings.photo_id ባዶ ይቆያል - በማሳያ ጊዜ ከ listing_photos ይወሰዳል
         logger.info(f"✅ Listing added successfully → #ADK-{req_id}")
         return req_id
     except Exception as e:
@@ -925,37 +914,6 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
             except:
                 pass
 
-
-def _attach_photos_to_item(cursor, item, p):
-    """photo_id + listing_photos ወደ item"""
-    try:
-        lid = item.get('id')
-        if not lid:
-            item['photos'] = []
-            return item
-        cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (lid,))
-        photo_rows = cursor.fetchall()
-        photos = []
-        for r in photo_rows:
-            pid = dict(r)['photo_id'] if isinstance(r, dict) else r[0]
-            if pid:
-                photos.append(pid)
-        item['photos'] = photos
-        # ዋና photo_id ከሌለ ከ listing_photos ውሰድ
-        if not item.get('photo_id') and photos:
-            # Telegram file_id ቅድሚያ
-            for ph in photos:
-                if ph and not str(ph).startswith('data:'):
-                    item['photo_id'] = ph
-                    break
-            if not item.get('photo_id'):
-                item['photo_id'] = photos[0]
-    except Exception as e:
-        logger.warning(f"Could not load photos: {e}")
-        item['photos'] = item.get('photos') or []
-    return item
-
-
 def get_listing_by_id(listing_id: int):
     conn = None
     try:
@@ -972,7 +930,13 @@ def get_listing_by_id(listing_id: int):
                 result['extra_data'] = json.loads(result['extra_data'])
             except:
                 result['extra_data'] = {}
-        result = _attach_photos_to_item(cursor, result, p)
+        try:
+            cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (listing_id,))
+            photo_rows = cursor.fetchall()
+            result['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
+        except Exception as e:
+            logger.warning(f"Could not load photos for listing {listing_id}: {e}")
+            result['photos'] = []
         return result
     except Exception as e:
         logger.error(f"Get listing by id error: {e}")
@@ -984,9 +948,7 @@ def get_listing_by_id(listing_id: int):
             except:
                 pass
 
-
 def get_listings_by_category(limit=10, offset=0, req_type=None):
-    """አዲሶቹ ከታች (ASC) — በቻት ሲላኩ አዲሱ ከታች ይታያል"""
     conn = None
     try:
         conn = get_db_connection()
@@ -994,17 +956,17 @@ def get_listings_by_category(limit=10, offset=0, req_type=None):
         p = get_placeholder()
         if req_type:
             query = f"""
-                SELECT * FROM listings
+                SELECT * FROM listings 
                 WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})
-                ORDER BY created_at ASC
+                ORDER BY created_at DESC 
                 LIMIT {p} OFFSET {p}
             """
             cursor.execute(query, (req_type, limit, offset))
         else:
             query = f"""
-                SELECT * FROM listings
-                WHERE status = 'pending'
-                ORDER BY created_at ASC
+                SELECT * FROM listings 
+                WHERE status = 'pending' 
+                ORDER BY created_at DESC 
                 LIMIT {p} OFFSET {p}
             """
             cursor.execute(query, (limit, offset))
@@ -1017,7 +979,6 @@ def get_listings_by_category(limit=10, offset=0, req_type=None):
                     item['extra_data'] = json.loads(item['extra_data'])
                 except:
                     item['extra_data'] = {}
-            item = _attach_photos_to_item(cursor, item, p)
             results.append(item)
         logger.info(f"📋 Retrieved {len(results)} listings (type={req_type})")
         return results
@@ -1031,9 +992,56 @@ def get_listings_by_category(limit=10, offset=0, req_type=None):
             except:
                 pass
 
+def count_listings(req_type=None):
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        if req_type:
+            p = get_placeholder()
+            cursor.execute(
+                f"SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})",
+                (req_type,)
+            )
+        else:
+            cursor.execute("SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending'")
+        row = cursor.fetchone()
+        if isinstance(row, dict):
+            return row.get('cnt', 0)
+        else:
+            return row[0] if row else 0
+    except Exception as e:
+        logger.error(f"Count listings error: {e}")
+        return 0
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
+
+def update_listing_status(req_id: int, status: str) -> bool:
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
+        if not DATABASE_URL:
+            conn.commit()
+        logger.info(f"✅ Listing {req_id} status updated to {status}")
+        return True
+    except Exception as e:
+        logger.error(f"Update listing error: {e}")
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 def get_public_marketplace_items(limit: int = 20, offset: int = 0):
-    """አዲሶቹ ከታች (ASC) + ፎቶ"""
     conn = None
     try:
         conn = get_db_connection()
@@ -1044,20 +1052,20 @@ def get_public_marketplace_items(limit: int = 20, offset: int = 0):
         p = get_placeholder()
         if DATABASE_URL:
             cur.execute("""
-                SELECT * FROM listings
+                SELECT * FROM listings 
                 WHERE UPPER(req_type) = 'SELL'
                   AND status != 'deleted'
-                ORDER BY created_at ASC NULLS LAST
+                ORDER BY created_at DESC NULLS LAST
                 LIMIT %s OFFSET %s
             """, (limit, offset))
             rows = cur.fetchall()
             result = [dict(row) for row in rows]
         else:
             cur.execute("""
-                SELECT * FROM listings
+                SELECT * FROM listings 
                 WHERE UPPER(req_type) = 'SELL'
                   AND status != 'deleted'
-                ORDER BY created_at ASC
+                ORDER BY created_at DESC
                 LIMIT ? OFFSET ?
             """, (limit, offset))
             rows = cur.fetchall()
@@ -1069,7 +1077,6 @@ def get_public_marketplace_items(limit: int = 20, offset: int = 0):
                     item['extra_data'] = json.loads(item['extra_data'])
                 except:
                     item['extra_data'] = {}
-            item = _attach_photos_to_item(cur, item, p)
         logger.info(f"🛍️ Marketplace returned {len(result)} SELL items")
         return result
     except Exception as e:
@@ -1432,7 +1439,6 @@ CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈ
 # 6. HELPER FUNCTIONS
 # ==============================================================================
 
-
 def validate_phone(phone: str) -> bool:
     if not phone:
         return False
@@ -1616,73 +1622,18 @@ def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int
         ])
     return InlineKeyboardMarkup(keyboard)
 
-def resolve_listing_photo(listing: dict):
-    """
-    Telegram ላይ ለመላክ የሚያስችል ፎቶ ይመልሳል።
-    Returns: (file_id_or_None, bytes_or_None)
-    - file_id ካለ → (file_id, None)
-    - base64 ካለ → (None, image_bytes)
-    """
-    import base64
-    candidates = []
-    if listing.get('photo_id'):
-        candidates.append(listing['photo_id'])
-    for ph in (listing.get('photos') or []):
-        if ph and ph not in candidates:
-            candidates.append(ph)
-    for c in candidates:
-        s = str(c)
-        if s.startswith('data:image'):
-            try:
-                header, encoded = s.split(',', 1)
-                return None, base64.b64decode(encoded)
-            except Exception as e:
-                logger.warning(f"base64 photo decode failed: {e}")
-                continue
-        if s and len(s) > 10 and not s.startswith('data:'):
-            return s, None
-    return None, None
-
-
-def format_seller_card(item: dict) -> str:
-    """ለደላሎች እና ለገበያ ቦታ አንድ አይነት ካርድ"""
-    return format_marketplace_card_clean(item)
-
-
 async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
-    """ለደላሎች ማሳወቂያ - አንድ አይነት ካርድ + ፎቶ"""
     try:
         approved_brokers = get_approved_brokers()
         if not approved_brokers:
             return
-
         listing = get_listing_by_id(req_id)
         if not listing:
             return
-
         main_category = listing.get('main_category', '')
         req_type = str(listing.get('req_type', 'BUY')).upper()
         owner_id = listing.get('user_chat_id')
-
-        # አንድ አይነት ካርድ
-        if req_type == "SELL":
-            card_text = format_marketplace_card_clean(listing)
-            kbd_template = [
-                [
-                    InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
-                    InlineKeyboardButton("👤 ለራሴ", callback_data=f"want_myself_{req_id}")
-                ]
-            ]
-        else:
-            card_text = format_buyer_request_clean(listing) if 'format_buyer_request_clean' in dir() else message_text
-            kbd_template = [[
-                InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
-                InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
-            ]]
-
-        file_id, photo_bytes = resolve_listing_photo(listing)
         sent_count = 0
-
         for broker in approved_brokers:
             try:
                 b_id = broker.get('chat_id')
@@ -1690,43 +1641,30 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                     continue
                 prefs = broker.get('notification_prefs', {})
                 if isinstance(prefs, str):
-                    try:
-                        prefs = json.loads(prefs)
-                    except:
-                        prefs = {}
+                    try: prefs = json.loads(prefs)
+                    except: prefs = {}
                 if not prefs.get('enabled', True):
                     continue
                 if main_category in ['መኪና', 'car', 'CAR'] and not prefs.get('car', True):
                     continue
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
-
-                markup = InlineKeyboardMarkup(kbd_template)
-
-                if file_id:
-                    await bot.send_photo(
-                        chat_id=b_id,
-                        photo=file_id,
-                        caption=card_text,
-                        parse_mode="Markdown",
-                        reply_markup=markup
-                    )
-                elif photo_bytes:
-                    from io import BytesIO
-                    await bot.send_photo(
-                        chat_id=b_id,
-                        photo=BytesIO(photo_bytes),
-                        caption=card_text,
-                        parse_mode="Markdown",
-                        reply_markup=markup
-                    )
+                if req_type == "SELL":
+                    kbd = [[
+                        InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
+                        InlineKeyboardButton("👤 ለራሴ ነው", callback_data=f"want_myself_{req_id}")
+                    ]]
                 else:
-                    await bot.send_message(
-                        chat_id=b_id,
-                        text=card_text,
-                        parse_mode="Markdown",
-                        reply_markup=markup
-                    )
+                    kbd = [[
+                        InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
+                        InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
+                    ]]
+                await bot.send_message(
+                    chat_id=b_id,
+                    text=message_text,
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(kbd)
+                )
                 sent_count += 1
                 await asyncio.sleep(0.05)
             except Exception as e:
@@ -2968,24 +2906,22 @@ def build_request_keyboard_clean(req_id: int, buyer_id: int) -> InlineKeyboardMa
     ])
 
 async def view_public_marketplace_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የገበያ ቦታ - ንፁህ ካርድ + ፎቶ (አዲሶቹ ከታች)"""
-    from io import BytesIO
-
+    """የገበያ ቦታ - ንፁህ እትም (ያለ ድግግሞሽ)"""
     items = get_public_marketplace_items(limit=15)
     user_id = update.effective_user.id
-
+    
     if not items:
         await update.message.reply_text(
             "📭 ምንም ንብረቶች የሉም",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return
-
+    
     await update.message.reply_text(
-        f"🛍️ **የገበያ ቦታ** — {len(items)} ንብረቶች",
+        f"🛍️ {len(items)} ንብረቶች",
         parse_mode="Markdown"
     )
-
+    
     for item in items:
         card_text = format_marketplace_card_clean(item)
         reply_markup = build_marketplace_keyboard_clean(
@@ -2993,30 +2929,22 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
             owner_id=item.get('user_chat_id'),
             current_user_id=user_id
         )
-        file_id, photo_bytes = resolve_listing_photo(item)
-        try:
-            if file_id:
+        
+        if item.get('photo_id'):
+            try:
                 await update.message.reply_photo(
-                    photo=file_id,
+                    photo=item['photo_id'],
                     caption=card_text,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
-            elif photo_bytes:
-                await update.message.reply_photo(
-                    photo=BytesIO(photo_bytes),
-                    caption=card_text,
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-            else:
+            except:
                 await update.message.reply_text(
                     card_text,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
-        except Exception as e:
-            logger.error(f"Marketplace send error: {e}")
+        else:
             await update.message.reply_text(
                 card_text,
                 reply_markup=reply_markup,
