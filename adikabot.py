@@ -1603,10 +1603,7 @@ def format_buyer_card(req: dict) -> str:
     phone = req.get('phone', '-')
 
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-
-    short_desc = desc
-    if len(desc) > 160:
-        short_desc = desc[:160] + "..."
+    short_desc = (desc[:150] + "...") if len(desc) > 150 else desc
 
     return (
         f"╭────────────────────╮\n"
@@ -1644,41 +1641,32 @@ def format_seller_card(item: dict) -> str:
     urgent = "⚡" if is_urgent else ""
     negotiable = "የሚደራደር" if is_negotiable else "የማይደራደር"
 
-    # ተጨማሪ መረጃ (እንደ አይነቱ)
+    # ተጨማሪ መረጃ ብቻ (እንደ አይነቱ)
     details = []
     if main_cat in ["መኪና", "car", "CAR"]:
-        if extra_data.get('condition'):
-            details.append(f"📊 {extra_data.get('condition')}")
-        if extra_data.get('fuel_type'):
-            details.append(f"⛽ {extra_data.get('fuel_type')}")
-        if extra_data.get('transmission'):
-            details.append(f"⚙️ {extra_data.get('transmission')}")
-        if extra_data.get('mileage'):
-            details.append(f"🛣️ {extra_data.get('mileage')} KM")
+        if extra_data.get('condition'): details.append(f"📊 {extra_data['condition']}")
+        if extra_data.get('fuel_type'): details.append(f"⛽ {extra_data['fuel_type']}")
+        if extra_data.get('transmission'): details.append(f"⚙️ {extra_data['transmission']}")
+        if extra_data.get('mileage'): details.append(f"🛣️ {extra_data['mileage']} KM")
     else:
-        # ቤት
-        if extra_data.get('condition'):
-            details.append(f"📊 {extra_data.get('condition')}")
-        if extra_data.get('bedrooms'):
-            details.append(f"🛏️ {extra_data.get('bedrooms')} መኝታ")
-        if extra_data.get('bathrooms'):
-            details.append(f"🛁 {extra_data.get('bathrooms')} መታጠቢያ")
-        if extra_data.get('parking'):
-            details.append(f"🚗 ፓርኪንግ: {extra_data.get('parking')}")
+        if extra_data.get('condition'): details.append(f"📊 {extra_data['condition']}")
+        if extra_data.get('bedrooms'): details.append(f"🛏️ {extra_data['bedrooms']} መኝታ")
+        if extra_data.get('bathrooms'): details.append(f"🛁 {extra_data['bathrooms']} መታጠቢያ")
+        if extra_data.get('parking'): details.append(f"🚗 ፓርኪንግ: {extra_data['parking']}")
 
     details_text = "\n".join(details)
 
-    # መግለጫን ንጹህ አድርግ
+    # መግለጫን በጣም ንጹህ አድርግ
     clean_desc = desc.strip()
-    # የተደጋገሙ ነገሮችን አስወግድ
-    for junk in ["⚡ **አስቸኳይ ሽያጭ!**", "📢 **አዲስ የሽያጭ", "WebApp", "💰 ዋጋ:", "📞 ስልክ:", "📝 መግለጫ:"]:
-        if junk in clean_desc:
-            lines = [l for l in clean_desc.split('\n') if not any(j in l for j in ["ዋጋ:", "ስልክ:", "አዲስ የሽያጭ", "WebApp", "አስቸኳይ ሽያጭ"])]
-            clean_desc = "\n".join(lines).strip()
-            break
-
-    if len(clean_desc) > 140:
-        clean_desc = clean_desc[:140] + "..."
+    junk_words = ["ዋጋ:", "ስልክ:", "አዲስ የሽያጭ", "WebApp", "አስቸኳይ ሽያጭ", "መግለጫ:", "📝", "💰", "📞"]
+    lines = []
+    for line in clean_desc.split('\n'):
+        line = line.strip()
+        if line and not any(j in line for j in junk_words):
+            lines.append(line)
+    clean_desc = " • ".join(lines) if lines else "መግለጫ የለም"
+    if len(clean_desc) > 120:
+        clean_desc = clean_desc[:120] + "..."
 
     return (
         f"╭────────────────────╮\n"
@@ -1715,20 +1703,19 @@ def get_nav_buttons(back_callback: str = None) -> list:
     return buttons
 
 def build_request_keyboard(req_id: int, user_id: int) -> InlineKeyboardMarkup:
-    """ለፈላጊ ጥያቄዎች (ደላሎች ብቻ)"""
-    keyboard = [
+    """ለፈላጊ ጥያቄዎች"""
+    return InlineKeyboardMarkup([
         [
             InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{user_id}"),
             InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
         ]
-    ]
-    return InlineKeyboardMarkup(keyboard)
+    ])
 
 def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int, phone: str = "") -> InlineKeyboardMarkup:
     """
-    ለሻጭ ማስታወቂያዎች
-    - ሁሉም ሰው: ገዢ አለኝ / ለራሴ ነው
-    - ባለቤት/አድሚን ብቻ: ተሸጧል + አጥፋ
+    - ሁሉም: ገዢ አለኝ + ለራሴ ነው
+    - ባለቤት/አድሚን ብቻ: ተሸጧል
+    - አጥፋ ተወግዷል
     """
     keyboard = [
         [
@@ -1737,11 +1724,9 @@ def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int
         ]
     ]
 
-    # ባለቤት ወይም አድሚን ብቻ
     if current_user_id == owner_id or current_user_id == ADMIN_CHAT_ID_INT:
         keyboard.append([
-            InlineKeyboardButton("✅ ተሸጧል", callback_data=f"mark_sold_{item_id}"),
-            InlineKeyboardButton("🗑️ አጥፋ", callback_data=f"delete_req_{item_id}")
+            InlineKeyboardButton("✅ ተሸጧል", callback_data=f"mark_sold_{item_id}")
         ])
 
     return InlineKeyboardMarkup(keyboard)
@@ -1750,17 +1735,14 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
     try:
         approved_brokers = get_approved_brokers()
         if not approved_brokers:
-            logger.info("No approved brokers found to notify")
             return
 
         listing = get_listing_by_id(req_id)
         if not listing:
-            logger.warning(f"Listing {req_id} not found")
             return
 
         main_category = listing.get('main_category', '')
         req_type = str(listing.get('req_type', 'BUY')).upper()
-        phone = listing.get('phone', '')
         owner_id = listing.get('user_chat_id')
 
         sent_count = 0
@@ -1772,27 +1754,21 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                 
                 prefs = broker.get('notification_prefs', {})
                 if isinstance(prefs, str):
-                    try:
-                        prefs = json.loads(prefs)
-                    except:
-                        prefs = {}
+                    try: prefs = json.loads(prefs)
+                    except: prefs = {}
                 
                 if not prefs.get('enabled', True):
                     continue
-                
                 if main_category in ['መኪና', 'car', 'CAR'] and not prefs.get('car', True):
                     continue
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
                 
                 if req_type == "SELL":
-                    kbd = [
-                        [
-                            InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
-                            InlineKeyboardButton("👤 ለራሴ ነው", callback_data=f"want_myself_{req_id}")
-                        ],
-                        [InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")]
-                    ]
+                    kbd = [[
+                        InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
+                        InlineKeyboardButton("👤 ለራሴ ነው", callback_data=f"want_myself_{req_id}")
+                    ]]
                 else:
                     kbd = [[
                         InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
@@ -1808,12 +1784,11 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                 sent_count += 1
                 await asyncio.sleep(0.05)
             except Exception as e:
-                logger.error(f"Failed to notify broker {broker.get('chat_id')}: {e}")
+                logger.error(f"Notify broker error: {e}")
         
-        logger.info(f"✅ Sent to {sent_count}/{len(approved_brokers)} brokers for #ADK-{req_id}")
-        
+        logger.info(f"✅ Sent to {sent_count} brokers for #ADK-{req_id}")
     except Exception as e:
-        logger.error(f"❌ notify_brokers error: {e}", exc_info=True)
+        logger.error(f"notify_brokers error: {e}", exc_info=True)
 # ==============================================================================
 # 7. CONVERSATION STATES
 # ==============================================================================
