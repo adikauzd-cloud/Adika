@@ -1567,11 +1567,9 @@ CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈ
 # ==============================================================================
 
 def validate_phone(phone: str) -> bool:
-    """ንጹህ ስልክ ቁጥር ብቻ ያረጋግጣል"""
     if not phone:
         return False
     phone = phone.replace(' ', '').replace('-', '').replace('+', '')
-    
     if re.match(r'^(09|07|01)\d{8}$', phone):
         return True
     if re.match(r'^(9|7)\d{8}$', phone):
@@ -1581,17 +1579,14 @@ def validate_phone(phone: str) -> bool:
     return False
 
 def validate_contact(contact: str) -> bool:
-    """ስልክ ቁጥር ወይም Telegram username ያረጋግጣል"""
     if not contact:
         return False
     contact = contact.strip()
-    
     if contact.startswith('@'):
         username = contact[1:]
         if re.match(r'^[a-zA-Z][a-zA-Z0-9_]{4,31}$', username):
             return True
         return False
-    
     return validate_phone(contact)
 
 def validate_price(price: str) -> bool:
@@ -1602,24 +1597,27 @@ def format_buyer_card(req: dict) -> str:
     req_id = req.get('id', 'N/A')
     main_cat = req.get('main_category', '')
     action_type = req.get('action_type', '')
-    sub_cat = req.get('sub_category', 'ያልተጠቀሰ')
-    prop_type = req.get('property_type', 'ያልተጠቀሰ')
+    sub_cat = req.get('sub_category', '-')
+    prop_type = req.get('property_type', '-')
     desc = req.get('description', '')
-    phone = req.get('phone', 'መረጃው አልተያያዘም')
+    phone = req.get('phone', '-')
 
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
+
+    # መግለጫውን አጭር አድርግ (ከ200 ቁምፊ በላይ ከሆነ)
+    short_desc = desc
+    if len(desc) > 180:
+        short_desc = desc[:180] + "..."
 
     return (
         f"╭────────────────────╮\n"
         f"│  {icon}  **ፈላጊ ጥያቄ**\n"
         f"│  `#ADK-{req_id}`\n"
         f"╰────────────────────╯\n\n"
-        f"📌 **ዘርፍ:** {main_cat}\n"
-        f"🔄 **አይነት:** {action_type}\n"
-        f"🏷️ **ዝርዝር:** {sub_cat} | {prop_type}\n\n"
-        f"📝 **ፍላጎት:**\n"
-        f"_{desc}_\n\n"
-        f"📞 **ስልክ:** `{phone}`\n"
+        f"📌 {main_cat} • {action_type}\n"
+        f"🏷️ {sub_cat} | {prop_type}\n\n"
+        f"📝 {short_desc}\n\n"
+        f"📞 `{phone}`\n"
         f"──────────────────────"
     )
 
@@ -1629,36 +1627,68 @@ def format_seller_card(item: dict) -> str:
     action_type = item.get('action_type', '')
     sub_cat = item.get('sub_category', '-')
     desc = item.get('description', '')
-    price = item.get('price', 'በድርድር')
+    price = item.get('price', '-')
     phone = item.get('phone', '-')
     
     extra_data = item.get('extra_data', {})
     if isinstance(extra_data, str):
-        try: 
+        try:
             extra_data = json.loads(extra_data)
-        except: 
+        except:
             extra_data = {}
     
     is_urgent = extra_data.get('urgent_sale', False)
     is_negotiable = extra_data.get('negotiable', True)
 
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-    tag = "🔴 ለሽያጭ" if action_type in ["መሸጥ", "SELL"] else "🔵 ለኪራይ"
-    urgent_badge = "⚡ አስቸኳይ  " if is_urgent else ""
-    negotiable_text = "የሚደራደር" if is_negotiable else "የማይደራደር"
+    tag = "🔴 ለሽያጭ" if action_type in ["መሸጥ", "SELL", "መሸጥ"] else "🔵 ለኪራይ"
+    urgent = "⚡ አስቸኳይ" if is_urgent else ""
+    negotiable = "የሚደራደር" if is_negotiable else "የማይደራደር"
+
+    # ተጨማሪ መረጃ ከ extra_data
+    details = []
+    if extra_data.get('condition'):
+        details.append(f"📊 {extra_data.get('condition')}")
+    if extra_data.get('fuel_type'):
+        details.append(f"⛽ {extra_data.get('fuel_type')}")
+    if extra_data.get('transmission'):
+        details.append(f"⚙️ {extra_data.get('transmission')}")
+    if extra_data.get('mileage'):
+        details.append(f"🛣️ {extra_data.get('mileage')} KM")
+    if extra_data.get('bedrooms'):
+        details.append(f"🛏️ {extra_data.get('bedrooms')} መኝታ")
+    if extra_data.get('parking'):
+        details.append(f"🚗 ፓርኪንግ: {extra_data.get('parking')}")
+
+    details_text = "\n".join(details) if details else ""
+
+    # መግለጫውን ንጹህ አድርግ (የተደጋገሙ መስመሮችን አስወግድ)
+    clean_desc = desc
+    # አላስፈላጊ የድሮ ቅርጸት ካለ አሳጥር
+    if "አዲስ የሽያጭ" in desc or "WebApp" in desc or len(desc) > 220:
+        # ቁልፍ መረጃው ከ extra_data ስለሚመጣ መግለጫውን አጭር አድርግ
+        lines = [l.strip() for l in desc.split('\n') if l.strip()]
+        # የመጨረሻውን ትክክለኛ መግለጫ ብቻ ውሰድ
+        for line in lines:
+            if line.startswith("📝") or line.startswith("መግለጫ"):
+                clean_desc = line.replace("📝 መግለጫ:", "").replace("መግለጫ:", "").strip()
+                break
+        else:
+            clean_desc = lines[-1] if lines else desc
+        if len(clean_desc) > 160:
+            clean_desc = clean_desc[:160] + "..."
 
     return (
         f"╭────────────────────╮\n"
         f"│  {icon}  **ለገበያ የቀረበ**\n"
-        f"│  `{tag}`  {urgent_badge}\n"
+        f"│  {tag}  {urgent}\n"
         f"│  `#ADK-{item_id}`\n"
         f"╰────────────────────╯\n\n"
-        f"📦 **አይነት:** {main_cat} ({sub_cat})\n"
-        f"💰 **ዋጋ:** `{price}` ብር\n"
-        f"💬 **ድርድር:** {negotiable_text}\n\n"
-        f"📋 **መግለጫ:**\n"
-        f"_{desc}_\n\n"
-        f"📞 **ስልክ:** `{phone}`\n"
+        f"📦 {main_cat} ({sub_cat})\n"
+        f"💰 `{price}` ብር • {negotiable}\n"
+        f"{details_text}\n\n"
+        f"📝 {clean_desc}\n\n"
+        f"📞 `{phone}`\n"
         f"──────────────────────"
     )
 
@@ -1684,20 +1714,16 @@ def get_nav_buttons(back_callback: str = None) -> list:
     return buttons
 
 def build_request_keyboard(req_id: int, user_id: int) -> InlineKeyboardMarkup:
-    """ለፈላጊ ጥያቄዎች"""
     keyboard = [
         [
             InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{user_id}"),
             InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
         ],
-        [
-            InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")
-        ]
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int, phone: str = "") -> InlineKeyboardMarkup:
-    """ለሻጭ ማስታወቂያዎች"""
     keyboard = [
         [
             InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{item_id}_{owner_id}"),
@@ -1718,7 +1744,6 @@ def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int
     return InlineKeyboardMarkup(keyboard)
 
 async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
-    """ለተፈቀዱ ደላሎች ማሳወቂያ መላክ"""
     try:
         approved_brokers = get_approved_brokers()
         if not approved_brokers:
@@ -1744,9 +1769,9 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                 
                 prefs = broker.get('notification_prefs', {})
                 if isinstance(prefs, str):
-                    try: 
+                    try:
                         prefs = json.loads(prefs)
-                    except: 
+                    except:
                         prefs = {}
                 
                 if not prefs.get('enabled', True):
@@ -1763,9 +1788,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                             InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
                             InlineKeyboardButton("👤 ለራሴ ነው", callback_data=f"want_myself_{req_id}")
                         ],
-                        [
-                            InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
-                        ]
+                        [InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")]
                     ]
                     if phone and str(phone).startswith("@"):
                         username = phone.lstrip("@")
@@ -1787,10 +1810,10 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
             except Exception as e:
                 logger.error(f"Failed to send notification to broker {broker.get('chat_id')}: {e}")
         
-        logger.info(f"✅ Sent notifications to {sent_count}/{len(approved_brokers)} brokers for listing #ADK-{req_id} (type={req_type})")
+        logger.info(f"✅ Sent to {sent_count}/{len(approved_brokers)} brokers for #ADK-{req_id} ({req_type})")
         
     except Exception as e:
-        logger.error(f"❌ notify_brokers error: {e}", exp_info=True)
+        logger.error(f"❌ notify_brokers error: {e}", exc_info=True)
 # ==============================================================================
 # 7. CONVERSATION STATES
 # ==============================================================================
