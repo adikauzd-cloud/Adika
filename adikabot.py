@@ -7264,10 +7264,8 @@ async def notification_prefs_callback(update: Update, context: ContextTypes.DEFA
         )
     except Exception:
         pass
-
-
 # ==============================================================================
-# 17. MAIN ENGINE
+# 17. MAIN ENGINE - UPDATED WITH CLEAN HANDLERS
 # ==============================================================================
 
 def main():
@@ -7384,15 +7382,33 @@ def main():
     app.add_handler(broker_conv)
     app.add_handler(broker_response_conv)
 
-    # Regular message handlers
-    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
-    app.add_handler(MessageHandler(filters.Regex(r"^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
+    # ============================================================
+    # REGULAR MESSAGE HANDLERS - CLEAN VERSION (RECOMMENDED)
+    # ============================================================
+    
+    # አዲስ ንፁህ እትሞች (ይመከራሉ)
+    app.add_handler(MessageHandler(filters.Regex("^🛍️ ገበያ$"), view_public_marketplace_clean))
+    app.add_handler(MessageHandler(filters.Regex("^🔍 ፈላጊዎች$"), view_requests_clean))
+    
+    # ወይም ከገጽ ክፍልፍል ጋር (አማራጭ)
+    # app.add_handler(MessageHandler(filters.Regex("^🛍️ ገበያ$"), view_marketplace_with_pagination))
+    # app.add_handler(CallbackQueryHandler(marketplace_page_callback, pattern="^mpage_"))
+    
+    # ነባር እትሞች (ለመጠባበቂያ - እነዚህን ማስወገድ ይቻላል)
+    # app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
+    # app.add_handler(MessageHandler(filters.Regex(r"^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
+    
+    # የደላሎች ማውጫ (አልተቀየረም)
     app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
+    
+    # ሌሎች ሃንድለሮች
     app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
     app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ምርጫ$"), notification_prefs_start))
     app.add_handler(cancel_handler)
 
-    # Callback query handlers
+    # ============================================================
+    # CALLBACK QUERY HANDLERS
+    # ============================================================
     app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
     app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
     app.add_handler(CallbackQueryHandler(delete_request_callback, pattern=r"^delete_req_"))
@@ -7402,6 +7418,9 @@ def main():
     app.add_handler(CallbackQueryHandler(have_buyer_callback, pattern="^have_buyer_"))
     app.add_handler(CallbackQueryHandler(want_myself_callback, pattern="^want_myself_"))
     app.add_handler(CallbackQueryHandler(notification_prefs_callback, pattern="^notif_pref_"))
+    
+    # የገጽ ክፍልፍል ምላሽ (ከላይ ከተከፈተ)
+    # app.add_handler(CallbackQueryHandler(marketplace_page_callback, pattern="^mpage_"))
 
     logger.info("🚀 Adika Marketplace Bot በስኬት ተጀምሯል...")
     app.run_polling()
