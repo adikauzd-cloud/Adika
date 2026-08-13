@@ -2773,113 +2773,121 @@ def clean_description(desc: str, max_len: int = 40) -> str:
     return clean.strip()
 
 def format_marketplace_card_clean(item: dict) -> str:
-    """የሻጭ ማስታወቂያ - ድግግሞሽ ተወግዷል"""
+    """የገበያ ቦታ ካርድ - ንጹህና የሚያምር"""
     item_id = item.get('id', 'N/A')
     main_cat = item.get('main_category', '')
+    sub_cat = item.get('sub_category', '') or ''
     price = item.get('price', '-')
     phone = item.get('phone', '-')
-    
+    action = item.get('action_type', '')
+
     extra_data = item.get('extra_data', {})
     if isinstance(extra_data, str):
         try:
             extra_data = json.loads(extra_data)
         except:
             extra_data = {}
-    
+
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
+    tag = "🔴 ለሽያጭ" if action in ["መሸጥ", "SELL"] else "🔵 ለኪራይ"
     negotiable = "የሚደራደር" if extra_data.get('negotiable', True) else "የማይደራደር"
-    
-    # ዝርዝሮች በአንድ መስመር ብቻ
-    details = []
-    if extra_data.get('condition'):
-        details.append(extra_data['condition'])
-    if extra_data.get('fuel_type'):
-        details.append(extra_data['fuel_type'])
-    if extra_data.get('transmission'):
-        details.append(extra_data['transmission'])
-    if extra_data.get('mileage'):
-        details.append(f"{extra_data['mileage']}KM")
-    if extra_data.get('bedrooms'):
-        details.append(f"{extra_data['bedrooms']} መኝታ")
-    if extra_data.get('bathrooms'):
-        details.append(f"{extra_data['bathrooms']} መታጠቢያ")
-    if extra_data.get('parking'):
-        details.append(f"ፓርኪንግ: {extra_data['parking']}")
-    
-    details_text = " • ".join(details) if details else ""
-    
-    # መግለጫ (ንፁህ)
-    desc = item.get('description', '')
-    clean_desc = clean_description(desc, 40)
-    
-    # የንብረቱ ዓይነት
-    action = item.get('action_type', '')
-    if action in ["መሸጥ", "SELL"]:
-        tag = "ለሽያጭ"
-    elif action in ["ማከራየት", "RENT"]:
-        tag = "ለኪራይ"
+    urgent = " ⚡" if extra_data.get('urgent_sale') else ""
+
+    # ቁልፍ ዝርዝሮች ብቻ
+    specs = []
+    if main_cat in ["መኪና", "car", "CAR"]:
+        if extra_data.get('condition'):
+            specs.append(extra_data['condition'])
+        if extra_data.get('fuel_type'):
+            specs.append(extra_data['fuel_type'])
+        if extra_data.get('transmission'):
+            specs.append(extra_data['transmission'])
+        if extra_data.get('mileage'):
+            specs.append(f"{extra_data['mileage']} KM")
     else:
-        tag = ""
-    
-    # ንጹህ ካርድ - ያለ ድግግሞሽ
-    lines = [
-        "┌──────────────────────────┐",
-        f"│ {icon} #{item_id}",
-    ]
-    
-    if tag:
-        lines.append(f"│ {tag}")
-    
-    lines.extend([
-        f"│ {main_cat}",
-        f"│ 💰 {price} ብር • {negotiable}",
-    ])
-    
-    if details_text:
-        lines.append(f"│ {details_text}")
-    
-    if clean_desc:
-        lines.append("├──────────────────────────┤")
-        lines.append(f"│ {clean_desc}")
-    
-    lines.extend([
-        "├──────────────────────────┤",
-        f"│ 📞 {phone}",
-        "└──────────────────────────┘"
-    ])
-    
-    return "\n".join(lines)
+        if extra_data.get('condition'):
+            specs.append(extra_data['condition'])
+        if extra_data.get('bedrooms'):
+            specs.append(f"{extra_data['bedrooms']} መኝታ")
+        if extra_data.get('bathrooms'):
+            specs.append(f"{extra_data['bathrooms']} መታጠቢያ")
+        if extra_data.get('parking'):
+            specs.append(f"ፓርኪንግ {extra_data['parking']}")
+
+    specs_line = " · ".join(specs) if specs else ""
+    title = f"{main_cat}" + (f" ({sub_cat})" if sub_cat else "")
+
+    # መግለጫ (አጭርና ንጹህ)
+    desc = clean_description(item.get('description', ''), 55)
+
+    card = (
+        f"{icon} **{tag}{urgent}**  `#ADK-{item_id}`\n"
+        f"────────────────────\n"
+        f"📦 {title}\n"
+        f"💰 **{price}** ብር · {negotiable}\n"
+    )
+    if specs_line:
+        card += f"📋 {specs_line}\n"
+    if desc:
+        card += f"────────────────────\n📝 {desc}\n"
+    card += (
+        f"────────────────────\n"
+        f"📞 `{phone}`"
+    )
+    return card
+
 
 def format_buyer_request_clean(req: dict) -> str:
-    """የፈላጊ ጥያቄ - ንፁህ እትም"""
+    """የፈላጊ ጥያቄ ካርድ - ንጹህ"""
     req_id = req.get('id', 'N/A')
     main_cat = req.get('main_category', '')
-    desc = req.get('description', '')
+    action = req.get('action_type', '')
+    sub_cat = req.get('sub_category', '') or ''
+    prop = req.get('property_type', '') or ''
     phone = req.get('phone', '-')
-    
+    desc = clean_description(req.get('description', ''), 60)
+
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-    clean_desc = clean_description(desc, 40)
-    
-    return (
-        f"┌──────────────────────────┐\n"
-        f"│ 🔍 #{req_id}\n"
-        f"│ {icon} {main_cat}\n"
-        f"├──────────────────────────┤\n"
-        f"│ {clean_desc}\n"
-        f"├──────────────────────────┤\n"
-        f"│ 📞 {phone}\n"
-        f"└──────────────────────────┘"
+    detail = " · ".join(x for x in [sub_cat, prop] if x)
+
+    card = (
+        f"{icon} **ፈላጊ ጥያቄ**  `#ADK-{req_id}`\n"
+        f"────────────────────\n"
+        f"📌 {main_cat}"
     )
+    if action:
+        card += f" · {action}"
+    card += "\n"
+    if detail:
+        card += f"🏷️ {detail}\n"
+    if desc:
+        card += f"────────────────────\n📝 {desc}\n"
+    card += (
+        f"────────────────────\n"
+        f"📞 `{phone}`"
+    )
+    return card
+
 
 def build_marketplace_keyboard_clean(item_id: int, owner_id: int, current_user_id: int) -> InlineKeyboardMarkup:
-    """ንጹህ የገበያ ቦታ ቁልፎች"""
-    keyboard = [
-        [
-            InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{item_id}_{owner_id}"),
-            InlineKeyboardButton("👤 ለራሴ", callback_data=f"want_myself_{item_id}")
-        ]
-    ]
-    
+    """የገበያ ቦታ ቁልፎች - ንጹህ"""
+    keyboard = [[
+        InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{item_id}_{owner_id}"),
+        InlineKeyboardButton("👤 ለራሴ", callback_data=f"want_myself_{item_id}")
+    ]]
+    if current_user_id == owner_id or current_user_id == ADMIN_CHAT_ID_INT:
+        keyboard.append([
+            InlineKeyboardButton("✅ ተሸጧል", callback_data=f"mark_sold_{item_id}")
+        ])
+    return InlineKeyboardMarkup(keyboard)
+
+
+def build_request_keyboard_clean(req_id: int, buyer_id: int) -> InlineKeyboardMarkup:
+    """የፈላጊ ጥያቄ ቁልፎች"""
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
+        InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
+    ]])
     # ባለቤት ወይም አድሚን ብቻ
     if current_user_id == owner_id or current_user_id == ADMIN_CHAT_ID_INT:
         keyboard.append([
@@ -3485,14 +3493,13 @@ def main():
     app.add_handler(MessageHandler(filters.Regex("^🔍 ፈላጊዎች$"), view_requests_clean))
     
     # Legacy handlers (kept for compatibility with old button texts)
-    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
-    app.add_handler(MessageHandler(filters.Regex(r"^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
-    
+        # Regular message handlers
+    app.add_handler(MessageHandler(filters.Regex("^🛍️ የገበያ ቦታ"), view_public_marketplace_clean))
+    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests_clean))
     app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
     app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
     app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ምርጫ$"), notification_prefs_start))
     app.add_handler(cancel_handler)
-
     # Callback query handlers
     app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
     app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
