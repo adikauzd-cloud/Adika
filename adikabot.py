@@ -501,7 +501,7 @@ def _send_notification_safe(notification_text: str, req_id: int, buyer_id: int):
                loop.close()
                logger.info(f"✅ Notification sent for req_id={req_id}")
            except Exception as e:
-               logger.error(f"❌ Notification thread error: {e}", exp_info=True)
+               logger.error(f"❌ Notification thread error: {e}", exc_info=True)
        t = threading.Thread(target=run_in_thread, daemon=True)
        t.start()
    except Exception as e:
@@ -2015,7 +2015,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
                parse_mode="Markdown"
            )
    except Exception as e:
-       logger.error(f"❌ Buyer save error: {e}", exp_info=True)
+       logger.error(f"❌ Buyer save error: {e}", exc_info=True)
        await update.message.reply_text(
            "❌ **ስህተት ተከስቷል።** እባክዎ እንደገና ይሞክሩ።",
            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
@@ -2477,7 +2477,7 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
                 parse_mode="HTML"
             )
     except Exception as e:
-        logger.error(f"❌ Seller save error: {e}", exp_info=True)
+        logger.error(f"❌ Seller save error: {e}", exc_info=True)
         await update.message.reply_text(
             f"❌ <b>ስህተት ተከስቷል:</b> {str(e)[:100]}",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
@@ -3226,10 +3226,10 @@ def main():
             BUYER_SUB: [CallbackQueryHandler(buyer_sub_chosen, pattern="^flow_buy_sub_"), cancel_handler],
             BUYER_PROPERTY: [CallbackQueryHandler(buyer_property_chosen, pattern="^flow_buy_prop_"), cancel_handler],
             BUYER_HTYPE: [CallbackQueryHandler(buyer_htype_chosen, pattern="^flow_buy_htype_"), cancel_handler],
-            BUYER_BUDGET_RANGE: [MessageHandler(filters.TEXT & \~filters.COMMAND, buyer_budget_range), cancel_handler],
+            BUYER_BUDGET_RANGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_budget_range), cancel_handler],
             BUYER_ALERT: [CallbackQueryHandler(buyer_alert_choice, pattern="^alert_"), cancel_handler],
-            BUYER_DETAILS: [MessageHandler(filters.TEXT & \~filters.COMMAND, buyer_details), cancel_handler],
-            BUYER_PHONE: [MessageHandler(filters.TEXT & \~filters.COMMAND, buyer_phone), cancel_handler],
+            BUYER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_details), cancel_handler],
+            BUYER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_phone), cancel_handler],
         },
         fallbacks=[CommandHandler("start", start), cancel_handler],
         allow_reentry=True,
@@ -3254,17 +3254,17 @@ def main():
             ],
             SELLER_FUEL: [CallbackQueryHandler(seller_fuel_chosen, pattern="^flow_sell_fuel_"), cancel_handler],
             SELLER_TRANSMISSION: [CallbackQueryHandler(seller_transmission_chosen, pattern="^flow_sell_trans_"), cancel_handler],
-            SELLER_MILEAGE: [MessageHandler(filters.TEXT & \~filters.COMMAND, seller_mileage), cancel_handler],
+            SELLER_MILEAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_mileage), cancel_handler],
             SELLER_BEDROOMS: [CallbackQueryHandler(seller_bedrooms_chosen, pattern="^bed_"), cancel_handler],
             SELLER_PARKING: [CallbackQueryHandler(seller_parking_chosen, pattern="^park_"), cancel_handler],
-            SELLER_DETAILS: [MessageHandler(filters.TEXT & \~filters.COMMAND, seller_details), cancel_handler],
-            SELLER_PRICE: [MessageHandler(filters.TEXT & \~filters.COMMAND, seller_price), cancel_handler],
+            SELLER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_details), cancel_handler],
+            SELLER_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_price), cancel_handler],
             SELLER_NEGOTIABLE: [CallbackQueryHandler(seller_negotiable_chosen, pattern="^negotiable_"), cancel_handler],
             SELLER_URGENT: [CallbackQueryHandler(seller_urgent_chosen, pattern="^urgent_"), cancel_handler],
-            SELLER_PHONE: [MessageHandler(filters.TEXT & \~filters.COMMAND, seller_phone), cancel_handler],
+            SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_phone), cancel_handler],
             SELLER_PHOTO: [
                 MessageHandler(filters.PHOTO, seller_photo),
-                MessageHandler(filters.TEXT & \~filters.COMMAND, seller_photo),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, seller_photo),
                 cancel_handler
             ],
         },
@@ -3277,8 +3277,8 @@ def main():
         entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)],
         states={
             BROKER_ROLE: [CallbackQueryHandler(broker_role_chosen, pattern="^role_"), cancel_handler],
-            BROKER_NAME: [MessageHandler(filters.TEXT & \~filters.COMMAND, broker_reg_name), cancel_handler],
-            BROKER_PHONE: [MessageHandler(filters.TEXT & \~filters.COMMAND, broker_reg_phone), cancel_handler],
+            BROKER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name), cancel_handler],
+            BROKER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone), cancel_handler],
             BROKER_SUBCITY: [CallbackQueryHandler(broker_reg_subcity, pattern="^broker_sc_"), cancel_handler],
             BROKER_NID_PHOTO: [MessageHandler(filters.PHOTO, broker_reg_nid_photo), cancel_handler],
         },
@@ -3290,10 +3290,10 @@ def main():
     broker_response_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
         states={
-            BROKER_OFFER_TEXT: [MessageHandler(filters.TEXT & \~filters.COMMAND, broker_offer_text), cancel_handler],
+            BROKER_OFFER_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_text), cancel_handler],
             BROKER_OFFER_PHOTO: [
                 MessageHandler(filters.PHOTO, broker_offer_photo),
-                MessageHandler(filters.TEXT & \~filters.COMMAND, broker_offer_photo),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_photo),
                 cancel_handler
             ],
         },
