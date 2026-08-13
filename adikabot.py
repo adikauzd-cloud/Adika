@@ -947,22 +947,18 @@ def get_listing_by_id(listing_id: int):
                 conn.close()
             except:
                 pass
-def get_listings_by_category_ordered(limit=10, offset=0, req_type=None, order="DESC"):
-    """ጥያቄዎችን በቅደም ተከተል ለማምጣት (አዲሶቹ ከታች ለመታየት order='ASC')"""
+
+def get_listings_by_category(limit=10, offset=0, req_type=None):
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
-        
-        # ደህንነቱ የተጠበቀ order መለኪያ
-        order_clause = "ASC" if order.upper() == "ASC" else "DESC"
-        
         if req_type:
             query = f"""
                 SELECT * FROM listings 
                 WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})
-                ORDER BY created_at {order_clause}
+                ORDER BY created_at DESC 
                 LIMIT {p} OFFSET {p}
             """
             cursor.execute(query, (req_type, limit, offset))
@@ -970,11 +966,10 @@ def get_listings_by_category_ordered(limit=10, offset=0, req_type=None, order="D
             query = f"""
                 SELECT * FROM listings 
                 WHERE status = 'pending' 
-                ORDER BY created_at {order_clause}
+                ORDER BY created_at DESC 
                 LIMIT {p} OFFSET {p}
             """
             cursor.execute(query, (limit, offset))
-        
         rows = cursor.fetchall()
         results = []
         for row in rows:
@@ -984,19 +979,8 @@ def get_listings_by_category_ordered(limit=10, offset=0, req_type=None, order="D
                     item['extra_data'] = json.loads(item['extra_data'])
                 except:
                     item['extra_data'] = {}
-            
-            # ፎቶዎችን ከ listing_photos ሰንጠረዥ አምጣ
-            try:
-                cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (item['id'],))
-                photo_rows = cursor.fetchall()
-                item['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
-            except Exception as e:
-                logger.warning(f"Could not load photos for listing {item['id']}: {e}")
-                item['photos'] = []
-            
             results.append(item)
-        
-        logger.info(f"📋 Retrieved {len(results)} listings (type={req_type}, order={order_clause})")
+        logger.info(f"📋 Retrieved {len(results)} listings (type={req_type})")
         return results
     except Exception as e:
         logger.error(f"Get listings error: {e}")
@@ -1008,83 +992,27 @@ def get_listings_by_category_ordered(limit=10, offset=0, req_type=None, order="D
             except:
                 pass
 
-def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
-                action_type, property_type, description, price=None, phone=None, 
-                photo_id=None, extra_data=None, photos=None):
+def count_listings(req_type=None):
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        p = get_placeholder()
-        if extra_data is None:
-            extra_data = {}
-        extra_json = json.dumps(extra_data, ensure_ascii=False) if not isinstance(extra_data, str) else extra_data
-        user_chat_id = int(user_chat_id) if user_chat_id else 0
-        user_name = str(user_name or "User")
-        req_type = str(req_type or "BUY").upper()
-        main_category = str(main_category or "መኪና")
-        sub_category = str(sub_category or "")
-        action_type = str(action_type or "")
-        property_type = str(property_type or "")
-        description = str(description or "")
-        price = str(price or "")
-        phone = str(phone or "")
-        photo_id = str(photo_id) if photo_id else None
-        
-        query = f"""
-            INSERT INTO listings 
-            (user_chat_id, user_name, req_type, main_category, sub_category, 
-             action_type, property_type, description, price, phone, photo_id, extra_data, status)
-            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending')
-        """
-        params = (
-            user_chat_id, user_name, req_type, main_category, 
-            sub_category, action_type, property_type, 
-            description, price, phone, photo_id,
-            extra_json
-        )
-        logger.info(f"📝 Inserting listing: user={user_chat_id}, type={req_type}, cat={main_category}")
-        
-        if DATABASE_URL:
-            cursor.execute(query + " RETURNING id", params)
-            row = cursor.fetchone()
-            if row is None:
-                logger.error("RETURNING id returned None")
-                return None
-            req_id = row["id"] if isinstance(row, dict) else row[0]
+        if req_type:
+            p = get_placeholder()
+            cursor.execute(
+                f"SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})",
+                (req_type,)
+            )
         else:
-            cursor.execute(query, params)
-            req_id = cursor.lastrowid
-            conn.commit()
-        
-        logger.info(f"✅ Listing inserted with ID: {req_id}")
-        
-        # ፎቶዎችን በ listing_photos ሰንጠረዥ ውስጥ አስቀምጥ
-        if photos and req_id:
-            logger.info(f"📸 Saving {len(photos)} photos for listing {req_id}")
-            for photo in photos:
-                try:
-                    # photo ከ WebApp የሚመጣ data:image URL ከሆነ
-                    photo_str = str(photo)
-                    cursor.execute(
-                        f"INSERT INTO listing_photos (listing_id, photo_id) VALUES ({p}, {p})",
-                        (req_id, photo_str)
-                    )
-                except Exception as pe:
-                    logger.error(f"Failed to save photo for listing {req_id}: {pe}")
-            if not DATABASE_URL:
-                conn.commit()
-        
-        logger.info(f"✅ Listing added successfully → #ADK-{req_id}")
-        return req_id
+            cursor.execute("SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending'")
+        row = cursor.fetchone()
+        if isinstance(row, dict):
+            return row.get('cnt', 0)
+        else:
+            return row[0] if row else 0
     except Exception as e:
-        logger.error(f"❌ Add listing error: {e}", exc_info=True)
-        if conn and not DATABASE_URL:
-            try:
-                conn.rollback()
-            except:
-                pass
-        return None
+        logger.error(f"Count listings error: {e}")
+        return 0
     finally:
         if conn:
             try:
@@ -1092,36 +1020,20 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
             except:
                 pass
 
-def get_listing_by_id(listing_id: int):
+def update_listing_status(req_id: int, status: str) -> bool:
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
-        cursor.execute(f"SELECT * FROM listings WHERE id = {p}", (listing_id,))
-        row = cursor.fetchone()
-        if not row:
-            return None
-        result = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-        if 'extra_data' in result and isinstance(result['extra_data'], str):
-            try:
-                result['extra_data'] = json.loads(result['extra_data'])
-            except:
-                result['extra_data'] = {}
-        
-        # ፎቶዎችን ከ listing_photos ሰንጠረዥ አምጣ
-        try:
-            cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (listing_id,))
-            photo_rows = cursor.fetchall()
-            result['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
-        except Exception as e:
-            logger.warning(f"Could not load photos for listing {listing_id}: {e}")
-            result['photos'] = []
-        
-        return result
+        cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
+        if not DATABASE_URL:
+            conn.commit()
+        logger.info(f"✅ Listing {req_id} status updated to {status}")
+        return True
     except Exception as e:
-        logger.error(f"Get listing by id error: {e}")
-        return None
+        logger.error(f"Update listing error: {e}")
+        return False
     finally:
         if conn:
             try:
@@ -1710,8 +1622,7 @@ def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int
         ])
     return InlineKeyboardMarkup(keyboard)
 
-async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int, photos: list = None):
-    """ደላሎችን ማሳወቅ - ፎቶ ይዞ"""
+async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
     try:
         approved_brokers = get_approved_brokers()
         if not approved_brokers:
@@ -1723,7 +1634,6 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int, pho
         req_type = str(listing.get('req_type', 'BUY')).upper()
         owner_id = listing.get('user_chat_id')
         sent_count = 0
-        
         for broker in approved_brokers:
             try:
                 b_id = broker.get('chat_id')
@@ -1739,7 +1649,6 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int, pho
                     continue
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
-                
                 if req_type == "SELL":
                     kbd = [[
                         InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
@@ -1750,32 +1659,12 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int, pho
                         InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
                         InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
                     ]]
-                
-                # ፎቶ ካለ ከፎቶ ጋር ላክ፣ ከሌለ በጽሁፍ ብቻ
-                if photos and len(photos) > 0:
-                    try:
-                        await bot.send_photo(
-                            chat_id=b_id,
-                            photo=photos[0],
-                            caption=message_text,
-                            parse_mode="Markdown",
-                            reply_markup=InlineKeyboardMarkup(kbd)
-                        )
-                    except Exception as e:
-                        logger.error(f"Failed to send photo to broker {b_id}: {e}")
-                        await bot.send_message(
-                            chat_id=b_id,
-                            text=message_text,
-                            parse_mode="Markdown",
-                            reply_markup=InlineKeyboardMarkup(kbd)
-                        )
-                else:
-                    await bot.send_message(
-                        chat_id=b_id,
-                        text=message_text,
-                        parse_mode="Markdown",
-                        reply_markup=InlineKeyboardMarkup(kbd)
-                    )
+                await bot.send_message(
+                    chat_id=b_id,
+                    text=message_text,
+                    parse_mode="Markdown",
+                    reply_markup=InlineKeyboardMarkup(kbd)
+                )
                 sent_count += 1
                 await asyncio.sleep(0.05)
             except Exception as e:
@@ -2437,121 +2326,119 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
    return SELLER_PHOTO
 
 async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.effective_user
-    user_data = context.user_data
-    property_subtype = user_data.get('property_subtype', '')
-    description = user_data.get('description', '')
-    telegram_user = user_data.get('telegram_user', '')
-    is_car = user_data.get('main_category') == "car"
-    negotiable = user_data.get('negotiable', True)
-    urgent_sale = user_data.get('urgent_sale', False)
-    negotiable_text = "✅ የሚደራደር" if negotiable else "❌ የማይደራደር"
-    urgent_text = "⚡ **አስቸኳይ ሽያጭ!** " if urgent_sale else ""
-    if property_subtype:
-        description = f"🏠 {property_subtype}\n{description}"
-    desc = (
-        f"{urgent_text}📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ!**\n"
-        f"🔄 አይነት: {user_data.get('action_type')}\n"
-        f"📦 ምድብ: {user_data.get('main_category')}\n"
-        f"📝 ዝርዝር: {description}\n"
-        f"💰 ዋጋ: {user_data.get('price')} ብር ({negotiable_text})\n"
-    )
-    if is_car:
-        if user_data.get('condition'): desc += f"📊 ሁኔታ: {user_data.get('condition')}\n"
-        if user_data.get('fuel_type'): desc += f"⛽ ነዳጅ: {user_data.get('fuel_type')}\n"
-        if user_data.get('transmission'): desc += f"⚙️ ማርሽ: {user_data.get('transmission')}\n"
-        if user_data.get('mileage'): desc += f"🛣️ ኪሎሜትር: {user_data.get('mileage')} KM\n"
-    else:
-        if user_data.get('condition'): desc += f"📊 ሁኔታ: {user_data.get('condition')}\n"
-        if user_data.get('bedrooms'): desc += f"🛏️ መኝታ: {user_data.get('bedrooms')}\n"
-        if user_data.get('parking'): desc += f"🚗 ፓርኪንግ: {user_data.get('parking')}\n"
-    desc += f"📞 ስልክ: {user_data.get('phone')}\n"
-    if telegram_user: desc += f"📱 Telegram: {telegram_user}\n"
-    extra_data = {
-        'negotiable': negotiable,
-        'urgent_sale': urgent_sale,
-        'telegram_user': telegram_user,
-    }
-    if is_car:
-        extra_data.update({
-            'condition': user_data.get('condition', ''),
-            'fuel_type': user_data.get('fuel_type', ''),
-            'transmission': user_data.get('transmission', ''),
-            'mileage': user_data.get('mileage', ''),
-            'car_type': user_data.get('sub_category', ''),
-        })
-    else:
-        extra_data.update({
-            'condition': user_data.get('condition', ''),
-            'bedrooms': user_data.get('bedrooms', ''),
-            'parking': user_data.get('parking', ''),
-            'house_type': property_subtype,
-        })
-    photos = user_data.get('photos', [])
-    photo_id = photos[0] if photos else None
-    
-    try:
-        req_id = add_listing(
-            user_chat_id=user.id,
-            user_name=user.first_name or "User",
-            req_type="SELL",
-            main_category=user_data.get('main_category', ''),
-            sub_category=user_data.get('sub_category', ''),
-            action_type=user_data.get('action_type', 'መሸጥ'),
-            property_type=user_data.get('property_type', ''),
-            description=desc,
-            price=user_data.get('price'),
-            phone=user_data.get('phone'),
-            photo_id=photo_id,
-            extra_data=extra_data,
-            photos=photos  # ፎቶዎችን ለ add_listing አስተላልፍ
-        )
-        if req_id:
-            await update.message.reply_text(
-                f"✅ **ማስታወቂያዎ በስኬት ተመዝግቧል!** 🎉\n\n"
-                f"🆔 **የማስታወቂያ ቁጥር:** #ADK-{req_id}\n"
-                f"📞 **ስልክ:** {user_data.get('phone')}\n"
-                + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
-                f"\n📌 ማስታወቂያዎ ለደላሎች እና ለፈላጊዎች ተልኳል።",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-                parse_mode="Markdown"
-            )
-            if photos:
-                try:
-                    await update.message.reply_photo(
-                        photo=photos[0],
-                        caption=f"📸 **የማስታወቂያ #ADK-{req_id} ፎቶ**",
-                        parse_mode="Markdown"
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to send photo: {e}")
-            
-            notification_text = (
-                f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ! (#ADK-{req_id})**\n\n"
-                f"{desc}\n\n"
-                f"👉 ይህን ማስታወቂያ ለፈላጊዎች ማሳወቅ ይችላሉ!"
-            )
-            try:
-                await notify_brokers(context.bot, notification_text, req_id, user.id, photos)
-            except Exception as e:
-                logger.error(f"Failed to notify brokers: {e}")
-        else:
-            await update.message.reply_text(
-                "❌ **ማስታወቂያውን መመዝገብ አልተቻለም።**\n\n"
-                "እባክዎ እንደገና ይሞክሩ ወይም የድጋፍ ቡድናችንን ያነጋግሩ።",
-                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-                parse_mode="Markdown"
-            )
-    except Exception as e:
-        logger.error(f"❌ Seller save error: {e}", exc_info=True)
-        await update.message.reply_text(
-            f"❌ **ስህተት ተከስቷል፦** {str(e)[:100]}\n\n"
-            "እባክዎ እንደገና ይሞክሩ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-            parse_mode="Markdown"
-        )
-    context.user_data.clear()
-    return ConversationHandler.END
+   user = update.effective_user
+   user_data = context.user_data
+   property_subtype = user_data.get('property_subtype', '')
+   description = user_data.get('description', '')
+   telegram_user = user_data.get('telegram_user', '')
+   is_car = user_data.get('main_category') == "car"
+   negotiable = user_data.get('negotiable', True)
+   urgent_sale = user_data.get('urgent_sale', False)
+   negotiable_text = "✅ የሚደራደር" if negotiable else "❌ የማይደራደር"
+   urgent_text = "⚡ **አስቸኳይ ሽያጭ!** " if urgent_sale else ""
+   if property_subtype:
+       description = f"🏠 {property_subtype}\n{description}"
+   desc = (
+       f"{urgent_text}📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ!**\n"
+       f"🔄 አይነት: {user_data.get('action_type')}\n"
+       f"📦 ምድብ: {user_data.get('main_category')}\n"
+       f"📝 ዝርዝር: {description}\n"
+       f"💰 ዋጋ: {user_data.get('price')} ብር ({negotiable_text})\n"
+   )
+   if is_car:
+       if user_data.get('condition'): desc += f"📊 ሁኔታ: {user_data.get('condition')}\n"
+       if user_data.get('fuel_type'): desc += f"⛽ ነዳጅ: {user_data.get('fuel_type')}\n"
+       if user_data.get('transmission'): desc += f"⚙️ ማርሽ: {user_data.get('transmission')}\n"
+       if user_data.get('mileage'): desc += f"🛣️ ኪሎሜትር: {user_data.get('mileage')} KM\n"
+   else:
+       if user_data.get('condition'): desc += f"📊 ሁኔታ: {user_data.get('condition')}\n"
+       if user_data.get('bedrooms'): desc += f"🛏️ መኝታ: {user_data.get('bedrooms')}\n"
+       if user_data.get('parking'): desc += f"🚗 ፓርኪንግ: {user_data.get('parking')}\n"
+   desc += f"📞 ስልክ: {user_data.get('phone')}\n"
+   if telegram_user: desc += f"📱 Telegram: {telegram_user}\n"
+   extra_data = {
+       'negotiable': negotiable,
+       'urgent_sale': urgent_sale,
+       'telegram_user': telegram_user,
+   }
+   if is_car:
+       extra_data.update({
+           'condition': user_data.get('condition', ''),
+           'fuel_type': user_data.get('fuel_type', ''),
+           'transmission': user_data.get('transmission', ''),
+           'mileage': user_data.get('mileage', ''),
+           'car_type': user_data.get('sub_category', ''),
+       })
+   else:
+       extra_data.update({
+           'condition': user_data.get('condition', ''),
+           'bedrooms': user_data.get('bedrooms', ''),
+           'parking': user_data.get('parking', ''),
+           'house_type': property_subtype,
+       })
+   photos = user_data.get('photos', [])
+   photo_id = photos[0] if photos else None
+   try:
+       req_id = add_listing(
+           user_chat_id=user.id,
+           user_name=user.first_name or "User",
+           req_type="SELL",
+           main_category=user_data.get('main_category', ''),
+           sub_category=user_data.get('sub_category', ''),
+           action_type=user_data.get('action_type', 'መሸጥ'),
+           property_type=user_data.get('property_type', ''),
+           description=desc,
+           price=user_data.get('price'),
+           phone=user_data.get('phone'),
+           photo_id=photo_id,
+           extra_data=extra_data,
+           photos=photos
+       )
+       if req_id:
+           await update.message.reply_text(
+               f"✅ **ማስታወቂያዎ በስኬት ተመዝግቧል!** 🎉\n\n"
+               f"🆔 **የማስታወቂያ ቁጥር:** #ADK-{req_id}\n"
+               f"📞 **ስልክ:** {user_data.get('phone')}\n"
+               + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
+               f"\n📌 ማስታወቂያዎ ለደላሎች እና ለፈላጊዎች ተልኳል።",
+               reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+               parse_mode="Markdown"
+           )
+           if photos:
+               try:
+                   await update.message.reply_photo(
+                       photo=photos[0],
+                       caption=f"📸 **የማስታወቂያ #ADK-{req_id} ፎቶ**",
+                       parse_mode="Markdown"
+                   )
+               except Exception as e:
+                   logger.error(f"Failed to send photo: {e}")
+           notification_text = (
+               f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ! (#ADK-{req_id})**\n\n"
+               f"{desc}\n\n"
+               f"👉 ይህን ማስታወቂያ ለፈላጊዎች ማሳወቅ ይችላሉ!"
+           )
+           try:
+               await notify_brokers(context.bot, notification_text, req_id, user.id)
+           except Exception as e:
+               logger.error(f"Failed to notify brokers: {e}")
+       else:
+           await update.message.reply_text(
+               "❌ **ማስታወቂያውን መመዝገብ አልተቻለም።**\n\n"
+               "እባክዎ እንደገና ይሞክሩ ወይም የድጋፍ ቡድናችንን ያነጋግሩ።",
+               reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+               parse_mode="Markdown"
+           )
+   except Exception as e:
+       logger.error(f"❌ Seller save error: {e}", exc_info=True)
+       await update.message.reply_text(
+           f"❌ **ስህተት ተከስቷል፦** {str(e)[:100]}\n\n"
+           "እባክዎ እንደገና ይሞክሩ።",
+           reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+           parse_mode="Markdown"
+       )
+   context.user_data.clear()
+   return ConversationHandler.END
 
 
 # ==============================================================================
@@ -2927,7 +2814,7 @@ def format_marketplace_card_clean(item: dict) -> str:
         if extra_data.get('parking'):
             specs.append(f"ፓርኪንግ {extra_data['parking']}")
 
-    specs_line = " · ".join(specs) if specs else ""
+    specs_line = " • ".join(specs) if specs else ""
     title = f"{main_cat}" + (f" ({sub_cat})" if sub_cat else "")
 
     # መግለጫ (አጭርና ንጹህ)
@@ -2937,7 +2824,7 @@ def format_marketplace_card_clean(item: dict) -> str:
         f"{icon} **{tag}{urgent}**  `#ADK-{item_id}`\n"
         f"────────────────────\n"
         f"📦 {title}\n"
-        f"💰 **{price}** ብር · {negotiable}\n"
+        f"💰 **{price}** ብር • {negotiable}\n"
     )
     if specs_line:
         card += f"📋 {specs_line}\n"
@@ -2949,36 +2836,6 @@ def format_marketplace_card_clean(item: dict) -> str:
     )
     return card
 
-def format_buyer_request_clean(req: dict) -> str:
-    """የፈላጊ ጥያቄ ካርድ - ንጹህ (ከገበያ ቦታ ጋር ተመሳሳይ ቅርጸት)"""
-    req_id = req.get('id', 'N/A')
-    main_cat = req.get('main_category', '')
-    action = req.get('action_type', '')
-    sub_cat = req.get('sub_category', '') or ''
-    prop = req.get('property_type', '') or ''
-    phone = req.get('phone', '-')
-    desc = clean_description(req.get('description', ''), 60)
-
-    icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-    detail = " · ".join(x for x in [sub_cat, prop] if x)
-
-    card = (
-        f"{icon} **ፈላጊ ጥያቄ**  `#ADK-{req_id}`\n"
-        f"────────────────────\n"
-        f"📌 {main_cat}"
-    )
-    if action:
-        card += f" · {action}"
-    card += "\n"
-    if detail:
-        card += f"🏷️ {detail}\n"
-    if desc:
-        card += f"────────────────────\n📝 {desc}\n"
-    card += (
-        f"────────────────────\n"
-        f"📞 `{phone}`"
-    )
-    return card
 
 def format_buyer_request_clean(req: dict) -> str:
     """የፈላጊ ጥያቄ ካርድ - ንጹህ"""
@@ -2991,7 +2848,7 @@ def format_buyer_request_clean(req: dict) -> str:
     desc = clean_description(req.get('description', ''), 60)
 
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-    detail = " · ".join(x for x in [sub_cat, prop] if x)
+    detail = " • ".join(x for x in [sub_cat, prop] if x)
 
     card = (
         f"{icon} **ፈላጊ ጥያቄ**  `#ADK-{req_id}`\n"
@@ -2999,7 +2856,7 @@ def format_buyer_request_clean(req: dict) -> str:
         f"📌 {main_cat}"
     )
     if action:
-        card += f" · {action}"
+        card += f" • {action}"
     card += "\n"
     if detail:
         card += f"🏷️ {detail}\n"
@@ -3066,14 +2923,6 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
     )
     
     for item in items:
-        # ፎቶዎችን ከ listing_photos ሰንጠረዥ አምጣ
-        photos = item.get('photos', [])
-        if not photos:
-            # አሮጌ መረጃ ከሆነ photo_id ተጠቀም
-            photo_id = item.get('photo_id')
-            if photo_id:
-                photos = [photo_id]
-        
         card_text = format_marketplace_card_clean(item)
         reply_markup = build_marketplace_keyboard_clean(
             item_id=item.get('id'),
@@ -3081,16 +2930,15 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
             current_user_id=user_id
         )
         
-        if photos and len(photos) > 0:
+        if item.get('photo_id'):
             try:
                 await update.message.reply_photo(
-                    photo=photos[0],
+                    photo=item['photo_id'],
                     caption=card_text,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
-            except Exception as e:
-                logger.error(f"Failed to send photo: {e}")
+            except:
                 await update.message.reply_text(
                     card_text,
                     reply_markup=reply_markup,
@@ -3104,56 +2952,39 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
             )
 
 async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የፈላጊዎች ዝርዝር - ንፁህ እትም (አዲሶቹ ከታች)"""
+    """የፈላጊዎች ዝርዝር - ንፁህ እትም"""
     user_id = update.effective_user.id
     is_admin = (user_id == ADMIN_CHAT_ID_INT)
     broker = get_broker(user_id)
     
-    # ፈላጊዎችን ለማየት ደላላ ወይም አድሚን መሆን አለበት
     if not is_admin and not broker:
         await update.message.reply_text(
-            "⛔ ይህን ማየት የሚችሉት የተረጋገጡ ደላሎች ብቻ ናቸው!\n\n"
-            "📝 እባክዎን መጀመሪያ '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
+            "⛔ ይህን ማየት የሚችሉት የተረጋገጡ ደላሎች ብቻ ናቸው",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return
     
     if not is_admin and broker.get('status') != 'approved':
         await update.message.reply_text(
-            "⏳ **ምዝገባዎ ገና በአድሚን አልጸደቀም!**\n\n"
-            "እባክዎ አድሚኑ እስኪያረጋግጥ ይጠብቁ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-            parse_mode="Markdown"
+            "⏳ ምዝገባዎ ገና አልጸደቀም",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return
     
-    # ✅ አዲሶቹ ከታች እንዲታዩ ASC (ከታች አስቀምጠናል)
-    try:
-        listings = get_listings_by_category_ordered(limit=20, offset=0, req_type="BUY", order="ASC")
-    except Exception as e:
-        logger.error(f"Error getting listings: {e}")
-        # አሮጌውን ዘዴ ተጠቀም
-        listings = get_listings_by_category(limit=20, offset=0, req_type="BUY")
-    
+    listings = get_listings_by_category(limit=20, offset=0, req_type="BUY")
     total = count_listings(req_type="BUY")
     
     if not listings:
         await update.message.reply_text(
-            f"📭 **ምንም ንቁ ጥያቄዎች የሉም**\n\n"
-            f"አዲስ ጥያቄ ሲመጣ እዚህ ይታያል።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-            parse_mode="Markdown"
+            f"📭 ምንም ጥያቄዎች የሉም",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return
     
     broker_name = "👑 አድሚን" if is_admin else (broker.get('full_name') if broker else "ደላላ")
     
     await update.message.reply_text(
-        f"📋 **የፈላጊዎች ዝርዝር**\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 **{broker_name}**\n"
-        f"🔔 **ጠቅላላ፡** {total} ጥያቄዎች\n"
-        f"━━━━━━━━━━━━━━━━━━━",
+        f"🔍 {total} ጥያቄዎች • {broker_name}",
         parse_mode="Markdown"
     )
     
@@ -3164,46 +2995,12 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
             buyer_id=listing.get('user_chat_id')
         )
         
-        try:
-            await update.message.reply_text(
-                card_text,
-                reply_markup=reply_markup,
-                parse_mode="Markdown"
-            )
-        except Exception as e:
-            logger.error(f"Failed to send listing: {e}")
-            continue
+        await update.message.reply_text(
+            card_text,
+            reply_markup=reply_markup,
+            parse_mode="Markdown"
+        )
 
-async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የደላሎች ማውጫ"""
-    keyboard = [[InlineKeyboardButton(sc, callback_data=f"dir_sc_{sc}")] for sc in SUB_CITIES]
-    keyboard.append([InlineKeyboardButton("🌐 የሁሉም ክፍለ ከተሞች", callback_data="dir_sc_ሁሉም")])
-    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
-
-    await update.message.reply_text(
-        "📍 **የደላሎችና አቅራቢዎች ማውጫ**\n\n"
-        "እባክዎን ማየት የሚፈልጉበትን ክፍለ ከተማ ይምረጡ፦",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
-
-async def filter_brokers_by_subcity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """በክፍለ ከተማ ደላሎችን ማጣራት"""
-    query = update.callback_query
-    await query.answer()
-
-    sub_city = query.data.replace("dir_sc_", "")
-    brokers = get_approved_brokers_directory(sub_city=sub_city)
-
-    if not brokers:
-        await query.edit_message_text(f"📭 በ{sub_city} ክፍለ ከተማ የተመዘገቡ ደላሎች አልተገኙም።")
-        return
-
-    msg = f"📋 **የተረጋገጡ ደላሎች ዝርዝር ({sub_city})፦**\n━━━━━━━━━━━━━━━━━━━\n\n"
-    for b in brokers:
-        msg += format_broker_profile(b) + "\n\n"
-
-    await query.edit_message_text(msg, parse_mode="Markdown")
 # ==============================================================================
 # ORIGINAL FUNCTIONS (KEPT FOR BACKWARD COMPATIBILITY)
 # ==============================================================================
