@@ -1421,7 +1421,6 @@ MAIN_KEYBOARD = [
    ["📞 ድጋፍ", "⚙️ የማሳወቂያ ምርጫ"],
    ["🏠 ዋና ገጽ"]
 ]
-
 SUB_CITIES = [
    "ቦሌ", "የካ", "አራዳ", "ልደታ",
    "ቂርቆስ", "አዲስ ከተማ", "ንፋስ ስልክ ላፍቶ",
@@ -1515,7 +1514,9 @@ def format_buyer_card(req: dict) -> str:
         f"📞 `{phone}`\n"
         f"──────────────────────"
     )
-
+def format_seller_card(item: dict) -> str:
+    """ለደላሎች የሚላከው ካርድ - ከገበያ ቦታ ጋር ተመሳሳይ"""
+    return format_marketplace_card_clean(item)
 def format_seller_card(item: dict) -> str:
     """የሻጭ ማስታወቂያ - ድግግሞሽ ተወግዷል"""
     item_id = item.get('id', 'N/A')
