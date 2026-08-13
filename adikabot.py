@@ -3669,7 +3669,7 @@ async def notification_prefs_callback(update: Update, context: ContextTypes.DEFA
 
 
 # ==============================================================================
-# 17. MAIN ENGINE - NO DUPLICATES
+# 17. MAIN ENGINE - NO DUPLICATES (WITH HTML SUPPORT)
 # ==============================================================================
 
 def main():
@@ -3777,10 +3777,15 @@ def main():
     app.add_handler(broker_response_conv)
 
     # ============================================================
-    # REGULAR MESSAGE HANDLERS - CLEAN VERSION (RECOMMENDED)
+    # REGULAR MESSAGE HANDLERS - HTML VERSION (RECOMMENDED)
     # ============================================================
-    app.add_handler(MessageHandler(filters.Regex("^🛍️ ገበያ$"), view_public_marketplace_clean))
-    app.add_handler(MessageHandler(filters.Regex("^🔍 ፈላጊዎች$"), view_requests_clean))
+    # አዲስ HTML እትም - የሚመከር
+    app.add_handler(MessageHandler(filters.Regex("^🛍️ ገበያ$"), view_public_marketplace_html))
+    app.add_handler(MessageHandler(filters.Regex("^🔍 ፈላጊዎች$"), view_requests_html))
+    
+    # ንጹህ እትም (ለመጠባበቂያ)
+    # app.add_handler(MessageHandler(filters.Regex("^🛍️ ገበያ$"), view_public_marketplace_clean))
+    # app.add_handler(MessageHandler(filters.Regex("^🔍 ፈላጊዎች$"), view_requests_clean))
     
     # Legacy handlers (kept for compatibility with old button texts)
     app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
