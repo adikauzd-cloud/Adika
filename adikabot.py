@@ -3669,7 +3669,7 @@ async def notification_prefs_callback(update: Update, context: ContextTypes.DEFA
 
 
 # ==============================================================================
-# 17. MAIN ENGINE - NO DUPLICATES (WITH HTML SUPPORT)
+# 17. MAIN ENGINE - HTML VERSION
 # ==============================================================================
 
 def main():
@@ -3777,23 +3777,16 @@ def main():
     app.add_handler(broker_response_conv)
 
     # ============================================================
-    # REGULAR MESSAGE HANDLERS - HTML VERSION (RECOMMENDED)
+    # REGULAR MESSAGE HANDLERS - HTML VERSION
     # ============================================================
-    # አዲስ HTML እትም - የሚመከር
+    # አዲስ HTML እትም - ይህንን ይጠቀማል
     app.add_handler(MessageHandler(filters.Regex("^🛍️ ገበያ$"), view_public_marketplace_html))
     app.add_handler(MessageHandler(filters.Regex("^🔍 ፈላጊዎች$"), view_requests_html))
     
-    # ንጹህ እትም (ለመጠባበቂያ)
-    # app.add_handler(MessageHandler(filters.Regex("^🛍️ ገበያ$"), view_public_marketplace_clean))
-    # app.add_handler(MessageHandler(filters.Regex("^🔍 ፈላጊዎች$"), view_requests_clean))
-    
-    # Legacy handlers (kept for compatibility with old button texts)
-    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
-    app.add_handler(MessageHandler(filters.Regex(r"^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
-    
-    app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
+    # የደላሎች ማውጫ (አልተቀየረም)
+    app.add_handler(MessageHandler(filters.Regex("^👥 ደላሎች$"), view_brokers_directory))
     app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
-    app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ምርጫ$"), notification_prefs_start))
+    app.add_handler(MessageHandler(filters.Regex("^⚙️ ምርጫ$"), notification_prefs_start))
     app.add_handler(cancel_handler)
 
     # Callback query handlers
