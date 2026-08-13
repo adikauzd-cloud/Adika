@@ -2643,6 +2643,8 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
     broker = get_broker(broker_user.id)
     broker_name = broker.get('full_name') if broker else (broker_user.first_name or "ደላላ/አቅራቢ")
     broker_phone = broker.get('phone', 'አልተጠቀሰም') if broker else 'አልተጠቀሰም'
+    
+    # ለገዢ የሚላከው መልእክት - ከገበያ ቦታ ጋር ተመሳሳይ ቅርጸት
     message_to_buyer = (
         f"🎉 **ለጥያቄዎ (#ADK-{req_id}) አዲስ የቀረበ አማራጭ አለ!**\n\n"
         f"👤 **ደላላ/አቅራቢ:** {broker_name}\n"
@@ -2681,7 +2683,6 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
     context.user_data.clear()
     return ConversationHandler.END
-
 async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
