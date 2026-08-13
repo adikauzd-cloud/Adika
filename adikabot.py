@@ -1,5 +1,5 @@
 # ==============================================================================
-# ADIKA MARKETPLACE BOT - FULLY CLEANED VERSION (NO DUPLICATES)
+# ADIKA MARKETPLACE BOT - FULLY CLEANED WITH PAGINATION, STATUS, FIXES
 # ==============================================================================
 
 import logging
@@ -8,6 +8,8 @@ import re
 import asyncio
 import threading
 import json
+import base64
+from io import BytesIO
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
@@ -47,6 +49,7 @@ if not BOT_TOKEN:
 
 ADMIN_CHAT_ID_INT = int(ADMIN_CHAT_ID) if ADMIN_CHAT_ID else 0
 DB_FILE = "adika_marketplace.db"
+ITEMS_PER_PAGE = 5
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -832,7 +835,7 @@ def init_db():
 
 
 # ==============================================================================
-# 4. DATABASE OPERATIONS
+# 4. DATABASE OPERATIONS (የተሻሻለ)
 # ==============================================================================
 
 def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
@@ -949,7 +952,8 @@ def get_listing_by_id(listing_id: int):
 def get_listings_by_category(limit=10, offset=0, req_type=None):
     return get_listings_by_category_ordered(limit=limit, offset=offset, req_type=req_type, order="DESC")
 
-def get_listings_by_category_ordered(limit=20, offset=0, req_type=None, order="DESC"):
+def get_listings_by_category_ordered(limit=ITEMS_PER_PAGE, offset=0, req_type=None, order="ASC"):
+    """ለፈላጊዎች ዝርዝር - ከአሮጌ ወደ አዲስ (ASC)"""
     conn = None
     try:
         conn = get_db_connection()
@@ -994,6 +998,7 @@ def get_listings_by_category_ordered(limit=20, offset=0, req_type=None, order="D
                 pass
 
 def count_listings(req_type=None):
+    """ጠቅላላ ብዛት ለገጽ ክፍልፍል"""
     conn = None
     try:
         conn = get_db_connection()
@@ -1042,7 +1047,8 @@ def update_listing_status(req_id: int, status: str) -> bool:
             except:
                 pass
 
-def get_public_marketplace_items(limit: int = 20, offset: int = 0):
+def get_public_marketplace_items(limit: int = ITEMS_PER_PAGE, offset: int = 0):
+    """ለገበያ ቦታ - ከአሮጌ ወደ አዲስ (ASC)"""
     conn = None
     try:
         conn = get_db_connection()
@@ -1055,7 +1061,7 @@ def get_public_marketplace_items(limit: int = 20, offset: int = 0):
                 SELECT * FROM listings 
                 WHERE UPPER(req_type) = 'SELL'
                   AND status != 'deleted'
-                ORDER BY created_at DESC NULLS LAST
+                ORDER BY created_at ASC NULLS LAST
                 LIMIT %s OFFSET %s
             """, (limit, offset))
             rows = cur.fetchall()
@@ -1065,7 +1071,7 @@ def get_public_marketplace_items(limit: int = 20, offset: int = 0):
                 SELECT * FROM listings 
                 WHERE UPPER(req_type) = 'SELL'
                   AND status != 'deleted'
-                ORDER BY created_at DESC
+                ORDER BY created_at ASC
                 LIMIT ? OFFSET ?
             """, (limit, offset))
             rows = cur.fetchall()
@@ -1433,7 +1439,7 @@ CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈ
 
 
 # ==============================================================================
-# 6. HELPER FUNCTIONS (SINGLE DEFINITIONS ONLY)
+# 6. HELPER FUNCTIONS (የተሻሻለ)
 # ==============================================================================
 
 def validate_phone(phone: str) -> bool:
@@ -1485,7 +1491,41 @@ def clean_description(desc: str, max_len: int = 60) -> str:
         clean = clean[:max_len] + "..."
     return clean.strip()
 
+def get_status_badge(status: str) -> str:
+    """Status ባጅ መመለስ"""
+    status_lower = status.lower()
+    if status_lower in ('pending', 'active'):
+        return "🟢 ንቁ"
+    elif status_lower in ('in_progress', 'progress'):
+        return "🟡 በሂደት ላይ"
+    elif status_lower in ('sold', 'closed', 'deleted'):
+        return "🔴 የተዘጋ"
+    else:
+        return "⚪ ያልታወቀ"
+
+def decode_base64_photo(photo_str: str):
+    """base64 ምስልን ለመላክ ተስማሚ ቅርጸት መለወጥ"""
+    if not photo_str:
+        return None
+    if photo_str.startswith('data:image'):
+        # Base64 data URL ከሆነ
+        try:
+            header, data = photo_str.split(',', 1)
+            image_data = base64.b64decode(data)
+            return BytesIO(image_data)
+        except:
+            return None
+    return photo_str  # ቀድሞ file_id ከሆነ
+
+def get_photo_input(photo_list):
+    """ከፎቶ ዝርዝር ውስጥ የመጀመሪያውን ፎቶ ለመላክ ማዘጋጀት"""
+    if not photo_list:
+        return None
+    first = photo_list[0]
+    return decode_base64_photo(first)
+
 def format_marketplace_card_professional(item: dict) -> str:
+    """ካርድ ፎርማት - ያለ ድግግሞሽ እና ከ Status ባጅ ጋር"""
     item_id = item.get('id', 'N/A')
     main_cat = item.get('main_category', '')
     sub_cat = (item.get('sub_category') or '').strip()
@@ -1493,6 +1533,7 @@ def format_marketplace_card_professional(item: dict) -> str:
     phone = item.get('phone', '-')
     action = item.get('action_type', '')
     req_type = str(item.get('req_type', '')).upper()
+    status = item.get('status', 'pending')
 
     extra = item.get('extra_data', {})
     if isinstance(extra, str):
@@ -1500,6 +1541,8 @@ def format_marketplace_card_professional(item: dict) -> str:
             extra = json.loads(extra)
         except:
             extra = {}
+
+    badge = get_status_badge(status)
 
     if req_type == "BUY":
         icon = "🔍"
@@ -1557,7 +1600,7 @@ def format_marketplace_card_professional(item: dict) -> str:
             if ht: details.append(f"├ አይነት: {ht}")
 
     lines = [
-        f"{icon} <b>{title}</b> • <code>#ADK-{item_id}</code>",
+        f"{icon} <b>{title}</b> • <code>#ADK-{item_id}</code>  {badge}",
         "━━━━━━━━━━━━━━━━━━━━━",
         f"📌 <b>{title_display}</b>",
     ]
@@ -1636,6 +1679,17 @@ def build_marketplace_keyboard_clean(item_id: int, owner_id: int, current_user_i
 def build_request_keyboard_clean(req_id: int, buyer_id: int) -> InlineKeyboardMarkup:
     return build_request_keyboard(req_id, buyer_id)
 
+def build_pagination_buttons(current_page: int, total_pages: int, prefix: str) -> InlineKeyboardMarkup:
+    """የገጽ አሰሳ ቁልፎች"""
+    buttons = []
+    if current_page > 0:
+        buttons.append(InlineKeyboardButton("◀️ ቀዳሚ", callback_data=f"{prefix}_{current_page-1}"))
+    if current_page < total_pages - 1:
+        buttons.append(InlineKeyboardButton("ቀጣይ ▶️", callback_data=f"{prefix}_{current_page+1}"))
+    if buttons:
+        return InlineKeyboardMarkup([buttons])
+    return None
+
 async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int, photos: list = None):
     try:
         approved_brokers = get_approved_brokers()
@@ -1652,6 +1706,11 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int, pho
         req_type = str(listing.get('req_type', 'BUY')).upper()
         owner_id = listing.get('user_chat_id')
         sent_count = 0
+        
+        # የመጀመሪያውን ፎቶ ወደ BytesIO መለወጥ (ካለ)
+        photo_io = None
+        if photos and len(photos) > 0:
+            photo_io = decode_base64_photo(photos[0])
         
         for broker in approved_brokers:
             try:
@@ -1684,11 +1743,11 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int, pho
                         InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
                     ]]
                 
-                if photos and len(photos) > 0:
+                if photo_io:
                     try:
                         await bot.send_photo(
                             chat_id=b_id,
-                            photo=photos[0],
+                            photo=photo_io,
                             caption=message_text,
                             parse_mode="HTML",
                             reply_markup=InlineKeyboardMarkup(kbd)
@@ -1777,7 +1836,7 @@ async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================================================================
-# 9. BUYER FLOW
+# 9. BUYER FLOW (የተሻሻለ)
 # ==============================================================================
 
 async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2026,7 +2085,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==============================================================================
-# 10. SELLER FLOW
+# 10. SELLER FLOW (የተሻሻለ - የቤት ፍሰት እና ነዳጅ ተለያይተዋል)
 # ==============================================================================
 
 async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2103,6 +2162,8 @@ async def seller_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
    await query.answer()
    action = query.data.replace("flow_sell_action_", "")
    context.user_data['action_type'] = "መሸጥ" if action == "sell" else "ማከራየት"
+   
+   # መኪና ከሆነ ወደ ሁኔታ ሂድ
    if context.user_data.get('main_category') == "car":
        keyboard = [[InlineKeyboardButton(cond, callback_data=f"flow_sell_cond_{cond}")] for cond in CONDITIONS]
        keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
@@ -2113,6 +2174,7 @@ async def seller_action_chosen(update: Update, context: ContextTypes.DEFAULT_TYP
        )
        return SELLER_CONDITION
    else:
+       # ቤት ከሆነ ወደ ንብረት አይነት ሂድ
        keyboard = [[InlineKeyboardButton(ptype, callback_data=f"flow_sell_prop_{ptype}")] for ptype in PROPERTY_TYPES]
        keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
        await query.edit_message_text(
@@ -2203,6 +2265,8 @@ async def seller_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
    await query.answer()
    htype = query.data.replace("flow_sell_htype_", "")
    context.user_data['property_subtype'] = htype
+   
+   # የቤት ሁኔታ - የተለየ ስም ተጠቅሟል
    conditions = ["🆕 አዲስ", "✅ ጥሩ", "🔧 እድሳት የሚፈልግ"]
    keyboard = [[InlineKeyboardButton(cond, callback_data=f"flow_sell_hcond_{cond}")] for cond in conditions]
    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
@@ -2220,6 +2284,8 @@ async def seller_house_condition_chosen(update: Update, context: ContextTypes.DE
    await query.answer()
    cond = query.data.replace("flow_sell_hcond_", "")
    context.user_data['condition'] = cond
+   
+   # የመኝታ ብዛት
    keyboard = [
        [InlineKeyboardButton("1", callback_data="bed_1"), InlineKeyboardButton("2", callback_data="bed_2")],
        [InlineKeyboardButton("3", callback_data="bed_3"), InlineKeyboardButton("4", callback_data="bed_4")],
@@ -2489,7 +2555,7 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # ==============================================================================
-# 11. BROKER REGISTRATION
+# 11. BROKER REGISTRATION (እንዳለ)
 # ==============================================================================
 
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2622,7 +2688,7 @@ async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 # ==============================================================================
-# 12. BROKER OFFER FLOW
+# 12. BROKER OFFER FLOW (እንዳለ)
 # ==============================================================================
 
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2806,43 +2872,57 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 # ==============================================================================
-# 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY
+# 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY (የተሻሻለ - ከገጽ ክፍልፍል እና ባጅ ጋር)
 # ==============================================================================
 
 async def view_public_marketplace_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    items = get_public_marketplace_items(limit=15)
+    """የገበያ ቦታ ከገጽ ክፍልፍል - ከአሮጌ ወደ አዲስ"""
+    # ገጽ ቁጥር ከውሂብ ማግኘት
+    page = context.user_data.get('marketplace_page', 0)
+    limit = ITEMS_PER_PAGE
+    offset = page * limit
+
+    items = get_public_marketplace_items(limit=limit, offset=offset)
+    total = count_listings(req_type="SELL")
+    total_pages = (total + limit - 1) // limit if total else 1
+
     user_id = update.effective_user.id
-    
+
     if not items:
         await update.message.reply_text(
             "📭 ምንም ንብረቶች የሉም",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return
-    
+
     await update.message.reply_text(
-        f"🛍️ <b>{len(items)} ንብረቶች ተገኝተዋል</b>",
+        f"🛍️ <b>ገበያ</b>  •  ገጽ {page+1}/{total_pages}  •  {len(items)} ንብረቶች",
         parse_mode="HTML"
     )
-    
+
     for item in items:
         photos = item.get('photos', [])
         if not photos:
             photo_id = item.get('photo_id')
             if photo_id:
                 photos = [photo_id]
-        
+
         card_text = format_marketplace_card_professional(item)
         reply_markup = build_marketplace_keyboard_clean(
             item_id=item.get('id'),
             owner_id=item.get('user_chat_id'),
             current_user_id=user_id
         )
-        
+
+        # ፎቶ ለመላክ ተዘጋጅ
+        photo_io = None
         if photos and len(photos) > 0:
+            photo_io = decode_base64_photo(photos[0])
+
+        if photo_io:
             try:
                 await update.message.reply_photo(
-                    photo=photos[0],
+                    photo=photo_io,
                     caption=card_text,
                     reply_markup=reply_markup,
                     parse_mode="HTML"
@@ -2861,11 +2941,20 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
                 parse_mode="HTML"
             )
 
+    # የገጽ አሰሳ ቁልፎች
+    nav_buttons = build_pagination_buttons(page, total_pages, "mpage")
+    if nav_buttons:
+        await update.message.reply_text(
+            "📌 ገጽ ይለውጡ",
+            reply_markup=nav_buttons
+        )
+
 async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የፈላጊዎች ዝርዝር ከገጽ ክፍልፍል - ከአሮጌ ወደ አዲስ"""
     user_id = update.effective_user.id
     is_admin = (user_id == ADMIN_CHAT_ID_INT)
     broker = get_broker(user_id)
-    
+
     if not is_admin and not broker:
         await update.message.reply_text(
             "⛔ <b>ይህን ማየት የሚችሉት የተረጋገጡ ደላሎች ብቻ ናቸው!</b>",
@@ -2873,7 +2962,7 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="HTML"
         )
         return
-    
+
     if not is_admin and broker.get('status') != 'approved':
         await update.message.reply_text(
             "⏳ <b>ምዝገባዎ ገና አልጸደቀም</b>",
@@ -2881,10 +2970,16 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="HTML"
         )
         return
-    
-    listings = get_listings_by_category_ordered(limit=20, offset=0, req_type="BUY", order="ASC")
+
+    # ገጽ ቁጥር
+    page = context.user_data.get('requests_page', 0)
+    limit = ITEMS_PER_PAGE
+    offset = page * limit
+
+    listings = get_listings_by_category_ordered(limit=limit, offset=offset, req_type="BUY", order="ASC")
     total = count_listings(req_type="BUY")
-    
+    total_pages = (total + limit - 1) // limit if total else 1
+
     if not listings:
         await update.message.reply_text(
             f"📭 <b>ምንም ንቁ ጥያቄዎች የሉም</b>",
@@ -2892,33 +2987,63 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="HTML"
         )
         return
-    
+
     broker_name = "👑 አድሚን" if is_admin else (broker.get('full_name') if broker else "ደላላ")
-    
+
     await update.message.reply_text(
         f"📋 <b>የፈላጊዎች ዝርዝር</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>{broker_name}</b>\n"
-        f"🔔 <b>ጠቅላላ:</b> {total} ጥያቄዎች",
+        f"🔔 <b>ጠቅላላ:</b> {total} ጥያቄዎች  •  ገጽ {page+1}/{total_pages}",
         parse_mode="HTML"
     )
-    
+
     for listing in listings:
         card_text = format_marketplace_card_professional(listing)
         reply_markup = build_request_keyboard_clean(
             req_id=listing.get('id'),
             buyer_id=listing.get('user_chat_id')
         )
-        
-        try:
-            await update.message.reply_text(
-                card_text,
-                reply_markup=reply_markup,
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logger.error(f"Failed to send listing: {e}")
-            continue
+
+        await update.message.reply_text(
+            card_text,
+            reply_markup=reply_markup,
+            parse_mode="HTML"
+        )
+
+    # የገጽ አሰሳ
+    nav_buttons = build_pagination_buttons(page, total_pages, "rpage")
+    if nav_buttons:
+        await update.message.reply_text(
+            "📌 ገጽ ይለውጡ",
+            reply_markup=nav_buttons
+        )
+
+# ==============================================================================
+# PAGINATION CALLBACK HANDLERS
+# ==============================================================================
+
+async def marketplace_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split('_')[1])
+    context.user_data['marketplace_page'] = page
+    try:
+        await query.delete_message()
+    except:
+        pass
+    await view_public_marketplace_clean(update, context)
+
+async def requests_page_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split('_')[1])
+    context.user_data['requests_page'] = page
+    try:
+        await query.delete_message()
+    except:
+        pass
+    await view_requests_clean(update, context)
 
 async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(sc, callback_data=f"dir_sc_{sc}")] for sc in SUB_CITIES]
@@ -3326,6 +3451,9 @@ def main():
     app.add_handler(CallbackQueryHandler(have_buyer_callback, pattern="^have_buyer_"))
     app.add_handler(CallbackQueryHandler(want_myself_callback, pattern="^want_myself_"))
     app.add_handler(CallbackQueryHandler(notification_prefs_callback, pattern="^notif_pref_"))
+    # የገጽ አሰሳ ምላሽ
+    app.add_handler(CallbackQueryHandler(marketplace_page_callback, pattern="^mpage_"))
+    app.add_handler(CallbackQueryHandler(requests_page_callback, pattern="^rpage_"))
 
     logger.info("🚀 Adika Marketplace Bot በስኬት ተጀምሯል...")
     app.run_polling()
