@@ -2737,11 +2737,11 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
                 parse_mode="Markdown"
             )
 # ==============================================================================
-# 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY - HTML FORMATTED (NO DUPLICATES)
+# 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY - HTML FORMATTED
 # ==============================================================================
 
 def clean_description(desc: str, max_len: int = 60) -> str:
-    """መግለጫን ንፁህ ማድረግ - የማያስፈልጉ ነገሮችን ማስወገድ"""
+    """መግለጫን ንፁህ ማድረግ"""
     if not desc:
         return ""
     
@@ -2765,7 +2765,7 @@ def clean_description(desc: str, max_len: int = 60) -> str:
     
     return clean.strip()
 
-def format_price(price: str) -> str:
+def format_price_html(price: str) -> str:
     """ዋጋን በኮማ ቅርጸት ማሳየት"""
     try:
         price_num = int(price.replace(',', '').replace(' ', ''))
@@ -2774,10 +2774,7 @@ def format_price(price: str) -> str:
         return price
 
 def format_marketplace_card_html(item: dict) -> tuple:
-    """
-    የሻጭ ማስታወቂያ በHTML ቅርጸት - ያለ ድግግሞሽ
-    መመለስ: (card_text, reply_markup)
-    """
+    """የሻጭ ማስታወቂያ በHTML - ያለ ድግግሞሽ"""
     item_id = item.get('id', 'N/A')
     main_cat = item.get('main_category', '')
     price = item.get('price', '-')
@@ -2791,42 +2788,33 @@ def format_marketplace_card_html(item: dict) -> tuple:
         except:
             extra_data = {}
     
-    # አስቸኳይ ሽያጭ ማሳወቂያ
     urgent = "⚡ " if extra_data.get('urgent_sale') else ""
     negotiable = "የሚደራደር" if extra_data.get('negotiable', True) else "የማይደራደር"
     
-    # አዶ እና ርዕስ
     icon = "🚘" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-    price_formatted = format_price(price)
+    price_formatted = format_price_html(price)
     
-    # ዋና ርዕስ
     if extra_data.get('urgent_sale'):
         title = f"🔴 {icon} አስቸኳይ ሽያጭ | #{item_id}"
     else:
         title = f"{icon} {main_cat} ለሽያጭ | #{item_id}"
     
-    # ዝርዝሮች መሰብሰብ - እያንዳንዱ አንድ ጊዜ ብቻ
+    # ዝርዝሮች
     details = []
-    
-    # ሁኔታ
     if extra_data.get('condition'):
         details.append(f"<b>📊 ሁኔታ:</b> {extra_data['condition']}")
-    
-    # ለመኪና
     if extra_data.get('fuel_type'):
         details.append(f"<b>⛽ ነዳጅ:</b> {extra_data['fuel_type']}")
     if extra_data.get('transmission'):
         details.append(f"<b>⚙️ ማርሽ:</b> {extra_data['transmission']}")
     if extra_data.get('mileage'):
         mileage = extra_data['mileage']
-        if mileage.isdigit():
+        if str(mileage).isdigit():
             details.append(f"<b>🛣️ የሄደው:</b> {int(mileage):,} KM")
         else:
             details.append(f"<b>🛣️ የሄደው:</b> {mileage} KM")
     if extra_data.get('car_type'):
         details.append(f"<b>🚗 አይነት:</b> {extra_data['car_type']}")
-    
-    # ለቤት
     if extra_data.get('house_type'):
         details.append(f"<b>🏠 አይነት:</b> {extra_data['house_type']}")
     if extra_data.get('bedrooms'):
@@ -2836,10 +2824,9 @@ def format_marketplace_card_html(item: dict) -> tuple:
     if extra_data.get('parking'):
         details.append(f"<b>🚗 ፓርኪንግ:</b> {extra_data['parking']}")
     
-    # መግለጫ ማጽዳት
     clean_desc = clean_description(desc, 60)
     
-    # HTML ካርድ መገንባት
+    # HTML ካርድ
     card_lines = [
         f"<b>{title}</b>",
         "",
@@ -2847,16 +2834,13 @@ def format_marketplace_card_html(item: dict) -> tuple:
         f"<b>💰 ዋጋ:</b> {price_formatted} ብር <i>({negotiable})</i>",
     ]
     
-    # ዝርዝሮች መጨመር
     for detail in details:
         card_lines.append(detail)
     
-    # መግለጫ (ካለ)
     if clean_desc:
         card_lines.append("")
         card_lines.append(f"<i>📝 {clean_desc}</i>")
     
-    # ስልክ
     card_lines.append("")
     card_lines.append(f"<b>📞 ስልክ:</b> <code>{phone}</code>")
     card_lines.append("")
@@ -2875,21 +2859,15 @@ def format_marketplace_card_html(item: dict) -> tuple:
         ]
     ]
     
-    # ባለቤት ወይም አድሚን ብቻ
     if current_user_id == owner_id or current_user_id == ADMIN_CHAT_ID_INT:
         keyboard.append([
             InlineKeyboardButton("✅ ተሸጧል", callback_data=f"mark_sold_{item_id}")
         ])
     
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    return card_text, reply_markup
+    return card_text, InlineKeyboardMarkup(keyboard)
 
 def format_buyer_request_html(req: dict) -> tuple:
-    """
-    የፈላጊ ጥያቄ በHTML ቅርጸት
-    መመለስ: (card_text, reply_markup)
-    """
+    """የፈላጊ ጥያቄ በHTML"""
     req_id = req.get('id', 'N/A')
     main_cat = req.get('main_category', '')
     desc = req.get('description', '')
@@ -2904,11 +2882,8 @@ def format_buyer_request_html(req: dict) -> tuple:
             extra_data = {}
     
     icon = "🚘" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-    
-    # መግለጫ ማጽዳት
     clean_desc = clean_description(desc, 60)
     
-    # በጀት ቅርጸት
     budget = extra_data.get('budget_range', '')
     if budget:
         try:
@@ -2946,7 +2921,6 @@ def format_buyer_request_html(req: dict) -> tuple:
     
     card_text = "\n".join(card_lines)
     
-    # ቁልፎች
     buyer_id = req.get('user_chat_id')
     keyboard = [
         [
@@ -2958,11 +2932,10 @@ def format_buyer_request_html(req: dict) -> tuple:
     return card_text, InlineKeyboardMarkup(keyboard)
 
 async def view_public_marketplace_html(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የገበያ ቦታ - HTML ቅርጸት (ያለ ድግግሞሽ)"""
+    """የገበያ ቦታ - HTML ቅርጸት"""
     items = get_public_marketplace_items(limit=15)
     user_id = update.effective_user.id
     
-    # የተጠቃሚ መረጃ ለካርድ ማግኘት
     for item in items:
         item['_user_id'] = user_id
     
@@ -3046,7 +3019,6 @@ async def view_requests_html(update: Update, context: ContextTypes.DEFAULT_TYPE)
             reply_markup=reply_markup,
             parse_mode="HTML"
         )
-
 # ==============================================================================
 # ORIGINAL FUNCTIONS (KEPT FOR BACKWARD COMPATIBILITY)
 # ==============================================================================
