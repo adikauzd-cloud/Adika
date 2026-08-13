@@ -1432,6 +1432,7 @@ CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈ
 # 6. HELPER FUNCTIONS
 # ==============================================================================
 
+
 def validate_phone(phone: str) -> bool:
     if not phone:
         return False
@@ -1615,18 +1616,73 @@ def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int
         ])
     return InlineKeyboardMarkup(keyboard)
 
+def resolve_listing_photo(listing: dict):
+    """
+    Telegram ላይ ለመላክ የሚያስችል ፎቶ ይመልሳል።
+    Returns: (file_id_or_None, bytes_or_None)
+    - file_id ካለ → (file_id, None)
+    - base64 ካለ → (None, image_bytes)
+    """
+    import base64
+    candidates = []
+    if listing.get('photo_id'):
+        candidates.append(listing['photo_id'])
+    for ph in (listing.get('photos') or []):
+        if ph and ph not in candidates:
+            candidates.append(ph)
+    for c in candidates:
+        s = str(c)
+        if s.startswith('data:image'):
+            try:
+                header, encoded = s.split(',', 1)
+                return None, base64.b64decode(encoded)
+            except Exception as e:
+                logger.warning(f"base64 photo decode failed: {e}")
+                continue
+        if s and len(s) > 10 and not s.startswith('data:'):
+            return s, None
+    return None, None
+
+
+def format_seller_card(item: dict) -> str:
+    """ለደላሎች እና ለገበያ ቦታ አንድ አይነት ካርድ"""
+    return format_marketplace_card_clean(item)
+
+
 async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
+    """ለደላሎች ማሳወቂያ - አንድ አይነት ካርድ + ፎቶ"""
     try:
         approved_brokers = get_approved_brokers()
         if not approved_brokers:
             return
+
         listing = get_listing_by_id(req_id)
         if not listing:
             return
+
         main_category = listing.get('main_category', '')
         req_type = str(listing.get('req_type', 'BUY')).upper()
         owner_id = listing.get('user_chat_id')
+
+        # አንድ አይነት ካርድ
+        if req_type == "SELL":
+            card_text = format_marketplace_card_clean(listing)
+            kbd_template = [
+                [
+                    InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
+                    InlineKeyboardButton("👤 ለራሴ", callback_data=f"want_myself_{req_id}")
+                ]
+            ]
+        else:
+            card_text = format_buyer_request_clean(listing) if 'format_buyer_request_clean' in dir() else message_text
+            kbd_template = [[
+                InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
+                InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
+            ]]
+
+        file_id, photo_bytes = resolve_listing_photo(listing)
         sent_count = 0
+
         for broker in approved_brokers:
             try:
                 b_id = broker.get('chat_id')
@@ -1634,30 +1690,43 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                     continue
                 prefs = broker.get('notification_prefs', {})
                 if isinstance(prefs, str):
-                    try: prefs = json.loads(prefs)
-                    except: prefs = {}
+                    try:
+                        prefs = json.loads(prefs)
+                    except:
+                        prefs = {}
                 if not prefs.get('enabled', True):
                     continue
                 if main_category in ['መኪና', 'car', 'CAR'] and not prefs.get('car', True):
                     continue
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
-                if req_type == "SELL":
-                    kbd = [[
-                        InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
-                        InlineKeyboardButton("👤 ለራሴ ነው", callback_data=f"want_myself_{req_id}")
-                    ]]
+
+                markup = InlineKeyboardMarkup(kbd_template)
+
+                if file_id:
+                    await bot.send_photo(
+                        chat_id=b_id,
+                        photo=file_id,
+                        caption=card_text,
+                        parse_mode="Markdown",
+                        reply_markup=markup
+                    )
+                elif photo_bytes:
+                    from io import BytesIO
+                    await bot.send_photo(
+                        chat_id=b_id,
+                        photo=BytesIO(photo_bytes),
+                        caption=card_text,
+                        parse_mode="Markdown",
+                        reply_markup=markup
+                    )
                 else:
-                    kbd = [[
-                        InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
-                        InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
-                    ]]
-                await bot.send_message(
-                    chat_id=b_id,
-                    text=message_text,
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup(kbd)
-                )
+                    await bot.send_message(
+                        chat_id=b_id,
+                        text=card_text,
+                        parse_mode="Markdown",
+                        reply_markup=markup
+                    )
                 sent_count += 1
                 await asyncio.sleep(0.05)
             except Exception as e:
