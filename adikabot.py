@@ -915,6 +915,7 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                 pass
 
 def get_listing_by_id(listing_id: int):
+    """በID ማስታወቂያ ማግኘት - ፎቶዎችን ጨምሮ"""
     conn = None
     try:
         conn = get_db_connection()
@@ -930,6 +931,8 @@ def get_listing_by_id(listing_id: int):
                 result['extra_data'] = json.loads(result['extra_data'])
             except:
                 result['extra_data'] = {}
+        
+        # ፎቶዎችን አምጣ
         try:
             cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (listing_id,))
             photo_rows = cursor.fetchall()
@@ -937,6 +940,7 @@ def get_listing_by_id(listing_id: int):
         except Exception as e:
             logger.warning(f"Could not load photos for listing {listing_id}: {e}")
             result['photos'] = []
+        
         return result
     except Exception as e:
         logger.error(f"Get listing by id error: {e}")
