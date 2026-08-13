@@ -3632,9 +3632,9 @@ async def mark_sold_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await query.answer("❌ ስህተት ተከስቷል።", show_alert=True)
 
-# ==============================================================================
+#==============================================================================
 # 15. SUPPORT HANDLER
-# ==============================================================================
+#==============================================================================
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
@@ -3656,9 +3656,9 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     elif update.callback_query:
         await update.callback_query.edit_message_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-# ==============================================================================
+#==============================================================================
 # 16. MAIN ENGINE
-# ==============================================================================
+#==============================================================================
 
 def main():
     global bot_app
@@ -3672,7 +3672,9 @@ def main():
     cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
     cancel_handler = MessageHandler(cancel_filter, go_home)
 
+    # ──────────────────────────────────────────────
     # Buyer Conversation
+    # ──────────────────────────────────────────────
     buyer_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🔍 መግዛት / መከራየት$"), buyer_start)],
         states={
@@ -3690,7 +3692,9 @@ def main():
         allow_reentry=True,
     )
 
+    # ──────────────────────────────────────────────
     # Seller Conversation
+    # ──────────────────────────────────────────────
     seller_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📢 መሸጥ / ማከራየት$"), seller_start)],
         states={
@@ -3728,7 +3732,9 @@ def main():
         allow_reentry=True,
     )
 
+    # ──────────────────────────────────────────────
     # Broker Registration
+    # ──────────────────────────────────────────────
     broker_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)],
         states={
@@ -3742,7 +3748,9 @@ def main():
         allow_reentry=True,
     )
 
-    # Broker Offer Response
+    # ──────────────────────────────────────────────
+    # Broker Offer Response (አለኝ - ለፈላጊ ጥያቄ)
+    # ──────────────────────────────────────────────
     broker_response_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
         states={
@@ -3757,23 +3765,27 @@ def main():
         allow_reentry=True,
     )
 
+    # ──────────────────────────────────────────────
     # Register Handlers
+    # ──────────────────────────────────────────────
     app.add_handler(CommandHandler("start", start))
     app.add_handler(buyer_conv)
     app.add_handler(seller_conv)
     app.add_handler(broker_conv)
     app.add_handler(broker_response_conv)
 
+    # Regular message handlers
     app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
-    app.add_handler(MessageHandler(filters.Regex("^🛍️ የገበያ ቦታ"), view_public_marketplace))
+    app.add_handler(MessageHandler(filters.Regex(r"^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
     app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
     app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
     app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ምርጫ$"), notification_prefs_start))
     app.add_handler(cancel_handler)
 
+    # Callback query handlers
     app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
     app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
-    app.add_handler(CallbackQueryHandler(delete_request_callback, pattern="^delete_req_"))
+    app.add_handler(CallbackQueryHandler(delete_request_callback, pattern=r"^delete_req_"))
     app.add_handler(CallbackQueryHandler(nohave_item_callback, pattern="^nohave_item_"))
     app.add_handler(CallbackQueryHandler(filter_brokers_by_subcity_callback, pattern="^dir_sc_"))
     app.add_handler(CallbackQueryHandler(mark_sold_callback, pattern="^mark_sold_"))
