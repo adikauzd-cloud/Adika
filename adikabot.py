@@ -2360,7 +2360,6 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
            )
        return SELLER_PHOTO
    return SELLER_PHOTO
-
 async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_data = context.user_data
@@ -2374,14 +2373,13 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
     price = user_data.get('price', '')
     phone = user_data.get('phone', '')
     
-    # ንጹህ መግለጫ
     clean_description_text = clean_description(description, 100)
     
-    # ተጨማሪ መረጃ
     extra_data = {
         'negotiable': negotiable,
         'urgent_sale': urgent_sale,
         'telegram_user': telegram_user,
+        'req_type': 'SELL',
     }
     
     if is_car:
@@ -2432,7 +2430,6 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
                 parse_mode="HTML"
             )
             
-            # ፎቶ ካለ አሳይ
             if photos:
                 try:
                     await update.message.reply_photo(
@@ -2443,20 +2440,22 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
                 except Exception as e:
                     logger.error(f"Failed to send photo: {e}")
             
-            # ✅ ለደላሎች ማሳወቅ - ፕሮፌሽናል ካርድ ይጠቀማል
-            notification_text = format_marketplace_card_professional({
+            # ለደላሎች ማሳወቅ - አንድ አይነት ፕሮፌሽናል ካርድ
+            listing_data = {
                 'id': req_id,
                 'main_category': user_data.get('main_category', ''),
                 'sub_category': user_data.get('sub_category', ''),
                 'price': price,
                 'phone': phone,
                 'action_type': user_data.get('action_type', 'መሸጥ'),
+                'req_type': 'SELL',
                 'description': clean_description_text,
                 'extra_data': extra_data
-            })
+            }
+            
+            notification_text = format_marketplace_card_professional(listing_data)
             
             try:
-                # ✅ ፎቶዎችን ይዞ ለደላሎች ላክ
                 await notify_brokers(context.bot, notification_text, req_id, user.id, photos)
                 logger.info(f"✅ Notification sent to brokers for #ADK-{req_id}")
             except Exception as e:
