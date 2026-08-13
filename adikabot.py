@@ -3656,7 +3656,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
     elif update.callback_query:
         await update.callback_query.edit_message_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
-# # ==============================================================================
+#  ==============================================================================
 # 16. MAIN ENGINE
 # ==============================================================================
 
