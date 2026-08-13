@@ -3215,6 +3215,7 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
             if photo_id:
                 photos = [photo_id]
         
+        # ካርዱን አዘጋጅ
         card_text = format_marketplace_card_professional(item)
         reply_markup = build_marketplace_keyboard_clean(
             item_id=item.get('id'),
@@ -3222,6 +3223,7 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
             current_user_id=user_id
         )
         
+        # ፎቶ ካለ ከፎቶ ጋር ላክ
         if photos and len(photos) > 0:
             try:
                 await update.message.reply_photo(
@@ -3266,7 +3268,7 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
     
-    # አዲሶቹ ከታች እንዲታዩ (ASC)
+    # አዲሶቹ ከታች (ASC)
     try:
         listings = get_listings_by_category_ordered(limit=20, offset=0, req_type="BUY", order="ASC")
     except:
@@ -3288,7 +3290,7 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
         f"📋 <b>የፈላጊዎች ዝርዝር</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"👤 <b>{broker_name}</b>\n"
-        f"🔔 <b>ጠቅላላ፡</b> {total} ጥያቄዎች",
+        f"🔔 <b>ጠቅላላ:</b> {total} ጥያቄዎች",
         parse_mode="HTML"
     )
     
