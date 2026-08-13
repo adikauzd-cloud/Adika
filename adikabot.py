@@ -947,18 +947,22 @@ def get_listing_by_id(listing_id: int):
                 conn.close()
             except:
                 pass
-
-def get_listings_by_category(limit=10, offset=0, req_type=None):
+def get_listings_by_category_ordered(limit=10, offset=0, req_type=None, order="DESC"):
+    """ጥያቄዎችን በቅደም ተከተል ለማምጣት (አዲሶቹ ከታች ለመታየት order='ASC')"""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
+        
+        # ደህንነቱ የተጠበቀ order መለኪያ
+        order_clause = "ASC" if order.upper() == "ASC" else "DESC"
+        
         if req_type:
             query = f"""
                 SELECT * FROM listings 
                 WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})
-                ORDER BY created_at DESC 
+                ORDER BY created_at {order_clause}
                 LIMIT {p} OFFSET {p}
             """
             cursor.execute(query, (req_type, limit, offset))
@@ -966,10 +970,11 @@ def get_listings_by_category(limit=10, offset=0, req_type=None):
             query = f"""
                 SELECT * FROM listings 
                 WHERE status = 'pending' 
-                ORDER BY created_at DESC 
+                ORDER BY created_at {order_clause}
                 LIMIT {p} OFFSET {p}
             """
             cursor.execute(query, (limit, offset))
+        
         rows = cursor.fetchall()
         results = []
         for row in rows:
@@ -979,8 +984,19 @@ def get_listings_by_category(limit=10, offset=0, req_type=None):
                     item['extra_data'] = json.loads(item['extra_data'])
                 except:
                     item['extra_data'] = {}
+            
+            # ፎቶዎችን ከ listing_photos ሰንጠረዥ አምጣ
+            try:
+                cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (item['id'],))
+                photo_rows = cursor.fetchall()
+                item['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
+            except Exception as e:
+                logger.warning(f"Could not load photos for listing {item['id']}: {e}")
+                item['photos'] = []
+            
             results.append(item)
-        logger.info(f"📋 Retrieved {len(results)} listings (type={req_type})")
+        
+        logger.info(f"📋 Retrieved {len(results)} listings (type={req_type}, order={order_clause})")
         return results
     except Exception as e:
         logger.error(f"Get listings error: {e}")
@@ -992,27 +1008,83 @@ def get_listings_by_category(limit=10, offset=0, req_type=None):
             except:
                 pass
 
-def count_listings(req_type=None):
+def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
+                action_type, property_type, description, price=None, phone=None, 
+                photo_id=None, extra_data=None, photos=None):
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        if req_type:
-            p = get_placeholder()
-            cursor.execute(
-                f"SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})",
-                (req_type,)
-            )
+        p = get_placeholder()
+        if extra_data is None:
+            extra_data = {}
+        extra_json = json.dumps(extra_data, ensure_ascii=False) if not isinstance(extra_data, str) else extra_data
+        user_chat_id = int(user_chat_id) if user_chat_id else 0
+        user_name = str(user_name or "User")
+        req_type = str(req_type or "BUY").upper()
+        main_category = str(main_category or "መኪና")
+        sub_category = str(sub_category or "")
+        action_type = str(action_type or "")
+        property_type = str(property_type or "")
+        description = str(description or "")
+        price = str(price or "")
+        phone = str(phone or "")
+        photo_id = str(photo_id) if photo_id else None
+        
+        query = f"""
+            INSERT INTO listings 
+            (user_chat_id, user_name, req_type, main_category, sub_category, 
+             action_type, property_type, description, price, phone, photo_id, extra_data, status)
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending')
+        """
+        params = (
+            user_chat_id, user_name, req_type, main_category, 
+            sub_category, action_type, property_type, 
+            description, price, phone, photo_id,
+            extra_json
+        )
+        logger.info(f"📝 Inserting listing: user={user_chat_id}, type={req_type}, cat={main_category}")
+        
+        if DATABASE_URL:
+            cursor.execute(query + " RETURNING id", params)
+            row = cursor.fetchone()
+            if row is None:
+                logger.error("RETURNING id returned None")
+                return None
+            req_id = row["id"] if isinstance(row, dict) else row[0]
         else:
-            cursor.execute("SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending'")
-        row = cursor.fetchone()
-        if isinstance(row, dict):
-            return row.get('cnt', 0)
-        else:
-            return row[0] if row else 0
+            cursor.execute(query, params)
+            req_id = cursor.lastrowid
+            conn.commit()
+        
+        logger.info(f"✅ Listing inserted with ID: {req_id}")
+        
+        # ፎቶዎችን በ listing_photos ሰንጠረዥ ውስጥ አስቀምጥ
+        if photos and req_id:
+            logger.info(f"📸 Saving {len(photos)} photos for listing {req_id}")
+            for photo in photos:
+                try:
+                    # photo ከ WebApp የሚመጣ data:image URL ከሆነ
+                    photo_str = str(photo)
+                    cursor.execute(
+                        f"INSERT INTO listing_photos (listing_id, photo_id) VALUES ({p}, {p})",
+                        (req_id, photo_str)
+                    )
+                except Exception as pe:
+                    logger.error(f"Failed to save photo for listing {req_id}: {pe}")
+            if not DATABASE_URL:
+                conn.commit()
+        
+        logger.info(f"✅ Listing added successfully → #ADK-{req_id}")
+        return req_id
     except Exception as e:
-        logger.error(f"Count listings error: {e}")
-        return 0
+        logger.error(f"❌ Add listing error: {e}", exc_info=True)
+        if conn and not DATABASE_URL:
+            try:
+                conn.rollback()
+            except:
+                pass
+        return None
     finally:
         if conn:
             try:
@@ -1020,20 +1092,36 @@ def count_listings(req_type=None):
             except:
                 pass
 
-def update_listing_status(req_id: int, status: str) -> bool:
+def get_listing_by_id(listing_id: int):
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
-        cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
-        if not DATABASE_URL:
-            conn.commit()
-        logger.info(f"✅ Listing {req_id} status updated to {status}")
-        return True
+        cursor.execute(f"SELECT * FROM listings WHERE id = {p}", (listing_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        result = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
+        if 'extra_data' in result and isinstance(result['extra_data'], str):
+            try:
+                result['extra_data'] = json.loads(result['extra_data'])
+            except:
+                result['extra_data'] = {}
+        
+        # ፎቶዎችን ከ listing_photos ሰንጠረዥ አምጣ
+        try:
+            cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (listing_id,))
+            photo_rows = cursor.fetchall()
+            result['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
+        except Exception as e:
+            logger.warning(f"Could not load photos for listing {listing_id}: {e}")
+            result['photos'] = []
+        
+        return result
     except Exception as e:
-        logger.error(f"Update listing error: {e}")
-        return False
+        logger.error(f"Get listing by id error: {e}")
+        return None
     finally:
         if conn:
             try:
