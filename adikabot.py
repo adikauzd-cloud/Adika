@@ -2414,119 +2414,121 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
    return SELLER_PHOTO
 
 async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE):
-   user = update.effective_user
-   user_data = context.user_data
-   property_subtype = user_data.get('property_subtype', '')
-   description = user_data.get('description', '')
-   telegram_user = user_data.get('telegram_user', '')
-   is_car = user_data.get('main_category') == "car"
-   negotiable = user_data.get('negotiable', True)
-   urgent_sale = user_data.get('urgent_sale', False)
-   negotiable_text = "✅ የሚደራደር" if negotiable else "❌ የማይደራደር"
-   urgent_text = "⚡ **አስቸኳይ ሽያጭ!** " if urgent_sale else ""
-   if property_subtype:
-       description = f"🏠 {property_subtype}\n{description}"
-   desc = (
-       f"{urgent_text}📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ!**\n"
-       f"🔄 አይነት: {user_data.get('action_type')}\n"
-       f"📦 ምድብ: {user_data.get('main_category')}\n"
-       f"📝 ዝርዝር: {description}\n"
-       f"💰 ዋጋ: {user_data.get('price')} ብር ({negotiable_text})\n"
-   )
-   if is_car:
-       if user_data.get('condition'): desc += f"📊 ሁኔታ: {user_data.get('condition')}\n"
-       if user_data.get('fuel_type'): desc += f"⛽ ነዳጅ: {user_data.get('fuel_type')}\n"
-       if user_data.get('transmission'): desc += f"⚙️ ማርሽ: {user_data.get('transmission')}\n"
-       if user_data.get('mileage'): desc += f"🛣️ ኪሎሜትር: {user_data.get('mileage')} KM\n"
-   else:
-       if user_data.get('condition'): desc += f"📊 ሁኔታ: {user_data.get('condition')}\n"
-       if user_data.get('bedrooms'): desc += f"🛏️ መኝታ: {user_data.get('bedrooms')}\n"
-       if user_data.get('parking'): desc += f"🚗 ፓርኪንግ: {user_data.get('parking')}\n"
-   desc += f"📞 ስልክ: {user_data.get('phone')}\n"
-   if telegram_user: desc += f"📱 Telegram: {telegram_user}\n"
-   extra_data = {
-       'negotiable': negotiable,
-       'urgent_sale': urgent_sale,
-       'telegram_user': telegram_user,
-   }
-   if is_car:
-       extra_data.update({
-           'condition': user_data.get('condition', ''),
-           'fuel_type': user_data.get('fuel_type', ''),
-           'transmission': user_data.get('transmission', ''),
-           'mileage': user_data.get('mileage', ''),
-           'car_type': user_data.get('sub_category', ''),
-       })
-   else:
-       extra_data.update({
-           'condition': user_data.get('condition', ''),
-           'bedrooms': user_data.get('bedrooms', ''),
-           'parking': user_data.get('parking', ''),
-           'house_type': property_subtype,
-       })
-   photos = user_data.get('photos', [])
-   photo_id = photos[0] if photos else None
-   try:
-       req_id = add_listing(
-           user_chat_id=user.id,
-           user_name=user.first_name or "User",
-           req_type="SELL",
-           main_category=user_data.get('main_category', ''),
-           sub_category=user_data.get('sub_category', ''),
-           action_type=user_data.get('action_type', 'መሸጥ'),
-           property_type=user_data.get('property_type', ''),
-           description=desc,
-           price=user_data.get('price'),
-           phone=user_data.get('phone'),
-           photo_id=photo_id,
-           extra_data=extra_data,
-           photos=photos
-       )
-       if req_id:
-           await update.message.reply_text(
-               f"✅ **ማስታወቂያዎ በስኬት ተመዝግቧል!** 🎉\n\n"
-               f"🆔 **የማስታወቂያ ቁጥር:** #ADK-{req_id}\n"
-               f"📞 **ስልክ:** {user_data.get('phone')}\n"
-               + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
-               f"\n📌 ማስታወቂያዎ ለደላሎች እና ለፈላጊዎች ተልኳል።",
-               reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-               parse_mode="Markdown"
-           )
-           if photos:
-               try:
-                   await update.message.reply_photo(
-                       photo=photos[0],
-                       caption=f"📸 **የማስታወቂያ #ADK-{req_id} ፎቶ**",
-                       parse_mode="Markdown"
-                   )
-               except Exception as e:
-                   logger.error(f"Failed to send photo: {e}")
-           notification_text = (
-               f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ! (#ADK-{req_id})**\n\n"
-               f"{desc}\n\n"
-               f"👉 ይህን ማስታወቂያ ለፈላጊዎች ማሳወቅ ይችላሉ!"
-           )
-           try:
-               await notify_brokers(context.bot, notification_text, req_id, user.id)
-           except Exception as e:
-               logger.error(f"Failed to notify brokers: {e}")
-       else:
-           await update.message.reply_text(
-               "❌ **ማስታወቂያውን መመዝገብ አልተቻለም።**\n\n"
-               "እባክዎ እንደገና ይሞክሩ ወይም የድጋፍ ቡድናችንን ያነጋግሩ።",
-               reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-               parse_mode="Markdown"
-           )
-   except Exception as e:
-       logger.error(f"❌ Seller save error: {e}", exc_info=True)
-       await update.message.reply_text(
-           f"❌ **ስህተት ተከስቷል፦** {str(e)[:100]}\n\n"
-           "እባክዎ እንደገና ይሞክሩ።",
-           reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-           parse_mode="Markdown"
-       )
-   context.user_data.clear()
-   return ConversationHandler.END
+    user = update.effective_user
+    user_data = context.user_data
+    property_subtype = user_data.get('property_subtype', '')
+    description = user_data.get('description', '')
+    telegram_user = user_data.get('telegram_user', '')
+    is_car = user_data.get('main_category') == "car"
+    negotiable = user_data.get('negotiable', True)
+    urgent_sale = user_data.get('urgent_sale', False)
+    negotiable_text = "✅ የሚደራደር" if negotiable else "❌ የማይደራደር"
+    urgent_text = "⚡ **አስቸኳይ ሽያጭ!** " if urgent_sale else ""
+    if property_subtype:
+        description = f"🏠 {property_subtype}\n{description}"
+    desc = (
+        f"{urgent_text}📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ!**\n"
+        f"🔄 አይነት: {user_data.get('action_type')}\n"
+        f"📦 ምድብ: {user_data.get('main_category')}\n"
+        f"📝 ዝርዝር: {description}\n"
+        f"💰 ዋጋ: {user_data.get('price')} ብር ({negotiable_text})\n"
+    )
+    if is_car:
+        if user_data.get('condition'): desc += f"📊 ሁኔታ: {user_data.get('condition')}\n"
+        if user_data.get('fuel_type'): desc += f"⛽ ነዳጅ: {user_data.get('fuel_type')}\n"
+        if user_data.get('transmission'): desc += f"⚙️ ማርሽ: {user_data.get('transmission')}\n"
+        if user_data.get('mileage'): desc += f"🛣️ ኪሎሜትር: {user_data.get('mileage')} KM\n"
+    else:
+        if user_data.get('condition'): desc += f"📊 ሁኔታ: {user_data.get('condition')}\n"
+        if user_data.get('bedrooms'): desc += f"🛏️ መኝታ: {user_data.get('bedrooms')}\n"
+        if user_data.get('parking'): desc += f"🚗 ፓርኪንግ: {user_data.get('parking')}\n"
+    desc += f"📞 ስልክ: {user_data.get('phone')}\n"
+    if telegram_user: desc += f"📱 Telegram: {telegram_user}\n"
+    extra_data = {
+        'negotiable': negotiable,
+        'urgent_sale': urgent_sale,
+        'telegram_user': telegram_user,
+    }
+    if is_car:
+        extra_data.update({
+            'condition': user_data.get('condition', ''),
+            'fuel_type': user_data.get('fuel_type', ''),
+            'transmission': user_data.get('transmission', ''),
+            'mileage': user_data.get('mileage', ''),
+            'car_type': user_data.get('sub_category', ''),
+        })
+    else:
+        extra_data.update({
+            'condition': user_data.get('condition', ''),
+            'bedrooms': user_data.get('bedrooms', ''),
+            'parking': user_data.get('parking', ''),
+            'house_type': property_subtype,
+        })
+    photos = user_data.get('photos', [])
+    photo_id = photos[0] if photos else None
+    
+    try:
+        req_id = add_listing(
+            user_chat_id=user.id,
+            user_name=user.first_name or "User",
+            req_type="SELL",
+            main_category=user_data.get('main_category', ''),
+            sub_category=user_data.get('sub_category', ''),
+            action_type=user_data.get('action_type', 'መሸጥ'),
+            property_type=user_data.get('property_type', ''),
+            description=desc,
+            price=user_data.get('price'),
+            phone=user_data.get('phone'),
+            photo_id=photo_id,
+            extra_data=extra_data,
+            photos=photos  # ፎቶዎችን ለ add_listing አስተላልፍ
+        )
+        if req_id:
+            await update.message.reply_text(
+                f"✅ **ማስታወቂያዎ በስኬት ተመዝግቧል!** 🎉\n\n"
+                f"🆔 **የማስታወቂያ ቁጥር:** #ADK-{req_id}\n"
+                f"📞 **ስልክ:** {user_data.get('phone')}\n"
+                + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
+                f"\n📌 ማስታወቂያዎ ለደላሎች እና ለፈላጊዎች ተልኳል።",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+                parse_mode="Markdown"
+            )
+            if photos:
+                try:
+                    await update.message.reply_photo(
+                        photo=photos[0],
+                        caption=f"📸 **የማስታወቂያ #ADK-{req_id} ፎቶ**",
+                        parse_mode="Markdown"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to send photo: {e}")
+            
+            notification_text = (
+                f"📢 **አዲስ የሽያጭ/ኪራይ ማስታወቂያ! (#ADK-{req_id})**\n\n"
+                f"{desc}\n\n"
+                f"👉 ይህን ማስታወቂያ ለፈላጊዎች ማሳወቅ ይችላሉ!"
+            )
+            try:
+                await notify_brokers(context.bot, notification_text, req_id, user.id, photos)
+            except Exception as e:
+                logger.error(f"Failed to notify brokers: {e}")
+        else:
+            await update.message.reply_text(
+                "❌ **ማስታወቂያውን መመዝገብ አልተቻለም።**\n\n"
+                "እባክዎ እንደገና ይሞክሩ ወይም የድጋፍ ቡድናችንን ያነጋግሩ።",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+                parse_mode="Markdown"
+            )
+    except Exception as e:
+        logger.error(f"❌ Seller save error: {e}", exc_info=True)
+        await update.message.reply_text(
+            f"❌ **ስህተት ተከስቷል፦** {str(e)[:100]}\n\n"
+            "እባክዎ እንደገና ይሞክሩ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
+        )
+    context.user_data.clear()
+    return ConversationHandler.END
 
 
 # ==============================================================================
