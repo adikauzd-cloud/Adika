@@ -3109,35 +3109,51 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
     is_admin = (user_id == ADMIN_CHAT_ID_INT)
     broker = get_broker(user_id)
     
+    # ፈላጊዎችን ለማየት ደላላ ወይም አድሚን መሆን አለበት
     if not is_admin and not broker:
         await update.message.reply_text(
-            "⛔ ይህን ማየት የሚችሉት የተረጋገጡ ደላሎች ብቻ ናቸው",
+            "⛔ ይህን ማየት የሚችሉት የተረጋገጡ ደላሎች ብቻ ናቸው!\n\n"
+            "📝 እባክዎን መጀመሪያ '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return
     
     if not is_admin and broker.get('status') != 'approved':
         await update.message.reply_text(
-            "⏳ ምዝገባዎ ገና አልጸደቀም",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            "⏳ **ምዝገባዎ ገና በአድሚን አልጸደቀም!**\n\n"
+            "እባክዎ አድሚኑ እስኪያረጋግጥ ይጠብቁ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
         )
         return
     
-    # አዲሶቹ ከታች እንዲታዩ ከታች አስቀምጠናል (ASC)
-    listings = get_listings_by_category_ordered(limit=20, offset=0, req_type="BUY", order="ASC")
+    # ✅ አዲሶቹ ከታች እንዲታዩ ASC (ከታች አስቀምጠናል)
+    try:
+        listings = get_listings_by_category_ordered(limit=20, offset=0, req_type="BUY", order="ASC")
+    except Exception as e:
+        logger.error(f"Error getting listings: {e}")
+        # አሮጌውን ዘዴ ተጠቀም
+        listings = get_listings_by_category(limit=20, offset=0, req_type="BUY")
+    
     total = count_listings(req_type="BUY")
     
     if not listings:
         await update.message.reply_text(
-            f"📭 ምንም ጥያቄዎች የሉም",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            f"📭 **ምንም ንቁ ጥያቄዎች የሉም**\n\n"
+            f"አዲስ ጥያቄ ሲመጣ እዚህ ይታያል።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
         )
         return
     
     broker_name = "👑 አድሚን" if is_admin else (broker.get('full_name') if broker else "ደላላ")
     
     await update.message.reply_text(
-        f"🔍 {total} ጥያቄዎች • {broker_name}",
+        f"📋 **የፈላጊዎች ዝርዝር**\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **{broker_name}**\n"
+        f"🔔 **ጠቅላላ፡** {total} ጥያቄዎች\n"
+        f"━━━━━━━━━━━━━━━━━━━",
         parse_mode="Markdown"
     )
     
@@ -3148,11 +3164,46 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
             buyer_id=listing.get('user_chat_id')
         )
         
-        await update.message.reply_text(
-            card_text,
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
+        try:
+            await update.message.reply_text(
+                card_text,
+                reply_markup=reply_markup,
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Failed to send listing: {e}")
+            continue
+
+async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የደላሎች ማውጫ"""
+    keyboard = [[InlineKeyboardButton(sc, callback_data=f"dir_sc_{sc}")] for sc in SUB_CITIES]
+    keyboard.append([InlineKeyboardButton("🌐 የሁሉም ክፍለ ከተሞች", callback_data="dir_sc_ሁሉም")])
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+
+    await update.message.reply_text(
+        "📍 **የደላሎችና አቅራቢዎች ማውጫ**\n\n"
+        "እባክዎን ማየት የሚፈልጉበትን ክፍለ ከተማ ይምረጡ፦",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+async def filter_brokers_by_subcity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """በክፍለ ከተማ ደላሎችን ማጣራት"""
+    query = update.callback_query
+    await query.answer()
+
+    sub_city = query.data.replace("dir_sc_", "")
+    brokers = get_approved_brokers_directory(sub_city=sub_city)
+
+    if not brokers:
+        await query.edit_message_text(f"📭 በ{sub_city} ክፍለ ከተማ የተመዘገቡ ደላሎች አልተገኙም።")
+        return
+
+    msg = f"📋 **የተረጋገጡ ደላሎች ዝርዝር ({sub_city})፦**\n━━━━━━━━━━━━━━━━━━━\n\n"
+    for b in brokers:
+        msg += format_broker_profile(b) + "\n\n"
+
+    await query.edit_message_text(msg, parse_mode="Markdown")
 # ==============================================================================
 # ORIGINAL FUNCTIONS (KEPT FOR BACKWARD COMPATIBILITY)
 # ==============================================================================
