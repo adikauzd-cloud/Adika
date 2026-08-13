@@ -2339,21 +2339,19 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
     negotiable = user_data.get('negotiable', True)
     urgent_sale = user_data.get('urgent_sale', False)
     
-    # የዋጋ እና ሌሎች መረጃዎች
     price = user_data.get('price', '')
     phone = user_data.get('phone', '')
     
-    # ንጹህ መግለጫ ማዘጋጀት - ያለ ድግግሞሽ
+    # ንጹህ መግለጫ
     clean_description_text = clean_description(description, 100)
     
-    # ተጨማሪ መረጃ ማዘጋጀት
+    # ተጨማሪ መረጃ
     extra_data = {
         'negotiable': negotiable,
         'urgent_sale': urgent_sale,
         'telegram_user': telegram_user,
     }
     
-    # ለመኪና ዝርዝሮች
     if is_car:
         extra_data.update({
             'condition': user_data.get('condition', ''),
@@ -2363,50 +2361,12 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
             'car_type': user_data.get('sub_category', ''),
         })
     else:
-        # ለቤት ዝርዝሮች
         extra_data.update({
             'condition': user_data.get('condition', ''),
             'bedrooms': user_data.get('bedrooms', ''),
-            'bathrooms': user_data.get('bathrooms', ''),
             'parking': user_data.get('parking', ''),
             'house_type': property_subtype,
         })
-    
-    # መግለጫ ማዘጋጀት - ንጹህ እና ያለ ድግግሞሽ
-    desc_parts = []
-    
-    # አስቸኳይ ከሆነ
-    if urgent_sale:
-        desc_parts.append("⚡ አስቸኳይ ሽያጭ!")
-    
-    # ዋና መግለጫ
-    if clean_description_text:
-        desc_parts.append(clean_description_text)
-    
-    # ዝርዝሮች በአንድ መስመር
-    details = []
-    if is_car:
-        if extra_data.get('condition'):
-            details.append(f"ሁኔታ: {extra_data['condition']}")
-        if extra_data.get('fuel_type'):
-            details.append(f"ነዳጅ: {extra_data['fuel_type']}")
-        if extra_data.get('transmission'):
-            details.append(f"ማርሽ: {extra_data['transmission']}")
-        if extra_data.get('mileage'):
-            details.append(f"ኪሎሜትር: {extra_data['mileage']}KM")
-    else:
-        if extra_data.get('condition'):
-            details.append(f"ሁኔታ: {extra_data['condition']}")
-        if extra_data.get('bedrooms'):
-            details.append(f"መኝታ: {extra_data['bedrooms']}")
-        if extra_data.get('parking'):
-            details.append(f"ፓርኪንግ: {extra_data['parking']}")
-    
-    if details:
-        desc_parts.append(" | ".join(details))
-    
-    # የመጨረሻ መግለጫ
-    final_description = "\n".join(desc_parts)
     
     photos = user_data.get('photos', [])
     photo_id = photos[0] if photos else None
@@ -2420,7 +2380,7 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
             sub_category=user_data.get('sub_category', ''),
             action_type=user_data.get('action_type', 'መሸጥ'),
             property_type=user_data.get('property_type', ''),
-            description=final_description,
+            description=clean_description_text,
             price=price,
             phone=phone,
             photo_id=photo_id,
@@ -2431,13 +2391,13 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
         if req_id:
             # ለተጠቃሚ ማሳወቅ
             await update.message.reply_text(
-                f"✅ **ማስታወቂያዎ በስኬት ተመዝግቧል!** 🎉\n\n"
-                f"🆔 **የማስታወቂያ ቁጥር:** #ADK-{req_id}\n"
-                f"📞 **ስልክ:** {phone}\n"
-                + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
+                f"✅ <b>ማስታወቂያዎ በስኬት ተመዝግቧል!</b> 🎉\n\n"
+                f"🆔 <b>የማስታወቂያ ቁጥር:</b> #ADK-{req_id}\n"
+                f"📞 <b>ስልክ:</b> {phone}\n"
+                + (f"📱 <b>Telegram:</b> {telegram_user}\n" if telegram_user else "") +
                 f"\n📌 ማስታወቂያዎ ለደላሎች እና ለፈላጊዎች ተልኳል።",
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
             
             # ፎቶ ካለ አሳይ
@@ -2445,40 +2405,42 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
                 try:
                     await update.message.reply_photo(
                         photo=photos[0],
-                        caption=f"📸 **የማስታወቂያ #ADK-{req_id} ፎቶ**",
-                        parse_mode="Markdown"
+                        caption=f"📸 የማስታወቂያ #ADK-{req_id} ፎቶ",
+                        parse_mode="HTML"
                     )
                 except Exception as e:
                     logger.error(f"Failed to send photo: {e}")
             
-            # ለደላሎች ማሳወቅ - ንጹህ ካርድ ይጠቀማል
-            notification_text = format_seller_card({
+            # ✅ ለደላሎች ማሳወቅ - ፕሮፌሽናል ካርድ ይጠቀማል
+            notification_text = format_marketplace_card_professional({
                 'id': req_id,
                 'main_category': user_data.get('main_category', ''),
                 'sub_category': user_data.get('sub_category', ''),
                 'price': price,
                 'phone': phone,
                 'action_type': user_data.get('action_type', 'መሸጥ'),
-                'description': final_description,
+                'description': clean_description_text,
                 'extra_data': extra_data
             })
             
             try:
+                # ✅ ፎቶዎችን ይዞ ለደላሎች ላክ
                 await notify_brokers(context.bot, notification_text, req_id, user.id, photos)
+                logger.info(f"✅ Notification sent to brokers for #ADK-{req_id}")
             except Exception as e:
                 logger.error(f"Failed to notify brokers: {e}")
         else:
             await update.message.reply_text(
-                "❌ **ማስታወቂያውን መመዝገብ አልተቻለም።**",
+                "❌ <b>ማስታወቂያውን መመዝገብ አልተቻለም።</b>",
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-                parse_mode="Markdown"
+                parse_mode="HTML"
             )
     except Exception as e:
         logger.error(f"❌ Seller save error: {e}", exc_info=True)
         await update.message.reply_text(
-            f"❌ **ስህተት ተከስቷል፦** {str(e)[:100]}",
+            f"❌ <b>ስህተት ተከስቷል:</b> {str(e)[:100]}",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-            parse_mode="Markdown"
+            parse_mode="HTML"
         )
     
     context.user_data.clear()
