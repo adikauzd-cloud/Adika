@@ -1434,8 +1434,6 @@ PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ
 FUEL_TYPES = ["⛽ ቤንዚን", "🛢️ ናፍጣ", "⚡ ኤሌክትሪክ", "🔋 ሀይብሪድ"]
 TRANSMISSION_TYPES = ["🕹️ ማንዋል", "🤖 ኦቶማቲክ"]
 CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈልግ"]
-
-
 # ==============================================================================
 # 6. HELPER FUNCTIONS
 # ==============================================================================
@@ -1467,6 +1465,31 @@ def validate_price(price: str) -> bool:
     price = price.replace(',', '').replace(' ', '')
     return price.isdigit()
 
+def clean_description(desc: str, max_len: int = 40) -> str:
+    """መግለጫን ንፁህ ማድረግ - የማያስፈልጉ ነገሮችን ማስወገድ"""
+    if not desc:
+        return ""
+    
+    junk = [
+        'ዋጋ:', 'ስልክ:', 'አዲስ የሽያጭ', 'WebApp', 
+        'አስቸኳይ ሽያጭ', 'መግለጫ:', '📝', '💰', '📞',
+        '⚡', '📢', '🔄', '📦', 'NEW', 'እዱስ',
+        '🔥 ለሽያጭ', '🔥 አሸጋጭ', 'የገበያ ቦታ',
+        'ለሽያጭ', 'ለኪራይ',
+        'አይነት:', 'ምድብ:', 'ሁኔታ:', 'ነዳጅ:', 'ማርሽ:', 'ኪሎሜትር:'
+    ]
+    
+    clean = desc
+    for j in junk:
+        clean = clean.replace(j, '')
+    
+    clean = '\n'.join(line.strip() for line in clean.split('\n') if line.strip())
+    
+    if len(clean) > max_len:
+        clean = clean[:max_len] + "..."
+    
+    return clean.strip()
+
 def format_buyer_card(req: dict) -> str:
     req_id = req.get('id', 'N/A')
     main_cat = req.get('main_category', '')
@@ -1475,8 +1498,10 @@ def format_buyer_card(req: dict) -> str:
     prop_type = req.get('property_type', '-')
     desc = req.get('description', '')
     phone = req.get('phone', '-')
+
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
     short_desc = (desc[:150] + "...") if len(desc) > 150 else desc
+
     return (
         f"╭────────────────────╮\n"
         f"│  {icon}  **ፈላጊ ጥያቄ**\n"
@@ -1490,59 +1515,67 @@ def format_buyer_card(req: dict) -> str:
     )
 
 def format_seller_card(item: dict) -> str:
+    """የሻጭ ማስታወቂያ - ድግግሞሽ ተወግዷል"""
     item_id = item.get('id', 'N/A')
     main_cat = item.get('main_category', '')
-    action_type = item.get('action_type', '')
-    sub_cat = item.get('sub_category', '-')
-    desc = item.get('description', '')
     price = item.get('price', '-')
     phone = item.get('phone', '-')
+    
     extra_data = item.get('extra_data', {})
     if isinstance(extra_data, str):
         try:
             extra_data = json.loads(extra_data)
         except:
             extra_data = {}
-    is_urgent = extra_data.get('urgent_sale', False)
-    is_negotiable = extra_data.get('negotiable', True)
+    
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-    tag = "🔴 ለሽያጭ" if action_type in ["መሸጥ", "SELL"] else "🔵 ለኪራይ"
-    urgent = "⚡" if is_urgent else ""
-    negotiable = "የሚደራደር" if is_negotiable else "የማይደራደር"
+    negotiable = "የሚደራደር" if extra_data.get('negotiable', True) else "የማይደራደር"
+    
+    # ዝርዝሮች በአንድ መስመር ብቻ
     details = []
-    if main_cat in ["መኪና", "car", "CAR"]:
-        if extra_data.get('condition'): details.append(f"📊 {extra_data['condition']}")
-        if extra_data.get('fuel_type'): details.append(f"⛽ {extra_data['fuel_type']}")
-        if extra_data.get('transmission'): details.append(f"⚙️ {extra_data['transmission']}")
-        if extra_data.get('mileage'): details.append(f"🛣️ {extra_data['mileage']} KM")
-    else:
-        if extra_data.get('condition'): details.append(f"📊 {extra_data['condition']}")
-        if extra_data.get('bedrooms'): details.append(f"🛏️ {extra_data['bedrooms']} መኝታ")
-        if extra_data.get('bathrooms'): details.append(f"🛁 {extra_data['bathrooms']} መታጠቢያ")
-        if extra_data.get('parking'): details.append(f"🚗 ፓርኪንግ: {extra_data['parking']}")
-    details_text = "\n".join(details)
-    clean_desc = desc.strip()
-    junk_words = ["ዋጋ:", "ስልክ:", "አዲስ የሽያጭ", "WebApp", "አስቸኳይ ሽያጭ", "መግለጫ:", "📝", "💰", "📞"]
-    lines = []
-    for line in clean_desc.split('\n'):
-        line = line.strip()
-        if line and not any(j in line for j in junk_words):
-            lines.append(line)
-    clean_desc = " • ".join(lines) if lines else "መግለጫ የለም"
-    if len(clean_desc) > 120:
-        clean_desc = clean_desc[:120] + "..."
-    return (
-        f"╭────────────────────╮\n"
-        f"│  {icon}  {tag} {urgent}\n"
-        f"│  `#ADK-{item_id}`\n"
-        f"╰────────────────────╯\n\n"
-        f"📦 {main_cat} ({sub_cat})\n"
-        f"💰 `{price}` ብር • {negotiable}\n"
-        f"{details_text}\n\n"
-        f"📝 {clean_desc}\n\n"
-        f"📞 `{phone}`\n"
-        f"──────────────────────"
-    )
+    if extra_data.get('condition'):
+        details.append(extra_data['condition'])
+    if extra_data.get('fuel_type'):
+        details.append(extra_data['fuel_type'])
+    if extra_data.get('transmission'):
+        details.append(extra_data['transmission'])
+    if extra_data.get('mileage'):
+        details.append(f"{extra_data['mileage']}KM")
+    if extra_data.get('bedrooms'):
+        details.append(f"{extra_data['bedrooms']} መኝታ")
+    if extra_data.get('bathrooms'):
+        details.append(f"{extra_data['bathrooms']} መታጠቢያ")
+    if extra_data.get('parking'):
+        details.append(f"ፓርኪንግ: {extra_data['parking']}")
+    
+    details_text = " • ".join(details) if details else ""
+    
+    # መግለጫ (ንፁህ)
+    desc = item.get('description', '')
+    clean_desc = clean_description(desc, 40)
+    
+    # ንጹህ ካርድ - ያለ ድግግሞሽ
+    lines = [
+        "┌──────────────────────────┐",
+        f"│ {icon} #{item_id}",
+        f"│ {main_cat}",
+        f"│ 💰 {price} ብር • {negotiable}",
+    ]
+    
+    if details_text:
+        lines.append(f"│ {details_text}")
+    
+    if clean_desc:
+        lines.append("├──────────────────────────┤")
+        lines.append(f"│ {clean_desc}")
+    
+    lines.extend([
+        "├──────────────────────────┤",
+        f"│ 📞 {phone}",
+        "└──────────────────────────┘"
+    ])
+    
+    return "\n".join(lines)
 
 def format_broker_profile(b: dict) -> str:
     stars = "⭐" * int(float(b.get('rating', 5)))
@@ -1636,8 +1669,6 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
         logger.info(f"✅ Sent to {sent_count} brokers for #ADK-{req_id}")
     except Exception as e:
         logger.error(f"notify_brokers error: {e}", exc_info=True)
-
-
 # ==============================================================================
 # 7. CONVERSATION STATES
 # ==============================================================================
