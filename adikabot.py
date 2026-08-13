@@ -2800,7 +2800,7 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 # 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY - CLEAN & PROFESSIONAL
 # ==============================================================================
 
-def clean_description(desc: str, max_len: int = 80) -> str:
+def clean_description(desc: str, max_len: int = 60) -> str:
     """መግለጫን ንፁህ ማድረግ - የማያስፈልጉ ነገሮችን ማስወገድ"""
     if not desc:
         return ""
@@ -2811,7 +2811,11 @@ def clean_description(desc: str, max_len: int = 80) -> str:
         '⚡', '📢', '🔄', '📦', 'NEW', 'እዱስ',
         '🔥 ለሽያጭ', '🔥 አሸጋጭ', 'የገበያ ቦታ',
         'ለሽያጭ', 'ለኪራይ',
-        'አይነት:', 'ምድብ:', 'ሁኔታ:', 'ነዳጅ:', 'ማርሽ:', 'ኪሎሜትር:'
+        'አይነት:', 'ምድብ:', 'ሁኔታ:', 'ነዳጅ:', 'ማርሽ:', 'ኪሎሜትር:',
+        'መሸጥ', 'ማከራየት',
+        # ኢሞጂዎችን አስወግድ
+        '🚗', '🏠', '✨', '🔍', '📦', '💰', '📞', '📝', '📋',
+        '🛏️', '🛁', '🚗', '⛽', '⚙️', '🛣️', '📊'
     ]
     
     clean = desc
@@ -2828,7 +2832,7 @@ def clean_description(desc: str, max_len: int = 80) -> str:
 
 def format_marketplace_card_professional(item: dict) -> str:
     """
-    ፕሮፌሽናል የገበያ ቦታ ካርድ - ውብ እና ግልጽ
+    ፕሮፌሽናል የገበያ ቦታ ካርድ - ያለ ድግግሞሽ እና ያለ ተጨማሪ ኢሞጂ
     """
     item_id = item.get('id', 'N/A')
     main_cat = item.get('main_category', '')
@@ -2844,7 +2848,7 @@ def format_marketplace_card_professional(item: dict) -> str:
         except:
             extra_data = {}
 
-    # ርዕስ እና አዶ
+    # ርዕስ
     if main_cat in ["መኪና", "car", "CAR"]:
         icon = "✨"
         title = "VEHICLE LISTING"
@@ -2852,7 +2856,7 @@ def format_marketplace_card_professional(item: dict) -> str:
         icon = "🏠"
         title = "PROPERTY LISTING"
 
-    # ድርጊት መለያ
+    # ድርጊት መለያ (ያለ ኢሞጂ)
     if action in ["መሸጥ", "SELL"]:
         action_label = "ለሽያጭ"
     elif action in ["ማከራየት", "RENT"]:
@@ -2864,13 +2868,15 @@ def format_marketplace_card_professional(item: dict) -> str:
     negotiable = "የሚደራደር" if extra_data.get('negotiable', True) else "የማይደራደር"
     urgent = " ⚡ አስቸኳይ" if extra_data.get('urgent_sale') else ""
 
-    # ዋና ርዕስ
+    # ዋና ርዕስ - ያለ ኢሞጂ
     title_display = main_cat
     if sub_cat:
-        title_display += f" ({sub_cat})"
+        # ኢሞጂዎችን ከሱብ ካቴጎሪ አስወግድ
+        clean_sub = sub_cat.replace('🚗', '').replace('🚚', '').replace('🚜', '').strip()
+        title_display += f" ({clean_sub})"
 
     # ============================================================
-    # ካርድ መገንባት
+    # ካርድ መገንባት - ያለ ድግግሞሽ
     # ============================================================
     lines = [
         f"{icon} <b>{title}</b> • <code>#ADK-{item_id}</code>",
@@ -2880,52 +2886,124 @@ def format_marketplace_card_professional(item: dict) -> str:
         ""
     ]
 
-    # ዝርዝር መረጃ
+    # ዝርዝር መረጃ - ያለ ኢሞጂ
     details = []
     if main_cat in ["መኪና", "car", "CAR"]:
-        # መኪና ዝርዝሮች
         if extra_data.get('condition'):
-            details.append(f"├ 📊 <b>ሁኔታ፡</b> {extra_data['condition']}")
+            details.append(f"├ ሁኔታ: {extra_data['condition']}")
         if extra_data.get('fuel_type'):
-            details.append(f"├ ⛽ <b>ነዳጅ፡</b> {extra_data['fuel_type']}")
+            details.append(f"├ ነዳጅ: {extra_data['fuel_type']}")
         if extra_data.get('transmission'):
-            details.append(f"├ ⚙️ <b>ጊር፡</b> {extra_data['transmission']}")
+            details.append(f"├ ጊር: {extra_data['transmission']}")
         if extra_data.get('mileage'):
-            details.append(f"├ 🛣️ <b>ኪሎሜትር፡</b> {extra_data['mileage']} KM")
+            details.append(f"├ ኪሎሜትር: {extra_data['mileage']} KM")
         if extra_data.get('car_type'):
-            details.append(f"├ 🚗 <b>አይነት፡</b> {extra_data['car_type']}")
+            clean_car_type = extra_data['car_type'].replace('🚗', '').replace('🚚', '').replace('🚜', '').strip()
+            details.append(f"├ አይነት: {clean_car_type}")
     else:
-        # ቤት ዝርዝሮች
         if extra_data.get('condition'):
-            details.append(f"├ 📊 <b>ሁኔታ፡</b> {extra_data['condition']}")
+            details.append(f"├ ሁኔታ: {extra_data['condition']}")
         if extra_data.get('bedrooms'):
-            details.append(f"├ 🛏️ <b>መኝታ፡</b> {extra_data['bedrooms']}")
+            details.append(f"├ መኝታ: {extra_data['bedrooms']}")
         if extra_data.get('bathrooms'):
-            details.append(f"├ 🛁 <b>መታጠቢያ፡</b> {extra_data['bathrooms']}")
+            details.append(f"├ መታጠቢያ: {extra_data['bathrooms']}")
         if extra_data.get('parking'):
-            details.append(f"├ 🚗 <b>ፓርኪንግ፡</b> {extra_data['parking']}")
+            details.append(f"├ ፓርኪንግ: {extra_data['parking']}")
         if extra_data.get('house_type'):
-            details.append(f"├ 🏠 <b>አይነት፡</b> {extra_data['house_type']}")
+            details.append(f"├ አይነት: {extra_data['house_type']}")
 
     if details:
-        lines.append("⚙️ <b>ዝርዝር መረጃ</b>")
+        lines.append("⚙️ ዝርዝር መረጃ")
         lines.extend(details)
         lines.append("")
 
-    # ተጨማሪ መግለጫ
-    desc = clean_description(item.get('description', ''), 80)
+    # ተጨማሪ መግለጫ - ንጹህ
+    desc = clean_description(item.get('description', ''), 60)
     if desc:
-        lines.append(f"📝 <b>ተጨማሪ፡</b> {desc}")
+        lines.append(f"📝 ተጨማሪ: {desc}")
         lines.append("")
 
     # ስልክ
     lines.extend([
         "━━━━━━━━━━━━━━━━━━━━━",
-        f"📞 <b>ያነጋግሩ፡</b> <code>{phone}</code>"
+        f"📞 <b>ያነጋግሩ:</b> <code>{phone}</code>"
     ])
 
     return "\n".join(lines)
 
+def format_seller_card(item: dict) -> str:
+    """ለደላሎች የሚላከው ካርድ - ከገበያ ቦታ ጋር ተመሳሳይ (ያለ ድግግሞሽ)"""
+    return format_marketplace_card_professional(item)
+
+def format_buyer_request_professional(req: dict) -> str:
+    """
+    ፕሮፌሽናል የፈላጊ ጥያቄ ካርድ - ያለ ድግግሞሽ
+    """
+    req_id = req.get('id', 'N/A')
+    main_cat = req.get('main_category', '')
+    action = req.get('action_type', '')
+    sub_cat = req.get('sub_category', '') or ''
+    prop = req.get('property_type', '') or ''
+    phone = req.get('phone', '-')
+    
+    extra_data = req.get('extra_data', {})
+    if isinstance(extra_data, str):
+        try:
+            extra_data = json.loads(extra_data)
+        except:
+            extra_data = {}
+    
+    # ርዕስ
+    if main_cat in ["መኪና", "car", "CAR"]:
+        icon = "🔍"
+        title = "VEHICLE REQUEST"
+    else:
+        icon = "🔍"
+        title = "PROPERTY REQUEST"
+    
+    # በጀት
+    budget = extra_data.get('budget_range', '') or req.get('price', '')
+    if budget:
+        budget_text = f"💰 <b>{budget} ብር</b>"
+    else:
+        budget_text = "💰 በጀት አልተገለጸም"
+    
+    # ዝርዝር - ያለ ኢሞጂ
+    title_display = main_cat
+    if sub_cat:
+        clean_sub = sub_cat.replace('🚗', '').replace('🚚', '').replace('🚜', '').strip()
+        title_display += f" ({clean_sub})"
+    if prop:
+        clean_prop = prop.replace('🏠', '').replace('🏢', '').replace('🏡', '').strip()
+        title_display += f" • {clean_prop}"
+    
+    # ============================================================
+    # ካርድ መገንባት - ያለ ድግግሞሽ
+    # ============================================================
+    lines = [
+        f"{icon} <b>{title}</b> • <code>#ADK-{req_id}</code>",
+        "━━━━━━━━━━━━━━━━━━━━━",
+        f"📌 <b>{title_display}</b>",
+        budget_text,
+        ""
+    ]
+    
+    if action:
+        clean_action = action.replace('🛍️', '').replace('🔑', '').strip()
+        lines.insert(3, f"📋 {clean_action}")
+    
+    # መግለጫ - ንጹህ
+    desc = clean_description(req.get('description', ''), 60)
+    if desc:
+        lines.append(f"📝 ፍላጎት: {desc}")
+        lines.append("")
+    
+    lines.extend([
+        "━━━━━━━━━━━━━━━━━━━━━",
+        f"📞 <b>ያነጋግሩ:</b> <code>{phone}</code>"
+    ])
+    
+    return "\n".join(lines)
 def format_seller_card(item: dict) -> str:
     """ለደላሎች የሚላከው ካርድ - ከገበያ ቦታ ጋር ተመሳሳይ"""
     return format_marketplace_card_professional(item)
