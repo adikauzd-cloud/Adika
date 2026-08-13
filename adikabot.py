@@ -2774,7 +2774,7 @@ def clean_description(desc: str, max_len: int = 40) -> str:
     return clean.strip()
 
 def format_marketplace_card_clean(item: dict) -> str:
-    """የገበያ ቦታ ካርድ - ንጹህና የሚያምር"""
+    """የገበያ ቦታ ካርድ - ንጹህና የሚያምር (ለሁለቱም ገበያ ቦታ እና ደላላ ይጠቅማል)"""
     item_id = item.get('id', 'N/A')
     main_cat = item.get('main_category', '')
     sub_cat = item.get('sub_category', '') or ''
@@ -2805,6 +2805,8 @@ def format_marketplace_card_clean(item: dict) -> str:
             specs.append(extra_data['transmission'])
         if extra_data.get('mileage'):
             specs.append(f"{extra_data['mileage']} KM")
+        if extra_data.get('car_type'):
+            specs.append(extra_data['car_type'])
     else:
         if extra_data.get('condition'):
             specs.append(extra_data['condition'])
@@ -2814,8 +2816,10 @@ def format_marketplace_card_clean(item: dict) -> str:
             specs.append(f"{extra_data['bathrooms']} መታጠቢያ")
         if extra_data.get('parking'):
             specs.append(f"ፓርኪንግ {extra_data['parking']}")
+        if extra_data.get('house_type'):
+            specs.append(extra_data['house_type'])
 
-    specs_line = " • ".join(specs) if specs else ""
+    specs_line = " · ".join(specs) if specs else ""
     title = f"{main_cat}" + (f" ({sub_cat})" if sub_cat else "")
 
     # መግለጫ (አጭርና ንጹህ)
@@ -2825,7 +2829,7 @@ def format_marketplace_card_clean(item: dict) -> str:
         f"{icon} **{tag}{urgent}**  `#ADK-{item_id}`\n"
         f"────────────────────\n"
         f"📦 {title}\n"
-        f"💰 **{price}** ብር • {negotiable}\n"
+        f"💰 **{price}** ብር · {negotiable}\n"
     )
     if specs_line:
         card += f"📋 {specs_line}\n"
@@ -2837,7 +2841,57 @@ def format_marketplace_card_clean(item: dict) -> str:
     )
     return card
 
+def format_seller_card(item: dict) -> str:
+    """ለደላሎች የሚላከው ካርድ - ከገበያ ቦታ ጋር ተመሳሳይ"""
+    return format_marketplace_card_clean(item)
 
+def format_buyer_request_clean(req: dict) -> str:
+    """የፈላጊ ጥያቄ ካርድ - ንጹህ (ከገበያ ቦታ ጋር ተመሳሳይ ቅርጸት)"""
+    req_id = req.get('id', 'N/A')
+    main_cat = req.get('main_category', '')
+    action = req.get('action_type', '')
+    sub_cat = req.get('sub_category', '') or ''
+    prop = req.get('property_type', '') or ''
+    phone = req.get('phone', '-')
+    
+    # ዋጋ/በጀት ከ extra_data ወይም ከ price
+    extra_data = req.get('extra_data', {})
+    if isinstance(extra_data, str):
+        try:
+            extra_data = json.loads(extra_data)
+        except:
+            extra_data = {}
+    
+    budget = extra_data.get('budget_range', '') or req.get('price', '')
+    if budget:
+        budget_text = f"💰 **{budget}** ብር\n"
+    else:
+        budget_text = ""
+    
+    desc = clean_description(req.get('description', ''), 60)
+
+    icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
+    detail = " · ".join(x for x in [sub_cat, prop] if x)
+
+    card = (
+        f"{icon} **ፈላጊ ጥያቄ**  `#ADK-{req_id}`\n"
+        f"────────────────────\n"
+        f"📌 {main_cat}"
+    )
+    if action:
+        card += f" · {action}"
+    card += "\n"
+    if budget_text:
+        card += budget_text
+    if detail:
+        card += f"🏷️ {detail}\n"
+    if desc:
+        card += f"────────────────────\n📝 {desc}\n"
+    card += (
+        f"────────────────────\n"
+        f"📞 `{phone}`"
+    )
+    return card
 def format_buyer_request_clean(req: dict) -> str:
     """የፈላጊ ጥያቄ ካርድ - ንጹህ"""
     req_id = req.get('id', 'N/A')
