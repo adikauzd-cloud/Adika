@@ -3255,14 +3255,13 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
     )
     
     for item in items:
-        # ፎቶዎችን አምጣ
         photos = item.get('photos', [])
         if not photos:
             photo_id = item.get('photo_id')
             if photo_id:
                 photos = [photo_id]
         
-        # ካርዱን አዘጋጅ
+        # አንድ አይነት ፕሮፌሽናል ካርድ
         card_text = format_marketplace_card_professional(item)
         reply_markup = build_marketplace_keyboard_clean(
             item_id=item.get('id'),
@@ -3270,7 +3269,6 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
             current_user_id=user_id
         )
         
-        # ፎቶ ካለ ከፎቶ ጋር ላክ
         if photos and len(photos) > 0:
             try:
                 await update.message.reply_photo(
@@ -3315,7 +3313,6 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
     
-    # አዲሶቹ ከታች (ASC)
     try:
         listings = get_listings_by_category_ordered(limit=20, offset=0, req_type="BUY", order="ASC")
     except:
@@ -3342,7 +3339,8 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     
     for listing in listings:
-        card_text = format_buyer_request_professional(listing)
+        # አንድ አይነት ፕሮፌሽናል ካርድ
+        card_text = format_marketplace_card_professional(listing)
         reply_markup = build_request_keyboard_clean(
             req_id=listing.get('id'),
             buyer_id=listing.get('user_chat_id')
