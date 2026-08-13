@@ -2923,6 +2923,14 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
     )
     
     for item in items:
+        # ፎቶዎችን ከ listing_photos ሰንጠረዥ አምጣ
+        photos = item.get('photos', [])
+        if not photos:
+            # አሮጌ መረጃ ከሆነ photo_id ተጠቀም
+            photo_id = item.get('photo_id')
+            if photo_id:
+                photos = [photo_id]
+        
         card_text = format_marketplace_card_clean(item)
         reply_markup = build_marketplace_keyboard_clean(
             item_id=item.get('id'),
@@ -2930,15 +2938,16 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
             current_user_id=user_id
         )
         
-        if item.get('photo_id'):
+        if photos and len(photos) > 0:
             try:
                 await update.message.reply_photo(
-                    photo=item['photo_id'],
+                    photo=photos[0],
                     caption=card_text,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
-            except:
+            except Exception as e:
+                logger.error(f"Failed to send photo: {e}")
                 await update.message.reply_text(
                     card_text,
                     reply_markup=reply_markup,
@@ -2952,7 +2961,7 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
             )
 
 async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የፈላጊዎች ዝርዝር - ንፁህ እትም"""
+    """የፈላጊዎች ዝርዝር - ንፁህ እትም (አዲሶቹ ከታች)"""
     user_id = update.effective_user.id
     is_admin = (user_id == ADMIN_CHAT_ID_INT)
     broker = get_broker(user_id)
@@ -2971,7 +2980,8 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
     
-    listings = get_listings_by_category(limit=20, offset=0, req_type="BUY")
+    # አዲሶቹ ከታች እንዲታዩ ከታች አስቀምጠናል (ASC)
+    listings = get_listings_by_category_ordered(limit=20, offset=0, req_type="BUY", order="ASC")
     total = count_listings(req_type="BUY")
     
     if not listings:
@@ -3000,7 +3010,6 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
             reply_markup=reply_markup,
             parse_mode="Markdown"
         )
-
 # ==============================================================================
 # ORIGINAL FUNCTIONS (KEPT FOR BACKWARD COMPATIBILITY)
 # ==============================================================================
