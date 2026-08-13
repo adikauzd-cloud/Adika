@@ -1572,13 +1572,10 @@ def validate_phone(phone: str) -> bool:
         return False
     phone = phone.replace(' ', '').replace('-', '').replace('+', '')
     
-    # 09xxxxxxxx / 07xxxxxxxx / 01xxxxxxxx
     if re.match(r'^(09|07|01)\d{8}$', phone):
         return True
-    # 9xxxxxxxx / 7xxxxxxxx (without leading 0)
     if re.match(r'^(9|7)\d{8}$', phone):
         return True
-    # 2519xxxxxxxx
     if re.match(r'^251(9|7)\d{8}$', phone):
         return True
     return False
@@ -1589,15 +1586,12 @@ def validate_contact(contact: str) -> bool:
         return False
     contact = contact.strip()
     
-    # Telegram username (@username)
     if contact.startswith('@'):
         username = contact[1:]
-        # Telegram username rules: 5-32 chars, starts with letter, alphanumeric + underscore
         if re.match(r'^[a-zA-Z][a-zA-Z0-9_]{4,31}$', username):
             return True
         return False
     
-    # Phone number
     return validate_phone(contact)
 
 def validate_price(price: str) -> bool:
@@ -1616,14 +1610,17 @@ def format_buyer_card(req: dict) -> str:
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
 
     return (
-        f"{icon} **[ፈላጊ - #ADK-{req_id}]**\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"📌 **ዘርፍ፦** {main_cat} ({action_type})\n"
-        f"🏷️ **ዓይነት፦** {sub_cat} | {prop_type}\n"
-        f"📝 **ዝርዝር ፍላጎት፦**\n_{desc}_\n\n"
-        f"📞 **የፈላጊው ስልክ፦** `{phone}`\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"💡 *ከታች ያሉትን አዝራሮች ይጠቀሙ።*"
+        f"╭────────────────────╮\n"
+        f"│  {icon}  **ፈላጊ ጥያቄ**\n"
+        f"│  `#ADK-{req_id}`\n"
+        f"╰────────────────────╯\n\n"
+        f"📌 **ዘርፍ:** {main_cat}\n"
+        f"🔄 **አይነት:** {action_type}\n"
+        f"🏷️ **ዝርዝር:** {sub_cat} | {prop_type}\n\n"
+        f"📝 **ፍላጎት:**\n"
+        f"_{desc}_\n\n"
+        f"📞 **ስልክ:** `{phone}`\n"
+        f"──────────────────────"
     )
 
 def format_seller_card(item: dict) -> str:
@@ -1647,29 +1644,36 @@ def format_seller_card(item: dict) -> str:
 
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
     tag = "🔴 ለሽያጭ" if action_type in ["መሸጥ", "SELL"] else "🔵 ለኪራይ"
-    urgent_badge = "⚡ **አስቸኳይ ሽያጭ!** " if is_urgent else ""
-    negotiable_text = "✅ የሚደራደር" if is_negotiable else "❌ የማይደራደር"
+    urgent_badge = "⚡ አስቸኳይ  " if is_urgent else ""
+    negotiable_text = "የሚደራደር" if is_negotiable else "የማይደራደር"
 
     return (
-        f"{icon} **[ለገበያ የቀረበ - #ADK-{item_id}]** {tag} {urgent_badge}\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"📦 **አይነት፦** {main_cat} ({sub_cat})\n"
-        f"💰 **ዋጋ፦** `{price}` ({negotiable_text})\n\n"
-        f"📋 **መግለጫ፦**\n_{desc}_\n\n"
-        f"📞 **ስልክ፦** `{phone}`\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"✨ *ለበለጠ መረጃ ከታች ያሉትን ቁልፎች ይጠቀሙ።*"
+        f"╭────────────────────╮\n"
+        f"│  {icon}  **ለገበያ የቀረበ**\n"
+        f"│  `{tag}`  {urgent_badge}\n"
+        f"│  `#ADK-{item_id}`\n"
+        f"╰────────────────────╯\n\n"
+        f"📦 **አይነት:** {main_cat} ({sub_cat})\n"
+        f"💰 **ዋጋ:** `{price}` ብር\n"
+        f"💬 **ድርድር:** {negotiable_text}\n\n"
+        f"📋 **መግለጫ:**\n"
+        f"_{desc}_\n\n"
+        f"📞 **ስልክ:** `{phone}`\n"
+        f"──────────────────────"
     )
 
 def format_broker_profile(b: dict) -> str:
     stars = "⭐" * int(float(b.get('rating', 5)))
     return (
-        f"👤 **ስም፦** {b.get('full_name')}\n"
-        f"🎭 **ሚና፦** {b.get('role_type')}\n"
-        f"📍 **ክፍለ ከተማ፦** {b.get('sub_city')}\n"
-        f"📞 **ስልክ፦** `{b.get('phone')}`\n"
-        f"⭐ **ደረጃ፦** {b.get('rating', 5.0)}/5.0 ({b.get('total_ratings', 0)} ግምገማዎች) {stars}\n"
-        f"───────────────────"
+        f"╭────────────────────╮\n"
+        f"│  👤  **ደላላ መረጃ**\n"
+        f"╰────────────────────╯\n\n"
+        f"**ስም:** {b.get('full_name')}\n"
+        f"**ሚና:** {b.get('role_type')}\n"
+        f"**ክፍለ ከተማ:** {b.get('sub_city')}\n"
+        f"**ስልክ:** `{b.get('phone')}`\n"
+        f"**ደረጃ:** {b.get('rating', 5.0)}/5.0 ({b.get('total_ratings', 0)}) {stars}\n"
+        f"──────────────────────"
     )
 
 def get_nav_buttons(back_callback: str = None) -> list:
@@ -1680,43 +1684,41 @@ def get_nav_buttons(back_callback: str = None) -> list:
     return buttons
 
 def build_request_keyboard(req_id: int, user_id: int) -> InlineKeyboardMarkup:
-    """ለፈላጊ ጥያቄዎች (Buyer Requests)"""
+    """ለፈላጊ ጥያቄዎች"""
     keyboard = [
         [
             InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{user_id}"),
             InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
         ],
-        get_nav_buttons("flow_home")
+        [
+            InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")
+        ]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int, phone: str = "") -> InlineKeyboardMarkup:
-    """ለሻጭ ማስታወቂያዎች (Seller Listings)"""
-    keyboard = []
+    """ለሻጭ ማስታወቂያዎች"""
+    keyboard = [
+        [
+            InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{item_id}_{owner_id}"),
+            InlineKeyboardButton("👤 ለራሴ ነው", callback_data=f"want_myself_{item_id}")
+        ],
+        [
+            InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{item_id}")
+        ]
+    ]
 
-    # ደላላ ቁልፎች
-    keyboard.append([
-        InlineKeyboardButton("🤝 ገዢ/ተከራይ አለኝ", callback_data=f"have_buyer_{item_id}_{owner_id}"),
-        InlineKeyboardButton("👤 ለራሴ እፈልገዋለሁ", callback_data=f"want_myself_{item_id}")
-    ])
-
-    # Telegram username ብቻ እንደ URL ቁልፍ (tel: አይሰራም)
-    if phone and str(phone).startswith("@"):
-        username = phone.lstrip("@")
-        keyboard.append([InlineKeyboardButton(f"💬 @{username}", url=f"https://t.me/{username}")])
-
-    # ባለቤት ወይም አድሚን ብቻ
     if current_user_id == owner_id or current_user_id == ADMIN_CHAT_ID_INT:
         keyboard.append([
-            InlineKeyboardButton("✅ ተሸጧል / ተከራይቷል", callback_data=f"mark_sold_{item_id}"),
+            InlineKeyboardButton("✅ ተሸጧል", callback_data=f"mark_sold_{item_id}"),
             InlineKeyboardButton("🗑️ አጥፋ", callback_data=f"delete_req_{item_id}")
         ])
 
-    keyboard.append(get_nav_buttons("flow_home"))
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
     return InlineKeyboardMarkup(keyboard)
 
 async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
-    """ለተፈቀዱ ደላሎች ማሳወቂያ መላክ - SELL እና BUY በተለየ ቁልፍ"""
+    """ለተፈቀዱ ደላሎች ማሳወቂያ መላክ"""
     try:
         approved_brokers = get_approved_brokers()
         if not approved_brokers:
@@ -1755,24 +1757,20 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
                 
-                # ========== ቁልፎች ==========
                 if req_type == "SELL":
-                    # የሻጭ ማስታወቂያ
                     kbd = [
                         [
-                            InlineKeyboardButton("🤝 ገዢ/ተከራይ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
-                            InlineKeyboardButton("👤 ለራሴ እፈልገዋለሁ", callback_data=f"want_myself_{req_id}")
+                            InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
+                            InlineKeyboardButton("👤 ለራሴ ነው", callback_data=f"want_myself_{req_id}")
                         ],
                         [
                             InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
                         ]
                     ]
-                    # Telegram username ብቻ (tel: አይሰራም)
                     if phone and str(phone).startswith("@"):
                         username = phone.lstrip("@")
                         kbd.insert(1, [InlineKeyboardButton(f"💬 @{username}", url=f"https://t.me/{username}")])
                 else:
-                    # የፈላጊ ጥያቄ
                     kbd = [[
                         InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
                         InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
@@ -1792,7 +1790,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
         logger.info(f"✅ Sent notifications to {sent_count}/{len(approved_brokers)} brokers for listing #ADK-{req_id} (type={req_type})")
         
     except Exception as e:
-        logger.error(f"❌ notify_brokers error: {e}", exc_info=True)
+        logger.error(f"❌ notify_brokers error: {e}", exp_info=True)
 # ==============================================================================
 # 7. CONVERSATION STATES
 # ==============================================================================
