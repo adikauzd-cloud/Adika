@@ -1,5 +1,5 @@
 # ==============================================================================
-# ADIKA MARKETPLACE BOT - CLEAN VERSION (NO DUPLICATES)
+# ADIKA MARKETPLACE BOT - FULLY CLEANED VERSION (NO DUPLICATES)
 # ==============================================================================
 
 import logging
@@ -7,6 +7,7 @@ import os
 import re
 import asyncio
 import threading
+import json
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 
@@ -53,7 +54,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Global bot application (for Flask notifications)
 bot_app: Optional[Application] = None
 
 # ==============================================================================
@@ -501,7 +501,7 @@ def _send_notification_safe(notification_text: str, req_id: int, buyer_id: int):
                loop.close()
                logger.info(f"✅ Notification sent for req_id={req_id}")
            except Exception as e:
-               logger.error(f"❌ Notification thread error: {e}", exc_info=True)
+               logger.error(f"❌ Notification thread error: {e}", exp_info=True)
        t = threading.Thread(target=run_in_thread, daemon=True)
        t.start()
    except Exception as e:
@@ -835,8 +835,6 @@ def init_db():
 # 4. DATABASE OPERATIONS
 # ==============================================================================
 
-import json
-
 def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                 action_type, property_type, description, price=None, phone=None, 
                 photo_id=None, extra_data=None, photos=None):
@@ -915,7 +913,6 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                 pass
 
 def get_listing_by_id(listing_id: int):
-    """በID ማስታወቂያ ማግኘት - ፎቶዎችን ጨምሮ"""
     conn = None
     try:
         conn = get_db_connection()
@@ -931,8 +928,6 @@ def get_listing_by_id(listing_id: int):
                 result['extra_data'] = json.loads(result['extra_data'])
             except:
                 result['extra_data'] = {}
-        
-        # ፎቶዎችን አምጣ
         try:
             cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (listing_id,))
             photo_rows = cursor.fetchall()
@@ -940,7 +935,6 @@ def get_listing_by_id(listing_id: int):
         except Exception as e:
             logger.warning(f"Could not load photos for listing {listing_id}: {e}")
             result['photos'] = []
-        
         return result
     except Exception as e:
         logger.error(f"Get listing by id error: {e}")
@@ -953,16 +947,20 @@ def get_listing_by_id(listing_id: int):
                 pass
 
 def get_listings_by_category(limit=10, offset=0, req_type=None):
+    return get_listings_by_category_ordered(limit=limit, offset=offset, req_type=req_type, order="DESC")
+
+def get_listings_by_category_ordered(limit=20, offset=0, req_type=None, order="DESC"):
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
+        order_sql = "ASC" if str(order).upper() == "ASC" else "DESC"
         if req_type:
             query = f"""
                 SELECT * FROM listings 
                 WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})
-                ORDER BY created_at DESC 
+                ORDER BY created_at {order_sql}
                 LIMIT {p} OFFSET {p}
             """
             cursor.execute(query, (req_type, limit, offset))
@@ -970,7 +968,7 @@ def get_listings_by_category(limit=10, offset=0, req_type=None):
             query = f"""
                 SELECT * FROM listings 
                 WHERE status = 'pending' 
-                ORDER BY created_at DESC 
+                ORDER BY created_at {order_sql}
                 LIMIT {p} OFFSET {p}
             """
             cursor.execute(query, (limit, offset))
@@ -984,10 +982,9 @@ def get_listings_by_category(limit=10, offset=0, req_type=None):
                 except:
                     item['extra_data'] = {}
             results.append(item)
-        logger.info(f"📋 Retrieved {len(results)} listings (type={req_type})")
         return results
     except Exception as e:
-        logger.error(f"Get listings error: {e}")
+        logger.error(f"get_listings_by_category_ordered error: {e}")
         return []
     finally:
         if conn:
@@ -1050,7 +1047,6 @@ def get_public_marketplace_items(limit: int = 20, offset: int = 0):
     try:
         conn = get_db_connection()
         if not conn:
-            logger.error("get_public_marketplace_items: no DB connection")
             return []
         cur = conn.cursor()
         p = get_placeholder()
@@ -1081,7 +1077,6 @@ def get_public_marketplace_items(limit: int = 20, offset: int = 0):
                     item['extra_data'] = json.loads(item['extra_data'])
                 except:
                     item['extra_data'] = {}
-        logger.info(f"🛍️ Marketplace returned {len(result)} SELL items")
         return result
     except Exception as e:
         logger.error(f"get_public_marketplace_items error: {e}", exc_info=True)
@@ -1233,7 +1228,6 @@ def get_approved_brokers():
                 except:
                     broker['notification_prefs'] = {"car": True, "house": True, "enabled": True}
             results.append(broker)
-        logger.info(f"👥 Retrieved {len(results)} approved brokers")
         return results
     except Exception as e:
         logger.error(f"Get approved brokers error: {e}")
@@ -1363,7 +1357,6 @@ def save_search_alert(user_chat_id: int, main_category: str, budget_min: str, bu
         else:
             alert_id = cursor.lastrowid
             conn.commit()
-        logger.info(f"✅ Search alert saved for user {user_chat_id}")
         return alert_id or 0
     except Exception as e:
         logger.error(f"Save search alert error: {e}")
@@ -1440,7 +1433,7 @@ CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈ
 
 
 # ==============================================================================
-# 6. HELPER FUNCTIONS
+# 6. HELPER FUNCTIONS (SINGLE DEFINITIONS ONLY)
 # ==============================================================================
 
 def validate_phone(phone: str) -> bool:
@@ -1470,132 +1463,143 @@ def validate_price(price: str) -> bool:
     price = price.replace(',', '').replace(' ', '')
     return price.isdigit()
 
-def clean_description(desc: str, max_len: int = 40) -> str:
-    """መግለጫን ንፁህ ማድረግ - የማያስፈልጉ ነገሮችን ማስወገድ"""
+def clean_description(desc: str, max_len: int = 60) -> str:
     if not desc:
         return ""
-    
     junk = [
-        'ዋጋ:', 'ስልክ:', 'አዲስ የሽያጭ', 'WebApp', 
-        'አስቸኳይ ሽያጭ', 'መግለጫ:', '📝', '💰', '📞',
-        '⚡', '📢', '🔄', '📦', 'NEW', 'እዱስ',
-        '🔥 ለሽያጭ', '🔥 አሸጋጭ', 'የገበያ ቦታ',
-        'ለሽያጭ', 'ለኪራይ',
-        'አይነት:', 'ምድብ:', 'ሁኔታ:', 'ነዳጅ:', 'ማርሽ:', 'ኪሎሜትር:'
+        'ዋጋ:', 'ስልክ:', 'አዲስ የሽያጭ', 'WebApp', 'አስቸኳይ ሽያጭ', 'መግለጫ:',
+        '📝', '💰', '📞', '⚡', '📢', '🔄', '📦', 'NEW', 'እዱስ',
+        '🔥 ለሽያጭ', '🔥 አሸጋጭ', 'የገበያ ቦታ', 'ለሽያጭ', 'ለኪራይ',
+        'አይነት:', 'ምድብ:', 'ሁኔታ:', 'ነዳጅ:', 'ማርሽ:', 'ኪሎሜትር:',
+        'መሸጥ', 'ማከራየት', 'መግዛት', 'መከራየት',
+        '🚗', '🏠', '✨', '🔍', '🛏️', '🛁', '⛽', '⚙️', '🛣️', '📊',
+        '🏡', '🏢', '🚚', '🚜', '✅', '❌', '⭐', '👤', '📍', '📛',
+        '🎯', '🔔', '🛍️', '🔑', '📌', '💡', '🎉', '⏳', '⛔'
     ]
-    
     clean = desc
     for j in junk:
         clean = clean.replace(j, '')
-    
-    clean = '\n'.join(line.strip() for line in clean.split('\n') if line.strip())
-    
+    clean = ' '.join(line.strip() for line in clean.splitlines() if line.strip())
+    clean = ' '.join(clean.split())
     if len(clean) > max_len:
         clean = clean[:max_len] + "..."
-    
     return clean.strip()
 
-def format_buyer_card(req: dict) -> str:
-    req_id = req.get('id', 'N/A')
-    main_cat = req.get('main_category', '')
-    action_type = req.get('action_type', '')
-    sub_cat = req.get('sub_category', '-')
-    prop_type = req.get('property_type', '-')
-    desc = req.get('description', '')
-    phone = req.get('phone', '-')
-
-    icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-    short_desc = (desc[:150] + "...") if len(desc) > 150 else desc
-
-    return (
-        f"╭────────────────────╮\n"
-        f"│  {icon}  **ፈላጊ ጥያቄ**\n"
-        f"│  `#ADK-{req_id}`\n"
-        f"╰────────────────────╯\n\n"
-        f"📌 {main_cat} • {action_type}\n"
-        f"🏷️ {sub_cat} | {prop_type}\n\n"
-        f"📝 {short_desc}\n\n"
-        f"📞 `{phone}`\n"
-        f"──────────────────────"
-    )
-def format_seller_card(item: dict) -> str:
-    """ለደላሎች የሚላከው ካርድ - ከገበያ ቦታ ጋር ተመሳሳይ"""
-    return format_marketplace_card_clean(item)
-def format_seller_card(item: dict) -> str:
-    """የሻጭ ማስታወቂያ - ድግግሞሽ ተወግዷል"""
+def format_marketplace_card_professional(item: dict) -> str:
     item_id = item.get('id', 'N/A')
     main_cat = item.get('main_category', '')
+    sub_cat = (item.get('sub_category') or '').strip()
     price = item.get('price', '-')
     phone = item.get('phone', '-')
-    
-    extra_data = item.get('extra_data', {})
-    if isinstance(extra_data, str):
+    action = item.get('action_type', '')
+    req_type = str(item.get('req_type', '')).upper()
+
+    extra = item.get('extra_data', {})
+    if isinstance(extra, str):
         try:
-            extra_data = json.loads(extra_data)
+            extra = json.loads(extra)
         except:
-            extra_data = {}
-    
-    icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-    negotiable = "የሚደራደር" if extra_data.get('negotiable', True) else "የማይደራደር"
-    
-    # ዝርዝሮች በአንድ መስመር ብቻ
+            extra = {}
+
+    if req_type == "BUY":
+        icon = "🔍"
+        title = "VEHICLE REQUEST" if main_cat in ["መኪና", "car", "CAR"] else "PROPERTY REQUEST"
+        price_label = "በጀት"
+    else:
+        if main_cat in ["መኪና", "car", "CAR"]:
+            icon, title = "✨", "VEHICLE LISTING"
+        else:
+            icon, title = "🏠", "PROPERTY LISTING"
+        price_label = "ዋጋ"
+
+    action_map = {
+        "መሸጥ": "ለሽያጭ", "SELL": "ለሽያጭ",
+        "ማከራየት": "ለኪራይ", "RENT": "ለኪራይ",
+        "መግዛት": "መግዛት እፈልጋለሁ", "BUY": "መግዛት እፈልጋለሁ",
+        "መከራየት": "መከራየት እፈልጋለሁ"
+    }
+    action_label = action_map.get(action, "")
+
+    if req_type == "BUY":
+        budget = extra.get('budget_range') or price
+        price_display = f"💰 <b>{price_label}: {budget} ብር</b>" if budget else "💰 በጀት አልተገለጸም"
+    else:
+        negotiable = "የሚደራደር" if extra.get('negotiable', True) else "የማይደራደር"
+        urgent = " ⚡ አስቸኳይ" if extra.get('urgent_sale') else ""
+        price_display = f"💰 <b>{price_label}: {price} ብር</b> <i>({negotiable})</i>{urgent}"
+
+    title_display = main_cat
+    if sub_cat:
+        clean_sub = sub_cat.replace('🚗', '').replace('🚚', '').replace('🚜', '').strip()
+        if clean_sub:
+            title_display += f" ({clean_sub})"
+    if req_type == "BUY" and item.get('property_type'):
+        clean_prop = str(item['property_type']).replace('🏠', '').replace('🏢', '').replace('🏡', '').strip()
+        if clean_prop:
+            title_display += f" • {clean_prop}"
+
     details = []
-    if extra_data.get('condition'):
-        details.append(extra_data['condition'])
-    if extra_data.get('fuel_type'):
-        details.append(extra_data['fuel_type'])
-    if extra_data.get('transmission'):
-        details.append(extra_data['transmission'])
-    if extra_data.get('mileage'):
-        details.append(f"{extra_data['mileage']}KM")
-    if extra_data.get('bedrooms'):
-        details.append(f"{extra_data['bedrooms']} መኝታ")
-    if extra_data.get('bathrooms'):
-        details.append(f"{extra_data['bathrooms']} መታጠቢያ")
-    if extra_data.get('parking'):
-        details.append(f"ፓርኪንግ: {extra_data['parking']}")
-    
-    details_text = " • ".join(details) if details else ""
-    
-    # መግለጫ (ንፁህ)
-    desc = item.get('description', '')
-    clean_desc = clean_description(desc, 40)
-    
-    # ንጹህ ካርድ - ያለ ድግግሞሽ
+    if main_cat in ["መኪና", "car", "CAR"]:
+        if extra.get('condition'): details.append(f"├ ሁኔታ: {extra['condition']}")
+        if extra.get('fuel_type'): details.append(f"├ ነዳጅ: {extra['fuel_type']}")
+        if extra.get('transmission'): details.append(f"├ ጊር: {extra['transmission']}")
+        if extra.get('mileage'): details.append(f"├ ኪሎሜትር: {extra['mileage']} KM")
+        if extra.get('car_type'):
+            ct = str(extra['car_type']).replace('🚗', '').replace('🚚', '').replace('🚜', '').strip()
+            if ct: details.append(f"├ አይነት: {ct}")
+    else:
+        if extra.get('condition'): details.append(f"├ ሁኔታ: {extra['condition']}")
+        if extra.get('bedrooms'): details.append(f"├ መኝታ: {extra['bedrooms']}")
+        if extra.get('bathrooms'): details.append(f"├ መታጠቢያ: {extra['bathrooms']}")
+        if extra.get('parking'): details.append(f"├ ፓርኪንግ: {extra['parking']}")
+        if extra.get('house_type'):
+            ht = str(extra['house_type']).replace('🏠', '').replace('🏢', '').replace('🏡', '').strip()
+            if ht: details.append(f"├ አይነት: {ht}")
+
     lines = [
-        "┌──────────────────────────┐",
-        f"│ {icon} #{item_id}",
-        f"│ {main_cat}",
-        f"│ 💰 {price} ብር • {negotiable}",
+        f"{icon} <b>{title}</b> • <code>#ADK-{item_id}</code>",
+        "━━━━━━━━━━━━━━━━━━━━━",
+        f"📌 <b>{title_display}</b>",
     ]
-    
-    if details_text:
-        lines.append(f"│ {details_text}")
-    
-    if clean_desc:
-        lines.append("├──────────────────────────┤")
-        lines.append(f"│ {clean_desc}")
-    
+    if action_label:
+        lines.append(f"📋 {action_label}")
+    lines.append(price_display)
+    lines.append("")
+
+    if details:
+        lines.append("⚙️ ዝርዝር መረጃ")
+        lines.extend(details)
+        lines.append("")
+
+    desc = clean_description(item.get('description', ''), 55)
+    if desc:
+        lines.append(f"📝 ተጨማሪ: {desc}")
+        lines.append("")
+
     lines.extend([
-        "├──────────────────────────┤",
-        f"│ 📞 {phone}",
-        "└──────────────────────────┘"
+        "━━━━━━━━━━━━━━━━━━━━━",
+        f"📞 <b>ያነጋግሩ:</b> <code>{phone}</code>"
     ])
-    
     return "\n".join(lines)
 
-def format_broker_profile(b: dict) -> str:
-    stars = "⭐" * int(float(b.get('rating', 5)))
+def format_seller_card(item: dict) -> str:
+    return format_marketplace_card_professional(item)
+
+def format_buyer_card(req: dict) -> str:
+    return format_marketplace_card_professional(req)
+
+def format_broker_profile_professional(b: dict) -> str:
+    rating = float(b.get('rating', 5))
+    stars = "⭐" * int(rating)
     return (
-        f"╭────────────────────╮\n"
-        f"│  👤  **ደላላ**\n"
-        f"╰────────────────────╯\n\n"
-        f"**ስም:** {b.get('full_name')}\n"
-        f"**ሚና:** {b.get('role_type')}\n"
-        f"**ክፍለ ከተማ:** {b.get('sub_city')}\n"
-        f"**ስልክ:** `{b.get('phone')}`\n"
-        f"**ደረጃ:** {b.get('rating', 5.0)}/5.0 {stars}\n"
-        f"──────────────────────"
+        "👤 <b>BROKER PROFILE</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📛 <b>ስም:</b> {b.get('full_name')}\n"
+        f"🎯 <b>ሚና:</b> {b.get('role_type')}\n"
+        f"📍 <b>ክፍለ ከተማ:</b> {b.get('sub_city')}\n"
+        f"📞 <b>ስልክ:</b> <code>{b.get('phone')}</code>\n"
+        f"⭐ <b>ደረጃ:</b> {rating}/5.0 {stars}\n"
+        "━━━━━━━━━━━━━━━━━━━━━"
     )
 
 def get_nav_buttons(back_callback: str = None) -> list:
@@ -1626,8 +1630,13 @@ def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int
         ])
     return InlineKeyboardMarkup(keyboard)
 
+def build_marketplace_keyboard_clean(item_id: int, owner_id: int, current_user_id: int) -> InlineKeyboardMarkup:
+    return build_seller_card_keyboard(item_id, owner_id, current_user_id)
+
+def build_request_keyboard_clean(req_id: int, buyer_id: int) -> InlineKeyboardMarkup:
+    return build_request_keyboard(req_id, buyer_id)
+
 async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int, photos: list = None):
-    """ደላሎችን ማሳወቅ - ፎቶ ይዞ (ያለ ድግግሞሽ)"""
     try:
         approved_brokers = get_approved_brokers()
         if not approved_brokers:
@@ -1664,7 +1673,6 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int, pho
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
                 
-                # ቁልፎች
                 if req_type == "SELL":
                     kbd = [[
                         InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
@@ -1676,7 +1684,6 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int, pho
                         InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
                     ]]
                 
-                # ✅ ፎቶ ካለ ከፎቶ ጋር ላክ፣ ከሌለ በጽሁፍ ብቻ
                 if photos and len(photos) > 0:
                     try:
                         await bot.send_photo(
@@ -1986,15 +1993,20 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
                parse_mode="Markdown",
            )
-           notification_text = (
-               f"🔔 **አዲስ ጥያቄ! (#ADK-{req_id})**\n\n"
-               f"📌 **ዘርፍ፦** {main_category}\n"
-               f"📝 **ፍላጎት፦** {user_data.get('description', '')}\n"
-               f"💰 **በጀት፦** {budget}\n"
-               f"📞 **ስልክ፦** {phone}\n"
-               + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
-               f"\n👉 ይህ ንብረት በእጅዎ ካለ **'🤝 ገዢ/ተከራይ አለኝ'** የሚለውን ይጫኑ!"
-           )
+           notification_text = format_marketplace_card_professional({
+               'id': req_id,
+               'main_category': main_category,
+               'sub_category': user_data.get('sub_category', ''),
+               'action_type': user_data.get('action_type', 'መግዛት'),
+               'req_type': 'BUY',
+               'description': desc,
+               'price': budget,
+               'phone': phone,
+               'extra_data': {
+                   'budget_range': budget,
+                   'telegram_user': telegram_user
+               }
+           })
            await notify_brokers(context.bot, notification_text, req_id, user.id)
        else:
            await update.message.reply_text(
@@ -2003,7 +2015,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
                parse_mode="Markdown"
            )
    except Exception as e:
-       logger.error(f"❌ Buyer save error: {e}", exc_info=True)
+       logger.error(f"❌ Buyer save error: {e}", exp_info=True)
        await update.message.reply_text(
            "❌ **ስህተት ተከስቷል።** እባክዎ እንደገና ይሞክሩ።",
            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
@@ -2192,21 +2204,21 @@ async def seller_htype_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE
    htype = query.data.replace("flow_sell_htype_", "")
    context.user_data['property_subtype'] = htype
    conditions = ["🆕 አዲስ", "✅ ጥሩ", "🔧 እድሳት የሚፈልግ"]
-   keyboard = [[InlineKeyboardButton(cond, callback_data=f"flow_sell_cond_{cond}")] for cond in conditions]
+   keyboard = [[InlineKeyboardButton(cond, callback_data=f"flow_sell_hcond_{cond}")] for cond in conditions]
    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
    await query.edit_message_text(
        f"🏠 **የቤቱ አይነት፦** {htype}\n\n📊 **የቤቱን ሁኔታ ይምረጡ፦**",
        reply_markup=InlineKeyboardMarkup(keyboard),
        parse_mode="Markdown"
    )
-   return SELLER_CONDITION
+   return SELLER_HOUSE_CONDITION
 
 async def seller_house_condition_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
    query = update.callback_query
    if query.data == "flow_home":
        return await go_home(update, context)
    await query.answer()
-   cond = query.data.replace("flow_sell_cond_", "")
+   cond = query.data.replace("flow_sell_hcond_", "")
    context.user_data['condition'] = cond
    keyboard = [
        [InlineKeyboardButton("1", callback_data="bed_1"), InlineKeyboardButton("2", callback_data="bed_2")],
@@ -2337,7 +2349,6 @@ async def seller_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
    return SELLER_PHOTO
 
 async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-   user = update.effective_user
    if update.message.text == "🏠 ዋና ገጽ":
        return await go_home(update, context)
    if update.message.text and update.message.text.lower() in ['ዝለል', 'ጨረስኩ', 'ቀጥል']:
@@ -2360,6 +2371,7 @@ async def seller_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
            )
        return SELLER_PHOTO
    return SELLER_PHOTO
+
 async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_data = context.user_data
@@ -2419,7 +2431,6 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         
         if req_id:
-            # ለተጠቃሚ ማሳወቅ
             await update.message.reply_text(
                 f"✅ <b>ማስታወቂያዎ በስኬት ተመዝግቧል!</b> 🎉\n\n"
                 f"🆔 <b>የማስታወቂያ ቁጥር:</b> #ADK-{req_id}\n"
@@ -2440,7 +2451,6 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
                 except Exception as e:
                     logger.error(f"Failed to send photo: {e}")
             
-            # ለደላሎች ማሳወቅ - አንድ አይነት ፕሮፌሽናል ካርድ
             listing_data = {
                 'id': req_id,
                 'main_category': user_data.get('main_category', ''),
@@ -2467,7 +2477,7 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
                 parse_mode="HTML"
             )
     except Exception as e:
-        logger.error(f"❌ Seller save error: {e}", exc_info=True)
+        logger.error(f"❌ Seller save error: {e}", exp_info=True)
         await update.message.reply_text(
             f"❌ <b>ስህተት ተከስቷል:</b> {str(e)[:100]}",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
@@ -2476,6 +2486,8 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
     
     context.user_data.clear()
     return ConversationHandler.END
+
+
 # ==============================================================================
 # 11. BROKER REGISTRATION
 # ==============================================================================
@@ -2683,7 +2695,6 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
     broker_name = broker.get('full_name') if broker else (broker_user.first_name or "ደላላ")
     broker_phone = broker.get('phone', 'አልተጠቀሰም') if broker else 'አልተጠቀሰም'
     
-    # ፕሮፌሽናል መልእክት ለገዢ
     message_to_buyer = (
         f"🎉 <b>አዲስ አማራጭ ተገኝቷል!</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -2732,6 +2743,7 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
     
     context.user_data.clear()
     return ConversationHandler.END
+
 async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
@@ -2794,450 +2806,10 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 # ==============================================================================
-# 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY - CLEAN & PROFESSIONAL
+# 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY
 # ==============================================================================
 
-def clean_description(desc: str, max_len: int = 50) -> str:
-    """መግለጫን ንፁህ ማድረግ - ሁሉንም የማያስፈልጉ ነገሮች ማስወገድ"""
-    if not desc:
-        return ""
-    
-    junk = [
-        'ዋጋ:', 'ስልክ:', 'አዲስ የሽያጭ', 'WebApp', 
-        'አስቸኳይ ሽያጭ', 'መግለጫ:', '📝', '💰', '📞',
-        '⚡', '📢', '🔄', '📦', 'NEW', 'እዱስ',
-        '🔥 ለሽያጭ', '🔥 አሸጋጭ', 'የገበያ ቦታ',
-        'ለሽያጭ', 'ለኪራይ',
-        'አይነት:', 'ምድብ:', 'ሁኔታ:', 'ነዳጅ:', 'ማርሽ:', 'ኪሎሜትር:',
-        'መሸጥ', 'ማከራየት', 'መግዛት', 'መከራየት',
-        # ሁሉንም ኢሞጂዎች አስወግድ
-        '🚗', '🏠', '✨', '🔍', '📦', '💰', '📞', '📝', '📋',
-        '🛏️', '🛁', '⛽', '⚙️', '🛣️', '📊', '🏡', '🏢', '🚚', '🚜',
-        '✅', '❌', '⭐', '👤', '📍', '📛', '🎯', '🔔', '🛍️', '🔑',
-        '📌', '🔄', '📢', '⚡', '💡', '🎉', '⏳', '⛔'
-    ]
-    
-    clean = desc
-    for j in junk:
-        clean = clean.replace(j, '')
-    
-    lines = []
-    for line in clean.split('\n'):
-        line = line.strip()
-        if line and not line.isspace():
-            lines.append(line)
-    
-    clean = ' '.join(lines)
-    clean = ' '.join(clean.split())
-    
-    if len(clean) > max_len:
-        clean = clean[:max_len] + "..."
-    
-    return clean.strip()
-
-def format_marketplace_card_professional(item: dict) -> str:
-    """
-    ፕሮፌሽናል የገበያ ቦታ ካርድ - ለሁሉም (ደላላ፣ ገበያ ቦታ፣ ፈላጊ)
-    """
-    item_id = item.get('id', 'N/A')
-    main_cat = item.get('main_category', '')
-    sub_cat = item.get('sub_category', '') or ''
-    price = item.get('price', '-')
-    phone = item.get('phone', '-')
-    action = item.get('action_type', '')
-    req_type = item.get('req_type', '').upper()
-
-    extra_data = item.get('extra_data', {})
-    if isinstance(extra_data, str):
-        try:
-            extra_data = json.loads(extra_data)
-        except:
-            extra_data = {}
-
-    # ============================================================
-    # ርዕስ እና አዶ - በጥያቄ አይነት
-    # ============================================================
-    if req_type == "BUY":
-        icon = "🔍"
-        if main_cat in ["መኪና", "car", "CAR"]:
-            title = "VEHICLE REQUEST"
-        else:
-            title = "PROPERTY REQUEST"
-        price_label = "በጀት"
-    else:
-        if main_cat in ["መኪና", "car", "CAR"]:
-            icon = "✨"
-            title = "VEHICLE LISTING"
-        else:
-            icon = "🏠"
-            title = "PROPERTY LISTING"
-        price_label = "ዋጋ"
-
-    # ============================================================
-    # ድርጊት መለያ
-    # ============================================================
-    if action in ["መሸጥ", "SELL"]:
-        action_label = "ለሽያጭ"
-    elif action in ["ማከራየት", "RENT"]:
-        action_label = "ለኪራይ"
-    elif action in ["መግዛት", "BUY"]:
-        action_label = "መግዛት እፈልጋለሁ"
-    elif action in ["መከራየት", "RENT"]:
-        action_label = "መከራየት እፈልጋለሁ"
-    else:
-        action_label = ""
-
-    # ============================================================
-    # ዋጋ / በጀት
-    # ============================================================
-    if req_type == "BUY":
-        # ለፈላጊ - በጀት
-        budget = extra_data.get('budget_range', '') or price
-        if budget:
-            price_display = f"💰 <b>{price_label}: {budget} ብር</b>"
-        else:
-            price_display = "💰 በጀት አልተገለጸም"
-    else:
-        # ለሻጭ - ዋጋ
-        negotiable = "የሚደራደር" if extra_data.get('negotiable', True) else "የማይደራደር"
-        urgent = " ⚡ አስቸኳይ" if extra_data.get('urgent_sale') else ""
-        price_display = f"💰 <b>{price_label}: {price} ብር</b> <i>({negotiable})</i>{urgent}"
-
-    # ============================================================
-    # ዋና ርዕስ
-    # ============================================================
-    title_display = main_cat
-    if sub_cat:
-        clean_sub = sub_cat.replace('🚗', '').replace('🚚', '').replace('🚜', '').strip()
-        if clean_sub:
-            title_display += f" ({clean_sub})"
-    
-    # ለፈላጊ ተጨማሪ ዝርዝር
-    if req_type == "BUY":
-        prop = item.get('property_type', '') or ''
-        if prop:
-            clean_prop = prop.replace('🏠', '').replace('🏢', '').replace('🏡', '').strip()
-            if clean_prop:
-                title_display += f" • {clean_prop}"
-
-    # ============================================================
-    # ዝርዝር መረጃ
-    # ============================================================
-    details = []
-    if main_cat in ["መኪና", "car", "CAR"]:
-        if extra_data.get('condition'):
-            details.append(f"├ ሁኔታ: {extra_data['condition']}")
-        if extra_data.get('fuel_type'):
-            details.append(f"├ ነዳጅ: {extra_data['fuel_type']}")
-        if extra_data.get('transmission'):
-            details.append(f"├ ጊር: {extra_data['transmission']}")
-        if extra_data.get('mileage'):
-            details.append(f"├ ኪሎሜትር: {extra_data['mileage']} KM")
-        if extra_data.get('car_type'):
-            clean_car = extra_data['car_type'].replace('🚗', '').replace('🚚', '').replace('🚜', '').strip()
-            if clean_car:
-                details.append(f"├ አይነት: {clean_car}")
-    else:
-        if extra_data.get('condition'):
-            details.append(f"├ ሁኔታ: {extra_data['condition']}")
-        if extra_data.get('bedrooms'):
-            details.append(f"├ መኝታ: {extra_data['bedrooms']}")
-        if extra_data.get('bathrooms'):
-            details.append(f"├ መታጠቢያ: {extra_data['bathrooms']}")
-        if extra_data.get('parking'):
-            details.append(f"├ ፓርኪንግ: {extra_data['parking']}")
-        if extra_data.get('house_type'):
-            clean_house = extra_data['house_type'].replace('🏠', '').replace('🏢', '').replace('🏡', '').strip()
-            if clean_house:
-                details.append(f"├ አይነት: {clean_house}")
-
-    # ============================================================
-    # ካርድ መገንባት
-    # ============================================================
-    lines = [
-        f"{icon} <b>{title}</b> • <code>#ADK-{item_id}</code>",
-        "━━━━━━━━━━━━━━━━━━━━━",
-        f"📌 <b>{title_display}</b>",
-    ]
-    
-    if action_label:
-        lines.append(f"📋 {action_label}")
-    
-    lines.append(price_display)
-    lines.append("")
-
-    if details:
-        lines.append("⚙️ ዝርዝር መረጃ")
-        lines.extend(details)
-        lines.append("")
-
-    # መግለጫ
-    desc = clean_description(item.get('description', ''), 50)
-    if desc:
-        lines.append(f"📝 ተጨማሪ: {desc}")
-        lines.append("")
-
-    lines.extend([
-        "━━━━━━━━━━━━━━━━━━━━━",
-        f"📞 <b>ያነጋግሩ:</b> <code>{phone}</code>"
-    ])
-
-    return "\n".join(lines)
-
-def format_seller_card(item: dict) -> str:
-    """ለደላሎች የሚላከው - ከገበያ ቦታ ጋር ተመሳሳይ"""
-    return format_marketplace_card_professional(item)
-
-def format_seller_card(item: dict) -> str:
-    """ለደላሎች የሚላከው - ከገበያ ቦታ ጋር ተመሳሳይ"""
-    return format_marketplace_card_professional(item)
-
-def format_buyer_request_professional(req: dict) -> str:
-    """
-    ፕሮፌሽናል የፈላጊ ጥያቄ ካርድ - ያለ ድግግሞሽ
-    """
-    req_id = req.get('id', 'N/A')
-    main_cat = req.get('main_category', '')
-    action = req.get('action_type', '')
-    sub_cat = req.get('sub_category', '') or ''
-    prop = req.get('property_type', '') or ''
-    phone = req.get('phone', '-')
-    
-    extra_data = req.get('extra_data', {})
-    if isinstance(extra_data, str):
-        try:
-            extra_data = json.loads(extra_data)
-        except:
-            extra_data = {}
-    
-    # ርዕስ
-    if main_cat in ["መኪና", "car", "CAR"]:
-        icon = "🔍"
-        title = "VEHICLE REQUEST"
-    else:
-        icon = "🔍"
-        title = "PROPERTY REQUEST"
-    
-    # በጀት
-    budget = extra_data.get('budget_range', '') or req.get('price', '')
-    if budget:
-        budget_text = f"💰 <b>በጀት: {budget} ብር</b>"
-    else:
-        budget_text = "💰 በጀት አልተገለጸም"
-    
-    # ዝርዝር
-    title_display = main_cat
-    if sub_cat:
-        clean_sub = sub_cat.replace('🚗', '').replace('🚚', '').replace('🚜', '').strip()
-        if clean_sub:
-            title_display += f" ({clean_sub})"
-    if prop:
-        clean_prop = prop.replace('🏠', '').replace('🏢', '').replace('🏡', '').strip()
-        if clean_prop:
-            title_display += f" • {clean_prop}"
-    
-    # የድርጊት አይነት
-    action_display = ""
-    if action:
-        clean_action = action.replace('🛍️', '').replace('🔑', '').strip()
-        if clean_action:
-            action_display = f"📋 {clean_action}"
-    
-    # ============================================================
-    # ካርድ መገንባት - ያለ ድግግሞሽ
-    # ============================================================
-    lines = [
-        f"{icon} <b>{title}</b> • <code>#ADK-{req_id}</code>",
-        "━━━━━━━━━━━━━━━━━━━━━",
-        f"📌 <b>{title_display}</b>",
-    ]
-    
-    if action_display:
-        lines.append(action_display)
-    
-    lines.append(budget_text)
-    lines.append("")
-    
-    # መግለጫ
-    desc = clean_description(req.get('description', ''), 50)
-    if desc:
-        lines.append(f"📝 ፍላጎት: {desc}")
-        lines.append("")
-    
-    lines.extend([
-        "━━━━━━━━━━━━━━━━━━━━━",
-        f"📞 <b>ያነጋግሩ:</b> <code>{phone}</code>"
-    ])
-    
-    return "\n".join(lines)
-
-def format_seller_card(item: dict) -> str:
-    """ለደላሎች የሚላከው ካርድ - ከገበያ ቦታ ጋር ተመሳሳይ (ያለ ድግግሞሽ)"""
-    return format_marketplace_card_professional(item)
-
-def format_buyer_request_professional(req: dict) -> str:
-    """
-    ፕሮፌሽናል የፈላጊ ጥያቄ ካርድ - ያለ ድግግሞሽ
-    """
-    req_id = req.get('id', 'N/A')
-    main_cat = req.get('main_category', '')
-    action = req.get('action_type', '')
-    sub_cat = req.get('sub_category', '') or ''
-    prop = req.get('property_type', '') or ''
-    phone = req.get('phone', '-')
-    
-    extra_data = req.get('extra_data', {})
-    if isinstance(extra_data, str):
-        try:
-            extra_data = json.loads(extra_data)
-        except:
-            extra_data = {}
-    
-    # ርዕስ
-    if main_cat in ["መኪና", "car", "CAR"]:
-        icon = "🔍"
-        title = "VEHICLE REQUEST"
-    else:
-        icon = "🔍"
-        title = "PROPERTY REQUEST"
-    
-    # በጀት
-    budget = extra_data.get('budget_range', '') or req.get('price', '')
-    if budget:
-        budget_text = f"💰 <b>{budget} ብር</b>"
-    else:
-        budget_text = "💰 በጀት አልተገለጸም"
-    
-    # ዝርዝር - ያለ ኢሞጂ
-    title_display = main_cat
-    if sub_cat:
-        clean_sub = sub_cat.replace('🚗', '').replace('🚚', '').replace('🚜', '').strip()
-        title_display += f" ({clean_sub})"
-    if prop:
-        clean_prop = prop.replace('🏠', '').replace('🏢', '').replace('🏡', '').strip()
-        title_display += f" • {clean_prop}"
-    
-    # ============================================================
-    # ካርድ መገንባት - ያለ ድግግሞሽ
-    # ============================================================
-    lines = [
-        f"{icon} <b>{title}</b> • <code>#ADK-{req_id}</code>",
-        "━━━━━━━━━━━━━━━━━━━━━",
-        f"📌 <b>{title_display}</b>",
-        budget_text,
-        ""
-    ]
-    
-    if action:
-        clean_action = action.replace('🛍️', '').replace('🔑', '').strip()
-        lines.insert(3, f"📋 {clean_action}")
-    
-    # መግለጫ - ንጹህ
-    desc = clean_description(req.get('description', ''), 60)
-    if desc:
-        lines.append(f"📝 ፍላጎት: {desc}")
-        lines.append("")
-    
-    lines.extend([
-        "━━━━━━━━━━━━━━━━━━━━━",
-        f"📞 <b>ያነጋግሩ:</b> <code>{phone}</code>"
-    ])
-    
-    return "\n".join(lines)
-def format_seller_card(item: dict) -> str:
-    """ለደላሎች የሚላከው ካርድ - ከገበያ ቦታ ጋር ተመሳሳይ"""
-    return format_marketplace_card_professional(item)
-
-def format_buyer_request_professional(req: dict) -> str:
-    """
-    ፕሮፌሽናል የፈላጊ ጥያቄ ካርድ
-    """
-    req_id = req.get('id', 'N/A')
-    main_cat = req.get('main_category', '')
-    action = req.get('action_type', '')
-    sub_cat = req.get('sub_category', '') or ''
-    prop = req.get('property_type', '') or ''
-    phone = req.get('phone', '-')
-    
-    extra_data = req.get('extra_data', {})
-    if isinstance(extra_data, str):
-        try:
-            extra_data = json.loads(extra_data)
-        except:
-            extra_data = {}
-    
-    # ርዕስ
-    if main_cat in ["መኪና", "car", "CAR"]:
-        icon = "🔍"
-        title = "VEHICLE REQUEST"
-    else:
-        icon = "🔍"
-        title = "PROPERTY REQUEST"
-    
-    # በጀት
-    budget = extra_data.get('budget_range', '') or req.get('price', '')
-    if budget:
-        budget_text = f"💰 <b>{budget} ብር</b>"
-    else:
-        budget_text = "💰 <b>በጀት አልተገለጸም</b>"
-    
-    # ዝርዝር
-    title_display = main_cat
-    if sub_cat:
-        title_display += f" ({sub_cat})"
-    if prop:
-        title_display += f" • {prop}"
-    
-    # ============================================================
-    # ካርድ መገንባት
-    # ============================================================
-    lines = [
-        f"{icon} <b>{title}</b> • <code>#ADK-{req_id}</code>",
-        "━━━━━━━━━━━━━━━━━━━━━",
-        f"📌 <b>{title_display}</b>",
-        budget_text,
-        ""
-    ]
-    
-    if action:
-        lines.insert(3, f"📋 {action}")
-    
-    # መግለጫ
-    desc = clean_description(req.get('description', ''), 80)
-    if desc:
-        lines.append(f"📝 <b>ፍላጎት፡</b> {desc}")
-        lines.append("")
-    
-    lines.extend([
-        "━━━━━━━━━━━━━━━━━━━━━",
-        f"📞 <b>ያነጋግሩ፡</b> <code>{phone}</code>"
-    ])
-    
-    return "\n".join(lines)
-
-def build_marketplace_keyboard_clean(item_id: int, owner_id: int, current_user_id: int) -> InlineKeyboardMarkup:
-    """የገበያ ቦታ ቁልፎች - ንጹህ"""
-    keyboard = [[
-        InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{item_id}_{owner_id}"),
-        InlineKeyboardButton("👤 ለራሴ", callback_data=f"want_myself_{item_id}")
-    ]]
-    if current_user_id == owner_id or current_user_id == ADMIN_CHAT_ID_INT:
-        keyboard.append([
-            InlineKeyboardButton("✅ ተሸጧል", callback_data=f"mark_sold_{item_id}")
-        ])
-    return InlineKeyboardMarkup(keyboard)
-
-def build_request_keyboard_clean(req_id: int, buyer_id: int) -> InlineKeyboardMarkup:
-    """የፈላጊ ጥያቄ ቁልፎች - ንጹህ"""
-    return InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
-            InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
-        ]
-    ])
-
 async def view_public_marketplace_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የገበያ ቦታ - ፕሮፌሽናል ቅርጸት (ያለ ድግግሞሽ)"""
     items = get_public_marketplace_items(limit=15)
     user_id = update.effective_user.id
     
@@ -3260,7 +2832,6 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
             if photo_id:
                 photos = [photo_id]
         
-        # አንድ አይነት ፕሮፌሽናል ካርድ
         card_text = format_marketplace_card_professional(item)
         reply_markup = build_marketplace_keyboard_clean(
             item_id=item.get('id'),
@@ -3291,7 +2862,6 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
             )
 
 async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የፈላጊዎች ዝርዝር - ፕሮፌሽናል ቅርጸት (አዲሶቹ ከታች)"""
     user_id = update.effective_user.id
     is_admin = (user_id == ADMIN_CHAT_ID_INT)
     broker = get_broker(user_id)
@@ -3312,11 +2882,7 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
     
-    try:
-        listings = get_listings_by_category_ordered(limit=20, offset=0, req_type="BUY", order="ASC")
-    except:
-        listings = get_listings_by_category(limit=20, offset=0, req_type="BUY")
-    
+    listings = get_listings_by_category_ordered(limit=20, offset=0, req_type="BUY", order="ASC")
     total = count_listings(req_type="BUY")
     
     if not listings:
@@ -3338,7 +2904,6 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
     
     for listing in listings:
-        # አንድ አይነት ፕሮፌሽናል ካርድ
         card_text = format_marketplace_card_professional(listing)
         reply_markup = build_request_keyboard_clean(
             req_id=listing.get('id'),
@@ -3356,7 +2921,6 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
             continue
 
 async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የደላሎች ማውጫ - ፕሮፌሽናል ቅርጸት"""
     keyboard = [[InlineKeyboardButton(sc, callback_data=f"dir_sc_{sc}")] for sc in SUB_CITIES]
     keyboard.append([InlineKeyboardButton("🌐 የሁሉም ክፍለ ከተሞች", callback_data="dir_sc_ሁሉም")])
     keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
@@ -3369,7 +2933,6 @@ async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 async def filter_brokers_by_subcity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """በክፍለ ከተማ ደላሎችን ማጣራት - ፕሮፌሽናል ቅርጸት"""
     query = update.callback_query
     await query.answer()
 
@@ -3383,7 +2946,6 @@ async def filter_brokers_by_subcity_callback(update: Update, context: ContextTyp
         )
         return
 
-    # ውብ ራስጌ
     msg = (
         f"📋 <b>የተረጋገጡ ደላሎች ዝርዝር</b>\n"
         f"📍 <b>{sub_city}</b>\n"
@@ -3395,157 +2957,6 @@ async def filter_brokers_by_subcity_callback(update: Update, context: ContextTyp
 
     await query.edit_message_text(msg, parse_mode="HTML")
 
-def format_broker_profile_professional(b: dict) -> str:
-    """
-    ፕሮፌሽናል የደላላ ፕሮፋይል ካርድ
-    """
-    rating = float(b.get('rating', 5))
-    stars = "⭐" * int(rating)
-    
-    lines = [
-        "👤 <b>BROKER PROFILE</b>",
-        "━━━━━━━━━━━━━━━━━━━━━",
-        f"📛 <b>ስም፡</b> {b.get('full_name')}",
-        f"🎯 <b>ሚና፡</b> {b.get('role_type')}",
-        f"📍 <b>ክፍለ ከተማ፡</b> {b.get('sub_city')}",
-        f"📞 <b>ስልክ፡</b> <code>{b.get('phone')}</code>",
-        f"⭐ <b>ደረጃ፡</b> {rating}/5.0 {stars}",
-        "━━━━━━━━━━━━━━━━━━━━━"
-    ]
-    return "\n".join(lines)
-# ==============================================================================
-# ORIGINAL FUNCTIONS (KEPT FOR BACKWARD COMPATIBILITY)
-# ==============================================================================
-
-async def view_requests(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የፈላጊዎች ዝርዝር - ነባር እትም"""
-    user_id = update.effective_user.id
-    is_admin = (user_id == ADMIN_CHAT_ID_INT)
-    broker = get_broker(user_id)
-
-    if not is_admin and not broker:
-        await update.message.reply_text(
-            "⛔ ይህን ገጽ ማየት የሚችሉት የተመዘገቡ አቅራቢዎች/ደላሎች ወይም አድሚን ብቻ ናቸው!\n\n"
-            "📝 እባክዎን መጀመሪያ '📝 እንደ አቅራቢ/ደላላ መመዝገብ' ይጫኑ።",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-        return
-
-    if not is_admin and broker.get('status') != 'approved':
-        await update.message.reply_text(
-            "⏳ **ምዝገባዎ ገና በአድሚን አልጸደቀም!**",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-            parse_mode="Markdown"
-        )
-        return
-
-    listings = get_listings_by_category(limit=20, offset=0, req_type="BUY")
-    total = count_listings(req_type="BUY")
-
-    if not listings:
-        await update.message.reply_text(
-            "📭 **ምንም ንቁ ጥያቄዎች የሉም**",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-            parse_mode="Markdown"
-        )
-        return
-
-    broker_name = "👑 አድሚን" if is_admin else (broker.get('full_name') if broker else "ደላላ")
-
-    await update.message.reply_text(
-        f"<b>📋 የፈላጊዎች ዝርዝር</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>{broker_name}</b>\n"
-        f"🔔 <b>ጠቅላላ፡</b> {total} ጥያቄዎች",
-        parse_mode="HTML"
-    )
-
-    for listing in listings:
-        req_id = listing.get('id')
-        user_chat_id = listing.get('user_chat_id')
-        card_text = format_buyer_card(listing)
-        
-        reply_markup = build_request_keyboard(req_id, user_chat_id)
-
-        await update.message.reply_text(
-            card_text,
-            reply_markup=reply_markup,
-            parse_mode="Markdown"
-        )
-
-async def view_public_marketplace(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የገበያ ቦታ - ነባር እትም"""
-    items = get_public_marketplace_items(limit=10)
-    user_id = update.effective_user.id
-
-    if not items:
-        await update.message.reply_text(
-            "📭 **በአሁኑ ሰዓት ለሽያጭ/ኪራይ የቀረቡ ንብረቶች የሉም።**",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-            parse_mode="Markdown"
-        )
-        return
-
-    await update.message.reply_text(
-        "🛍️ **ለሽያጭ እና ለኪራይ የቀረቡ ንብረቶች ዝርዝር፦**",
-        parse_mode="Markdown"
-    )
-
-    for item in items:
-        card_text = format_seller_card(item)
-        photo_id = item.get('photo_id')
-        owner_id = item.get('user_chat_id')
-        phone = item.get('phone', '')
-        
-        reply_markup = build_seller_card_keyboard(
-            item_id=item.get('id'),
-            owner_id=owner_id,
-            current_user_id=user_id,
-            phone=phone
-        )
-
-        if photo_id:
-            try:
-                await update.message.reply_photo(
-                    photo=photo_id, 
-                    caption=card_text, 
-                    reply_markup=reply_markup,
-                    parse_mode="Markdown"
-                )
-            except Exception:
-                await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
-        else:
-            await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="Markdown")
-
-async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የደላሎች ማውጫ"""
-    keyboard = [[InlineKeyboardButton(sc, callback_data=f"dir_sc_{sc}")] for sc in SUB_CITIES]
-    keyboard.append([InlineKeyboardButton("🌐 የሁሉም ክፍለ ከተሞች", callback_data="dir_sc_ሁሉም")])
-    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
-
-    await update.message.reply_text(
-        "📍 **የደላሎችና አቅራቢዎች ማውጫ**\n\nእባክዎን ማየት የሚፈልጉበትን ክፍለ ከተማ ይምረጡ፦",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
-
-async def filter_brokers_by_subcity_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """በክፍለ ከተማ ደላሎችን ማጣራት"""
-    query = update.callback_query
-    await query.answer()
-
-    sub_city = query.data.replace("dir_sc_", "")
-    brokers = get_approved_brokers_directory(sub_city=sub_city)
-
-    if not brokers:
-        await query.edit_message_text(f"📭 በ{sub_city} ክፍለ ከተማ የተመዘገቡ ደላሎች አልተገኙም።")
-        return
-
-    msg = f"📋 **የተረጋገጡ ደላሎች ዝርዝር ({sub_city})፦**\n━━━━━━━━━━━━━━━━━━━\n\n"
-    for b in brokers:
-        msg += format_broker_profile(b) + "\n\n"
-
-    await query.edit_message_text(msg, parse_mode="Markdown")
 
 # ==============================================================================
 # 14. ADMIN HANDLERS
@@ -3791,7 +3202,7 @@ async def notification_prefs_callback(update: Update, context: ContextTypes.DEFA
 
 
 # ==============================================================================
-# 17. MAIN ENGINE - NO DUPLICATES
+# 17. MAIN ENGINE
 # ==============================================================================
 
 def main():
@@ -3815,10 +3226,10 @@ def main():
             BUYER_SUB: [CallbackQueryHandler(buyer_sub_chosen, pattern="^flow_buy_sub_"), cancel_handler],
             BUYER_PROPERTY: [CallbackQueryHandler(buyer_property_chosen, pattern="^flow_buy_prop_"), cancel_handler],
             BUYER_HTYPE: [CallbackQueryHandler(buyer_htype_chosen, pattern="^flow_buy_htype_"), cancel_handler],
-            BUYER_BUDGET_RANGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_budget_range), cancel_handler],
+            BUYER_BUDGET_RANGE: [MessageHandler(filters.TEXT & \~filters.COMMAND, buyer_budget_range), cancel_handler],
             BUYER_ALERT: [CallbackQueryHandler(buyer_alert_choice, pattern="^alert_"), cancel_handler],
-            BUYER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_details), cancel_handler],
-            BUYER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_phone), cancel_handler],
+            BUYER_DETAILS: [MessageHandler(filters.TEXT & \~filters.COMMAND, buyer_details), cancel_handler],
+            BUYER_PHONE: [MessageHandler(filters.TEXT & \~filters.COMMAND, buyer_phone), cancel_handler],
         },
         fallbacks=[CommandHandler("start", start), cancel_handler],
         allow_reentry=True,
@@ -3835,7 +3246,6 @@ def main():
             SELLER_HTYPE: [CallbackQueryHandler(seller_htype_chosen, pattern="^flow_sell_htype_"), cancel_handler],
             SELLER_CONDITION: [
                 CallbackQueryHandler(seller_condition_chosen, pattern="^flow_sell_cond_"),
-                CallbackQueryHandler(seller_house_condition_chosen, pattern="^flow_sell_hcond_"),
                 cancel_handler
             ],
             SELLER_HOUSE_CONDITION: [
@@ -3844,17 +3254,17 @@ def main():
             ],
             SELLER_FUEL: [CallbackQueryHandler(seller_fuel_chosen, pattern="^flow_sell_fuel_"), cancel_handler],
             SELLER_TRANSMISSION: [CallbackQueryHandler(seller_transmission_chosen, pattern="^flow_sell_trans_"), cancel_handler],
-            SELLER_MILEAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_mileage), cancel_handler],
+            SELLER_MILEAGE: [MessageHandler(filters.TEXT & \~filters.COMMAND, seller_mileage), cancel_handler],
             SELLER_BEDROOMS: [CallbackQueryHandler(seller_bedrooms_chosen, pattern="^bed_"), cancel_handler],
             SELLER_PARKING: [CallbackQueryHandler(seller_parking_chosen, pattern="^park_"), cancel_handler],
-            SELLER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_details), cancel_handler],
-            SELLER_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_price), cancel_handler],
+            SELLER_DETAILS: [MessageHandler(filters.TEXT & \~filters.COMMAND, seller_details), cancel_handler],
+            SELLER_PRICE: [MessageHandler(filters.TEXT & \~filters.COMMAND, seller_price), cancel_handler],
             SELLER_NEGOTIABLE: [CallbackQueryHandler(seller_negotiable_chosen, pattern="^negotiable_"), cancel_handler],
             SELLER_URGENT: [CallbackQueryHandler(seller_urgent_chosen, pattern="^urgent_"), cancel_handler],
-            SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_phone), cancel_handler],
+            SELLER_PHONE: [MessageHandler(filters.TEXT & \~filters.COMMAND, seller_phone), cancel_handler],
             SELLER_PHOTO: [
                 MessageHandler(filters.PHOTO, seller_photo),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, seller_photo),
+                MessageHandler(filters.TEXT & \~filters.COMMAND, seller_photo),
                 cancel_handler
             ],
         },
@@ -3867,8 +3277,8 @@ def main():
         entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)],
         states={
             BROKER_ROLE: [CallbackQueryHandler(broker_role_chosen, pattern="^role_"), cancel_handler],
-            BROKER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name), cancel_handler],
-            BROKER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone), cancel_handler],
+            BROKER_NAME: [MessageHandler(filters.TEXT & \~filters.COMMAND, broker_reg_name), cancel_handler],
+            BROKER_PHONE: [MessageHandler(filters.TEXT & \~filters.COMMAND, broker_reg_phone), cancel_handler],
             BROKER_SUBCITY: [CallbackQueryHandler(broker_reg_subcity, pattern="^broker_sc_"), cancel_handler],
             BROKER_NID_PHOTO: [MessageHandler(filters.PHOTO, broker_reg_nid_photo), cancel_handler],
         },
@@ -3880,10 +3290,10 @@ def main():
     broker_response_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
         states={
-            BROKER_OFFER_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_text), cancel_handler],
+            BROKER_OFFER_TEXT: [MessageHandler(filters.TEXT & \~filters.COMMAND, broker_offer_text), cancel_handler],
             BROKER_OFFER_PHOTO: [
                 MessageHandler(filters.PHOTO, broker_offer_photo),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_photo),
+                MessageHandler(filters.TEXT & \~filters.COMMAND, broker_offer_photo),
                 cancel_handler
             ],
         },
@@ -3898,20 +3308,14 @@ def main():
     app.add_handler(broker_conv)
     app.add_handler(broker_response_conv)
 
-    # ============================================================
-    # REGULAR MESSAGE HANDLERS - CLEAN VERSION (RECOMMENDED)
-    # ============================================================
-    app.add_handler(MessageHandler(filters.Regex("^🛍️ ገበያ$"), view_public_marketplace_clean))
-    app.add_handler(MessageHandler(filters.Regex("^🔍 ፈላጊዎች$"), view_requests_clean))
-    
-    # Legacy handlers (kept for compatibility with old button texts)
-        # Regular message handlers
+    # Message handlers
     app.add_handler(MessageHandler(filters.Regex("^🛍️ የገበያ ቦታ"), view_public_marketplace_clean))
     app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests_clean))
     app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
     app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
     app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ምርጫ$"), notification_prefs_start))
     app.add_handler(cancel_handler)
+
     # Callback query handlers
     app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
     app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
