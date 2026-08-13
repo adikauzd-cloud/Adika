@@ -2740,6 +2740,9 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 # 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY - HTML FORMATTED
 # ==============================================================================
 
+import json
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup
+
 def clean_description(desc: str, max_len: int = 60) -> str:
     """መግለጫን ንፁህ ማድረግ"""
     if not desc:
@@ -2933,91 +2936,104 @@ def format_buyer_request_html(req: dict) -> tuple:
 
 async def view_public_marketplace_html(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """የገበያ ቦታ - HTML ቅርጸት"""
-    items = get_public_marketplace_items(limit=15)
-    user_id = update.effective_user.id
-    
-    for item in items:
-        item['_user_id'] = user_id
-    
-    if not items:
-        await update.message.reply_text(
-            "📭 ምንም ንብረቶች የሉም",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-        return
-    
-    await update.message.reply_text(
-        f"<b>🛍️ ገበያ</b>  •  {len(items)} ንብረቶች",
-        parse_mode="HTML"
-    )
-    
-    for item in items:
-        card_text, reply_markup = format_marketplace_card_html(item)
+    try:
+        items = get_public_marketplace_items(limit=15)
+        user_id = update.effective_user.id
         
-        if item.get('photo_id'):
-            try:
-                await update.message.reply_photo(
-                    photo=item['photo_id'],
-                    caption=card_text,
-                    reply_markup=reply_markup,
-                    parse_mode="HTML"
-                )
-            except:
+        for item in items:
+            item['_user_id'] = user_id
+        
+        if not items:
+            await update.message.reply_text(
+                "📭 ምንም ንብረቶች የሉም",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            return
+        
+        await update.message.reply_text(
+            f"<b>🛍️ ገበያ</b>  •  {len(items)} ንብረቶች",
+            parse_mode="HTML"
+        )
+        
+        for item in items:
+            card_text, reply_markup = format_marketplace_card_html(item)
+            
+            if item.get('photo_id'):
+                try:
+                    await update.message.reply_photo(
+                        photo=item['photo_id'],
+                        caption=card_text,
+                        reply_markup=reply_markup,
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.error(f"Photo error: {e}")
+                    await update.message.reply_text(
+                        card_text,
+                        reply_markup=reply_markup,
+                        parse_mode="HTML"
+                    )
+            else:
                 await update.message.reply_text(
                     card_text,
                     reply_markup=reply_markup,
                     parse_mode="HTML"
                 )
-        else:
+    except Exception as e:
+        logger.error(f"Marketplace error: {e}")
+        await update.message.reply_text(
+            "❌ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።"
+        )
+
+async def view_requests_html(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የፈላጊዎች ዝርዝር - HTML ቅርጸት"""
+    try:
+        user_id = update.effective_user.id
+        is_admin = (user_id == ADMIN_CHAT_ID_INT)
+        broker = get_broker(user_id)
+        
+        if not is_admin and not broker:
+            await update.message.reply_text(
+                "⛔ ይህን ማየት የሚችሉት የተረጋገጡ ደላሎች ብቻ ናቸው",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            return
+        
+        if not is_admin and broker.get('status') != 'approved':
+            await update.message.reply_text(
+                "⏳ ምዝገባዎ ገና አልጸደቀም",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            return
+        
+        listings = get_listings_by_category(limit=20, offset=0, req_type="BUY")
+        total = count_listings(req_type="BUY")
+        
+        if not listings:
+            await update.message.reply_text(
+                f"📭 ምንም ጥያቄዎች የሉም",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+            )
+            return
+        
+        broker_name = "👑 አድሚን" if is_admin else (broker.get('full_name') if broker else "ደላላ")
+        
+        await update.message.reply_text(
+            f"<b>🔍 ፈላጊዎች</b>  •  {total} ጥያቄዎች  •  {broker_name}",
+            parse_mode="HTML"
+        )
+        
+        for listing in listings:
+            card_text, reply_markup = format_buyer_request_html(listing)
             await update.message.reply_text(
                 card_text,
                 reply_markup=reply_markup,
                 parse_mode="HTML"
             )
-
-async def view_requests_html(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የፈላጊዎች ዝርዝር - HTML ቅርጸት"""
-    user_id = update.effective_user.id
-    is_admin = (user_id == ADMIN_CHAT_ID_INT)
-    broker = get_broker(user_id)
-    
-    if not is_admin and not broker:
+    except Exception as e:
+        logger.error(f"Requests error: {e}")
         await update.message.reply_text(
-            "⛔ ይህን ማየት የሚችሉት የተረጋገጡ ደላሎች ብቻ ናቸው",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-        return
-    
-    if not is_admin and broker.get('status') != 'approved':
-        await update.message.reply_text(
-            "⏳ ምዝገባዎ ገና አልጸደቀም",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-        return
-    
-    listings = get_listings_by_category(limit=20, offset=0, req_type="BUY")
-    total = count_listings(req_type="BUY")
-    
-    if not listings:
-        await update.message.reply_text(
-            f"📭 ምንም ጥያቄዎች የሉም",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-        return
-    
-    broker_name = "👑 አድሚን" if is_admin else (broker.get('full_name') if broker else "ደላላ")
-    
-    await update.message.reply_text(
-        f"<b>🔍 ፈላጊዎች</b>  •  {total} ጥያቄዎች  •  {broker_name}",
-        parse_mode="HTML"
-    )
-    
-    for listing in listings:
-        card_text, reply_markup = format_buyer_request_html(listing)
-        await update.message.reply_text(
-            card_text,
-            reply_markup=reply_markup,
-            parse_mode="HTML"
+            "❌ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ።"
         )
 # ==============================================================================
 # ORIGINAL FUNCTIONS (KEPT FOR BACKWARD COMPATIBILITY)
@@ -3639,7 +3655,6 @@ async def notification_prefs_callback(update: Update, context: ContextTypes.DEFA
     except Exception:
         pass
 
-
 # ==============================================================================
 # 17. MAIN ENGINE - HTML VERSION
 # ==============================================================================
@@ -3751,14 +3766,15 @@ def main():
     # ============================================================
     # REGULAR MESSAGE HANDLERS - HTML VERSION
     # ============================================================
-    # አዲስ HTML እትም - ይህንን ይጠቀማል
+    # አዲስ HTML እትም
     app.add_handler(MessageHandler(filters.Regex("^🛍️ ገበያ$"), view_public_marketplace_html))
     app.add_handler(MessageHandler(filters.Regex("^🔍 ፈላጊዎች$"), view_requests_html))
     
-    # የደላሎች ማውጫ (አልተቀየረም)
+    # የደላሎች ማውጫ
     app.add_handler(MessageHandler(filters.Regex("^👥 ደላሎች$"), view_brokers_directory))
     app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
     app.add_handler(MessageHandler(filters.Regex("^⚙️ ምርጫ$"), notification_prefs_start))
+    app.add_handler(MessageHandler(filters.Regex("^📝 ይመዝገቡ$"), broker_reg_start))
     app.add_handler(cancel_handler)
 
     # Callback query handlers
