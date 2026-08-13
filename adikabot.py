@@ -3429,7 +3429,7 @@ async def notification_prefs_callback(update: Update, context: ContextTypes.DEFA
 
 
 # ==============================================================================
-# 17. MAIN ENGINE - NO DUPLICATES
+# 17. MAIN ENGINE - NO DUPLICATES (WITH MARKDOWN SUPPORT)
 # ==============================================================================
 
 def main():
@@ -3537,16 +3537,13 @@ def main():
     app.add_handler(broker_response_conv)
 
     # ============================================================
-    # REGULAR MESSAGE HANDLERS - CLEAN VERSION (RECOMMENDED)
+    # REGULAR MESSAGE HANDLERS - MarkdownV2 VERSION
     # ============================================================
-    app.add_handler(MessageHandler(filters.Regex("^🛍️ ገበያ$"), view_public_marketplace_clean))
-    app.add_handler(MessageHandler(filters.Regex("^🔍 ፈላጊዎች$"), view_requests_clean))
+    # አዲሱን MarkdownV2 ካርድ ለመጠቀም
     app.add_handler(MessageHandler(filters.Regex("^🛍️ የገበያ ቦታ (የሚሸጡ)$"), view_public_marketplace_md))
     app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests_md))
-    # Legacy handlers (kept for compatibility with old button texts)
-    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests))
-    app.add_handler(MessageHandler(filters.Regex(r"^🛍️ የገበያ ቦታ \(የሚሸጡ\)$"), view_public_marketplace))
-          
+    
+    # የደላሎች ማውጫ
     app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
     app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
     app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ምርጫ$"), notification_prefs_start))
