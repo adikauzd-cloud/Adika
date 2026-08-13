@@ -1604,10 +1604,9 @@ def format_buyer_card(req: dict) -> str:
 
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
 
-    # መግለጫውን አጭር አድርግ (ከ200 ቁምፊ በላይ ከሆነ)
     short_desc = desc
-    if len(desc) > 180:
-        short_desc = desc[:180] + "..."
+    if len(desc) > 160:
+        short_desc = desc[:160] + "..."
 
     return (
         f"╭────────────────────╮\n"
@@ -1641,47 +1640,49 @@ def format_seller_card(item: dict) -> str:
     is_negotiable = extra_data.get('negotiable', True)
 
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-    tag = "🔴 ለሽያጭ" if action_type in ["መሸጥ", "SELL", "መሸጥ"] else "🔵 ለኪራይ"
-    urgent = "⚡ አስቸኳይ" if is_urgent else ""
+    tag = "🔴 ለሽያጭ" if action_type in ["መሸጥ", "SELL"] else "🔵 ለኪራይ"
+    urgent = "⚡" if is_urgent else ""
     negotiable = "የሚደራደር" if is_negotiable else "የማይደራደር"
 
-    # ተጨማሪ መረጃ ከ extra_data
+    # ተጨማሪ መረጃ (እንደ አይነቱ)
     details = []
-    if extra_data.get('condition'):
-        details.append(f"📊 {extra_data.get('condition')}")
-    if extra_data.get('fuel_type'):
-        details.append(f"⛽ {extra_data.get('fuel_type')}")
-    if extra_data.get('transmission'):
-        details.append(f"⚙️ {extra_data.get('transmission')}")
-    if extra_data.get('mileage'):
-        details.append(f"🛣️ {extra_data.get('mileage')} KM")
-    if extra_data.get('bedrooms'):
-        details.append(f"🛏️ {extra_data.get('bedrooms')} መኝታ")
-    if extra_data.get('parking'):
-        details.append(f"🚗 ፓርኪንግ: {extra_data.get('parking')}")
+    if main_cat in ["መኪና", "car", "CAR"]:
+        if extra_data.get('condition'):
+            details.append(f"📊 {extra_data.get('condition')}")
+        if extra_data.get('fuel_type'):
+            details.append(f"⛽ {extra_data.get('fuel_type')}")
+        if extra_data.get('transmission'):
+            details.append(f"⚙️ {extra_data.get('transmission')}")
+        if extra_data.get('mileage'):
+            details.append(f"🛣️ {extra_data.get('mileage')} KM")
+    else:
+        # ቤት
+        if extra_data.get('condition'):
+            details.append(f"📊 {extra_data.get('condition')}")
+        if extra_data.get('bedrooms'):
+            details.append(f"🛏️ {extra_data.get('bedrooms')} መኝታ")
+        if extra_data.get('bathrooms'):
+            details.append(f"🛁 {extra_data.get('bathrooms')} መታጠቢያ")
+        if extra_data.get('parking'):
+            details.append(f"🚗 ፓርኪንግ: {extra_data.get('parking')}")
 
-    details_text = "\n".join(details) if details else ""
+    details_text = "\n".join(details)
 
-    # መግለጫውን ንጹህ አድርግ (የተደጋገሙ መስመሮችን አስወግድ)
-    clean_desc = desc
-    # አላስፈላጊ የድሮ ቅርጸት ካለ አሳጥር
-    if "አዲስ የሽያጭ" in desc or "WebApp" in desc or len(desc) > 220:
-        # ቁልፍ መረጃው ከ extra_data ስለሚመጣ መግለጫውን አጭር አድርግ
-        lines = [l.strip() for l in desc.split('\n') if l.strip()]
-        # የመጨረሻውን ትክክለኛ መግለጫ ብቻ ውሰድ
-        for line in lines:
-            if line.startswith("📝") or line.startswith("መግለጫ"):
-                clean_desc = line.replace("📝 መግለጫ:", "").replace("መግለጫ:", "").strip()
-                break
-        else:
-            clean_desc = lines[-1] if lines else desc
-        if len(clean_desc) > 160:
-            clean_desc = clean_desc[:160] + "..."
+    # መግለጫን ንጹህ አድርግ
+    clean_desc = desc.strip()
+    # የተደጋገሙ ነገሮችን አስወግድ
+    for junk in ["⚡ **አስቸኳይ ሽያጭ!**", "📢 **አዲስ የሽያጭ", "WebApp", "💰 ዋጋ:", "📞 ስልክ:", "📝 መግለጫ:"]:
+        if junk in clean_desc:
+            lines = [l for l in clean_desc.split('\n') if not any(j in l for j in ["ዋጋ:", "ስልክ:", "አዲስ የሽያጭ", "WebApp", "አስቸኳይ ሽያጭ"])]
+            clean_desc = "\n".join(lines).strip()
+            break
+
+    if len(clean_desc) > 140:
+        clean_desc = clean_desc[:140] + "..."
 
     return (
         f"╭────────────────────╮\n"
-        f"│  {icon}  **ለገበያ የቀረበ**\n"
-        f"│  {tag}  {urgent}\n"
+        f"│  {icon}  {tag} {urgent}\n"
         f"│  `#ADK-{item_id}`\n"
         f"╰────────────────────╯\n\n"
         f"📦 {main_cat} ({sub_cat})\n"
@@ -1696,13 +1697,13 @@ def format_broker_profile(b: dict) -> str:
     stars = "⭐" * int(float(b.get('rating', 5)))
     return (
         f"╭────────────────────╮\n"
-        f"│  👤  **ደላላ መረጃ**\n"
+        f"│  👤  **ደላላ**\n"
         f"╰────────────────────╯\n\n"
         f"**ስም:** {b.get('full_name')}\n"
         f"**ሚና:** {b.get('role_type')}\n"
         f"**ክፍለ ከተማ:** {b.get('sub_city')}\n"
         f"**ስልክ:** `{b.get('phone')}`\n"
-        f"**ደረጃ:** {b.get('rating', 5.0)}/5.0 ({b.get('total_ratings', 0)}) {stars}\n"
+        f"**ደረጃ:** {b.get('rating', 5.0)}/5.0 {stars}\n"
         f"──────────────────────"
     )
 
@@ -1714,33 +1715,35 @@ def get_nav_buttons(back_callback: str = None) -> list:
     return buttons
 
 def build_request_keyboard(req_id: int, user_id: int) -> InlineKeyboardMarkup:
+    """ለፈላጊ ጥያቄዎች (ደላሎች ብቻ)"""
     keyboard = [
         [
             InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{user_id}"),
             InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
-        ],
-        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+        ]
     ]
     return InlineKeyboardMarkup(keyboard)
 
 def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int, phone: str = "") -> InlineKeyboardMarkup:
+    """
+    ለሻጭ ማስታወቂያዎች
+    - ሁሉም ሰው: ገዢ አለኝ / ለራሴ ነው
+    - ባለቤት/አድሚን ብቻ: ተሸጧል + አጥፋ
+    """
     keyboard = [
         [
             InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{item_id}_{owner_id}"),
             InlineKeyboardButton("👤 ለራሴ ነው", callback_data=f"want_myself_{item_id}")
-        ],
-        [
-            InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{item_id}")
         ]
     ]
 
+    # ባለቤት ወይም አድሚን ብቻ
     if current_user_id == owner_id or current_user_id == ADMIN_CHAT_ID_INT:
         keyboard.append([
             InlineKeyboardButton("✅ ተሸጧል", callback_data=f"mark_sold_{item_id}"),
             InlineKeyboardButton("🗑️ አጥፋ", callback_data=f"delete_req_{item_id}")
         ])
 
-    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
     return InlineKeyboardMarkup(keyboard)
 
 async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
@@ -1752,7 +1755,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
 
         listing = get_listing_by_id(req_id)
         if not listing:
-            logger.warning(f"Listing {req_id} not found for notification")
+            logger.warning(f"Listing {req_id} not found")
             return
 
         main_category = listing.get('main_category', '')
@@ -1790,9 +1793,6 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                         ],
                         [InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")]
                     ]
-                    if phone and str(phone).startswith("@"):
-                        username = phone.lstrip("@")
-                        kbd.insert(1, [InlineKeyboardButton(f"💬 @{username}", url=f"https://t.me/{username}")])
                 else:
                     kbd = [[
                         InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
@@ -1808,9 +1808,9 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                 sent_count += 1
                 await asyncio.sleep(0.05)
             except Exception as e:
-                logger.error(f"Failed to send notification to broker {broker.get('chat_id')}: {e}")
+                logger.error(f"Failed to notify broker {broker.get('chat_id')}: {e}")
         
-        logger.info(f"✅ Sent to {sent_count}/{len(approved_brokers)} brokers for #ADK-{req_id} ({req_type})")
+        logger.info(f"✅ Sent to {sent_count}/{len(approved_brokers)} brokers for #ADK-{req_id}")
         
     except Exception as e:
         logger.error(f"❌ notify_brokers error: {e}", exc_info=True)
