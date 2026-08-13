@@ -2774,7 +2774,9 @@ def clean_description(desc: str, max_len: int = 40) -> str:
     return clean.strip()
 
 def format_marketplace_card_clean(item: dict) -> str:
-    """የገበያ ቦታ ካርድ - ንጹህና የሚያምር (ለሁለቱም ገበያ ቦታ እና ደላላ ይጠቅማል)"""
+    """
+    ንጹህ የገበያ ቦታ ካርድ - ያለ ድግግሞሽ እና ያልተስተካከለ መረጃ
+    """
     item_id = item.get('id', 'N/A')
     main_cat = item.get('main_category', '')
     sub_cat = item.get('sub_category', '') or ''
@@ -2789,57 +2791,117 @@ def format_marketplace_card_clean(item: dict) -> str:
         except:
             extra_data = {}
 
+    # አዶዎች እና መለያዎች
     icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
-    tag = "🔴 ለሽያጭ" if action in ["መሸጥ", "SELL"] else "🔵 ለኪራይ"
+    
+    # ድርጊት መለያ
+    if action in ["መሸጥ", "SELL"]:
+        tag = "🔴 ለሽያጭ"
+    elif action in ["ማከራየት", "RENT"]:
+        tag = "🔵 ለኪራይ"
+    else:
+        tag = "📦 ለሽያጭ/ኪራይ"
+    
     negotiable = "የሚደራደር" if extra_data.get('negotiable', True) else "የማይደራደር"
     urgent = " ⚡" if extra_data.get('urgent_sale') else ""
 
-    # ቁልፍ ዝርዝሮች ብቻ
+    # ዝርዝሮችን አስተካክል (ያለ ድግግሞሽ)
     specs = []
+    
+    # ሁኔታ
+    if extra_data.get('condition'):
+        specs.append(extra_data['condition'])
+    
+    # ለመኪና
     if main_cat in ["መኪና", "car", "CAR"]:
-        if extra_data.get('condition'):
-            specs.append(extra_data['condition'])
         if extra_data.get('fuel_type'):
             specs.append(extra_data['fuel_type'])
         if extra_data.get('transmission'):
             specs.append(extra_data['transmission'])
         if extra_data.get('mileage'):
-            specs.append(f"{extra_data['mileage']} KM")
+            specs.append(f"{extra_data['mileage']}KM")
         if extra_data.get('car_type'):
             specs.append(extra_data['car_type'])
     else:
-        if extra_data.get('condition'):
-            specs.append(extra_data['condition'])
+        # ለቤት
         if extra_data.get('bedrooms'):
             specs.append(f"{extra_data['bedrooms']} መኝታ")
         if extra_data.get('bathrooms'):
             specs.append(f"{extra_data['bathrooms']} መታጠቢያ")
         if extra_data.get('parking'):
-            specs.append(f"ፓርኪንግ {extra_data['parking']}")
+            specs.append(f"ፓርኪንግ: {extra_data['parking']}")
         if extra_data.get('house_type'):
             specs.append(extra_data['house_type'])
 
     specs_line = " · ".join(specs) if specs else ""
-    title = f"{main_cat}" + (f" ({sub_cat})" if sub_cat else "")
+    
+    # ዋና ርዕስ
+    title = main_cat
+    if sub_cat:
+        title += f" ({sub_cat})"
 
-    # መግለጫ (አጭርና ንጹህ)
-    desc = clean_description(item.get('description', ''), 55)
+    # መግለጫ - ንጹህ እና አጭር
+    desc = clean_description(item.get('description', ''), 50)
 
-    card = (
-        f"{icon} **{tag}{urgent}**  `#ADK-{item_id}`\n"
-        f"────────────────────\n"
-        f"📦 {title}\n"
-        f"💰 **{price}** ብር · {negotiable}\n"
-    )
+    # ============================================================
+    # ንጹህ ካርድ - ያለ ድግግሞሽ
+    # ============================================================
+    card_lines = [
+        f"{icon} **{tag}{urgent}**  `#ADK-{item_id}`",
+        "────────────────────",
+        f"📦 {title}",
+        f"💰 **{price}** ብር · {negotiable}"
+    ]
+    
     if specs_line:
-        card += f"📋 {specs_line}\n"
+        card_lines.append(f"📋 {specs_line}")
+    
     if desc:
-        card += f"────────────────────\n📝 {desc}\n"
-    card += (
-        f"────────────────────\n"
-        f"📞 `{phone}`"
-    )
-    return card
+        card_lines.append("────────────────────")
+        card_lines.append(f"📝 {desc}")
+    
+    card_lines.append("────────────────────")
+    card_lines.append(f"📞 `{phone}`")
+    
+    return "\n".join(card_lines)
+
+def format_seller_card(item: dict) -> str:
+    """ለደላሎች የሚላከው ካርድ - ከገበያ ቦታ ጋር ተመሳሳይ"""
+    return format_marketplace_card_clean(item)
+
+def clean_description(desc: str, max_len: int = 50) -> str:
+    """
+    መግለጫን ንፁህ ማድረግ - የማያስፈልጉ ነገሮችን ማስወገድ
+    """
+    if not desc:
+        return ""
+    
+    # የማያስፈልጉ ቃላት
+    junk = [
+        'ዋጋ:', 'ስልክ:', 'አዲስ የሽያጭ', 'WebApp', 
+        'አስቸኳይ ሽያጭ', 'መግለጫ:', '📝', '💰', '📞',
+        '⚡', '📢', '🔄', '📦', 'NEW', 'እዱስ',
+        '🔥 ለሽያጭ', '🔥 አሸጋጭ', 'የገበያ ቦታ',
+        'ለሽያጭ', 'ለኪራይ',
+        'አይነት:', 'ምድብ:', 'ሁኔታ:', 'ነዳጅ:', 'ማርሽ:', 'ኪሎሜትር:',
+        'HCHC:', 'Halli', 'ቤንዛን', 'ማንዋ'
+    ]
+    
+    clean = desc
+    for j in junk:
+        clean = clean.replace(j, '')
+    
+    # ባዶ መስመሮችን አስወግድ
+    clean = '\n'.join(line.strip() for line in clean.split('\n') if line.strip())
+    
+    # አላስፈላጊ ቦታዎችን አስወግድ
+    clean = ' '.join(clean.split())
+    
+    # ርዝመት ገድብ
+    if len(clean) > max_len:
+        clean = clean[:max_len] + "..."
+    
+    return clean.strip()
 
 def format_seller_card(item: dict) -> str:
     """ለደላሎች የሚላከው ካርድ - ከገበያ ቦታ ጋር ተመሳሳይ"""
