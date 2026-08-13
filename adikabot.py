@@ -2949,6 +2949,36 @@ def format_marketplace_card_clean(item: dict) -> str:
     )
     return card
 
+def format_buyer_request_clean(req: dict) -> str:
+    """የፈላጊ ጥያቄ ካርድ - ንጹህ (ከገበያ ቦታ ጋር ተመሳሳይ ቅርጸት)"""
+    req_id = req.get('id', 'N/A')
+    main_cat = req.get('main_category', '')
+    action = req.get('action_type', '')
+    sub_cat = req.get('sub_category', '') or ''
+    prop = req.get('property_type', '') or ''
+    phone = req.get('phone', '-')
+    desc = clean_description(req.get('description', ''), 60)
+
+    icon = "🚗" if main_cat in ["መኪና", "car", "CAR"] else "🏠"
+    detail = " · ".join(x for x in [sub_cat, prop] if x)
+
+    card = (
+        f"{icon} **ፈላጊ ጥያቄ**  `#ADK-{req_id}`\n"
+        f"────────────────────\n"
+        f"📌 {main_cat}"
+    )
+    if action:
+        card += f" · {action}"
+    card += "\n"
+    if detail:
+        card += f"🏷️ {detail}\n"
+    if desc:
+        card += f"────────────────────\n📝 {desc}\n"
+    card += (
+        f"────────────────────\n"
+        f"📞 `{phone}`"
+    )
+    return card
 
 def format_buyer_request_clean(req: dict) -> str:
     """የፈላጊ ጥያቄ ካርድ - ንጹህ"""
