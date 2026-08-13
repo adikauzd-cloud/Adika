@@ -1710,7 +1710,8 @@ def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int
         ])
     return InlineKeyboardMarkup(keyboard)
 
-async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
+async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int, photos: list = None):
+    """ደላሎችን ማሳወቅ - ፎቶ ይዞ"""
     try:
         approved_brokers = get_approved_brokers()
         if not approved_brokers:
@@ -1722,6 +1723,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
         req_type = str(listing.get('req_type', 'BUY')).upper()
         owner_id = listing.get('user_chat_id')
         sent_count = 0
+        
         for broker in approved_brokers:
             try:
                 b_id = broker.get('chat_id')
@@ -1737,6 +1739,7 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                     continue
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
+                
                 if req_type == "SELL":
                     kbd = [[
                         InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
@@ -1747,12 +1750,32 @@ async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
                         InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
                         InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
                     ]]
-                await bot.send_message(
-                    chat_id=b_id,
-                    text=message_text,
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup(kbd)
-                )
+                
+                # ፎቶ ካለ ከፎቶ ጋር ላክ፣ ከሌለ በጽሁፍ ብቻ
+                if photos and len(photos) > 0:
+                    try:
+                        await bot.send_photo(
+                            chat_id=b_id,
+                            photo=photos[0],
+                            caption=message_text,
+                            parse_mode="Markdown",
+                            reply_markup=InlineKeyboardMarkup(kbd)
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to send photo to broker {b_id}: {e}")
+                        await bot.send_message(
+                            chat_id=b_id,
+                            text=message_text,
+                            parse_mode="Markdown",
+                            reply_markup=InlineKeyboardMarkup(kbd)
+                        )
+                else:
+                    await bot.send_message(
+                        chat_id=b_id,
+                        text=message_text,
+                        parse_mode="Markdown",
+                        reply_markup=InlineKeyboardMarkup(kbd)
+                    )
                 sent_count += 1
                 await asyncio.sleep(0.05)
             except Exception as e:
