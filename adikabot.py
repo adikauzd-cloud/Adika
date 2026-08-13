@@ -2892,7 +2892,7 @@ async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_T
     await query.message.reply_text(
         f"✅ **ጥያቄ #ADK-{req_id}**\n\n"
         f"✍️ **ያለዎትን ንብረት ዝርዝር መረጃ እና ዋጋ ያስገቡ፦**\n\n"
-        f"💡 *ምሳሌ፦* ቶዮታ ቪትዝ 2021፣ 30,000 KM፣ ዋጋ 2.4 ሚሊዮን፣ ስልክ 0911...",
+        f"💡 *ምሳሌ፦* ቶዮታ ቪትዝ 2021፣ 30,000 KM፣ ዋጋ 2.4 ሚሊዮን",
         reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True),
         parse_mode="Markdown"
     )
@@ -2907,7 +2907,7 @@ async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['offer_text'] = text
     await update.message.reply_text(
         "📸 **የንብረቱን ፎቶ ይላኩ፦**\n\n"
-        "(ፎቶ ከሌልዎት 'ፎቶ የለውም' ብለው ይጻፉ)",
+        "(ፎቶ ከሌልዎት `ፎቶ የለውም` ብለው ይጻፉ)",
         reply_markup=ReplyKeyboardMarkup([["ፎቶ የለውም"], ["🏠 ዋና ገጽ"]], resize_keyboard=True),
         parse_mode="Markdown"
     )
@@ -2937,10 +2937,10 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     message_to_buyer = (
         f"🎉 **ለጥያቄዎ (#ADK-{req_id}) አዲስ የቀረበ አማራጭ አለ!**\n\n"
-        f"👤 **ደላላ/አቅራቢ፦** {broker_name}\n"
-        f"📞 **ስልክ፦** `{broker_phone}`\n\n"
-        f"📝 **የንብረቱ ዝርዝር፦**\n{offer_text}\n\n"
-        f"💡 *ከፈለጉ ደውለው መገበያየት ይችላሉ!*"
+        f"👤 **ደላላ/አቅራቢ:** {broker_name}\n"
+        f"📞 **ስልክ:** `{broker_phone}`\n\n"
+        f"📝 **የንብረቱ ዝርዝር:**\n{offer_text}\n\n"
+        f"💡 ከፈለጉ ደውለው መገበያየት ይችላሉ!"
     )
 
     try:
@@ -2981,16 +2981,16 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ገዢ/ተከራይ አለኝ ሲጫን"""
+    """ገዢ አለኝ ሲጫን"""
     query = update.callback_query
-    await query.answer()
-
     user_id = query.from_user.id
     broker = get_broker(user_id)
 
     if not broker or broker.get('status') != 'approved':
-        await query.answer("⛔ የተረጋገጡ ደላሎች ብቻ ነው የሚችሉት!", show_alert=True)
+        await query.answer("⛔ የተረጋገጡ ደላሎች ብቻ ነው!", show_alert=True)
         return
+
+    await query.answer()
 
     parts = query.data.split('_')
     if len(parts) < 3:
@@ -3049,9 +3049,11 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         try:
             await query.edit_message_caption(caption=text, parse_mode="Markdown")
         except Exception:
-            await context.bot.send_message(chat_id=query.from_user.id, text=text, parse_mode="Markdown")
-    except Exception:
-        pass
+            await context.bot.send_message(
+                chat_id=query.from_user.id,
+                text=text,
+                parse_mode="Markdown"
+            )
 # ==============================================================================
 # 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY
 # ==============================================================================
