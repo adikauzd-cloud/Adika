@@ -838,7 +838,7 @@ def init_db():
 import json
 
 def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
-                action_type, property_type, description, price=None, phone=None, 
+                action_type, property_type, description, price=None, phone=None,
                 photo_id=None, extra_data=None, photos=None):
     conn = None
     try:
@@ -851,6 +851,8 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
         user_chat_id = int(user_chat_id) if user_chat_id else 0
         user_name = str(user_name or "User")
         req_type = str(req_type or "BUY").upper()
+        if req_type not in ("SELL", "BUY"):
+            req_type = "SELL" if "ሽያጭ" in str(action_type) or "መሸጥ" in str(action_type) else "BUY"
         main_category = str(main_category or "መኪና")
         sub_category = str(sub_category or "")
         action_type = str(action_type or "")
@@ -858,18 +860,25 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
         description = str(description or "")
         price = str(price or "")
         phone = str(phone or "")
+
+        # የመጀመሪያ ፎቶ ለ listings.photo_id
+        if not photo_id and photos:
+            first = str(photos[0])
+            # Telegram file_id ብቻ (base64 አይደለም)
+            if first and not first.startswith("data:"):
+                photo_id = first
         photo_id = str(photo_id) if photo_id else None
+
         query = f"""
-            INSERT INTO listings 
-            (user_chat_id, user_name, req_type, main_category, sub_category, 
+            INSERT INTO listings
+            (user_chat_id, user_name, req_type, main_category, sub_category,
              action_type, property_type, description, price, phone, photo_id, extra_data, status)
             VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending')
         """
         params = (
-            user_chat_id, user_name, req_type, main_category, 
-            sub_category, action_type, property_type, 
-            description, price, phone, photo_id,
-            extra_json
+            user_chat_id, user_name, req_type, main_category,
+            sub_category, action_type, property_type,
+            description, price, phone, photo_id, extra_json
         )
         logger.info(f"📝 Inserting listing: user={user_chat_id}, type={req_type}, cat={main_category}")
         if DATABASE_URL:
@@ -884,6 +893,7 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
             req_id = cursor.lastrowid
             conn.commit()
         logger.info(f"✅ Listing inserted with ID: {req_id}")
+
         if photos and req_id:
             logger.info(f"📸 Saving {len(photos)} photos for listing {req_id}")
             for photo in photos:
@@ -897,6 +907,7 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                     logger.error(f"Failed to save photo for listing {req_id}: {pe}")
             if not DATABASE_URL:
                 conn.commit()
+            # base64 ከሆነ listings.photo_id ባዶ ይቆያል - በማሳያ ጊዜ ከ listing_photos ይወሰዳል
         logger.info(f"✅ Listing added successfully → #ADK-{req_id}")
         return req_id
     except Exception as e:
@@ -914,6 +925,37 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
             except:
                 pass
 
+
+def _attach_photos_to_item(cursor, item, p):
+    """photo_id + listing_photos ወደ item"""
+    try:
+        lid = item.get('id')
+        if not lid:
+            item['photos'] = []
+            return item
+        cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (lid,))
+        photo_rows = cursor.fetchall()
+        photos = []
+        for r in photo_rows:
+            pid = dict(r)['photo_id'] if isinstance(r, dict) else r[0]
+            if pid:
+                photos.append(pid)
+        item['photos'] = photos
+        # ዋና photo_id ከሌለ ከ listing_photos ውሰድ
+        if not item.get('photo_id') and photos:
+            # Telegram file_id ቅድሚያ
+            for ph in photos:
+                if ph and not str(ph).startswith('data:'):
+                    item['photo_id'] = ph
+                    break
+            if not item.get('photo_id'):
+                item['photo_id'] = photos[0]
+    except Exception as e:
+        logger.warning(f"Could not load photos: {e}")
+        item['photos'] = item.get('photos') or []
+    return item
+
+
 def get_listing_by_id(listing_id: int):
     conn = None
     try:
@@ -930,13 +972,7 @@ def get_listing_by_id(listing_id: int):
                 result['extra_data'] = json.loads(result['extra_data'])
             except:
                 result['extra_data'] = {}
-        try:
-            cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (listing_id,))
-            photo_rows = cursor.fetchall()
-            result['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
-        except Exception as e:
-            logger.warning(f"Could not load photos for listing {listing_id}: {e}")
-            result['photos'] = []
+        result = _attach_photos_to_item(cursor, result, p)
         return result
     except Exception as e:
         logger.error(f"Get listing by id error: {e}")
@@ -948,7 +984,9 @@ def get_listing_by_id(listing_id: int):
             except:
                 pass
 
+
 def get_listings_by_category(limit=10, offset=0, req_type=None):
+    """አዲሶቹ ከታች (ASC) — በቻት ሲላኩ አዲሱ ከታች ይታያል"""
     conn = None
     try:
         conn = get_db_connection()
@@ -956,17 +994,17 @@ def get_listings_by_category(limit=10, offset=0, req_type=None):
         p = get_placeholder()
         if req_type:
             query = f"""
-                SELECT * FROM listings 
+                SELECT * FROM listings
                 WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})
-                ORDER BY created_at DESC 
+                ORDER BY created_at ASC
                 LIMIT {p} OFFSET {p}
             """
             cursor.execute(query, (req_type, limit, offset))
         else:
             query = f"""
-                SELECT * FROM listings 
-                WHERE status = 'pending' 
-                ORDER BY created_at DESC 
+                SELECT * FROM listings
+                WHERE status = 'pending'
+                ORDER BY created_at ASC
                 LIMIT {p} OFFSET {p}
             """
             cursor.execute(query, (limit, offset))
@@ -979,6 +1017,7 @@ def get_listings_by_category(limit=10, offset=0, req_type=None):
                     item['extra_data'] = json.loads(item['extra_data'])
                 except:
                     item['extra_data'] = {}
+            item = _attach_photos_to_item(cursor, item, p)
             results.append(item)
         logger.info(f"📋 Retrieved {len(results)} listings (type={req_type})")
         return results
@@ -992,56 +1031,9 @@ def get_listings_by_category(limit=10, offset=0, req_type=None):
             except:
                 pass
 
-def count_listings(req_type=None):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        if req_type:
-            p = get_placeholder()
-            cursor.execute(
-                f"SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})",
-                (req_type,)
-            )
-        else:
-            cursor.execute("SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending'")
-        row = cursor.fetchone()
-        if isinstance(row, dict):
-            return row.get('cnt', 0)
-        else:
-            return row[0] if row else 0
-    except Exception as e:
-        logger.error(f"Count listings error: {e}")
-        return 0
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def update_listing_status(req_id: int, status: str) -> bool:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
-        if not DATABASE_URL:
-            conn.commit()
-        logger.info(f"✅ Listing {req_id} status updated to {status}")
-        return True
-    except Exception as e:
-        logger.error(f"Update listing error: {e}")
-        return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
 
 def get_public_marketplace_items(limit: int = 20, offset: int = 0):
+    """አዲሶቹ ከታች (ASC) + ፎቶ"""
     conn = None
     try:
         conn = get_db_connection()
@@ -1052,20 +1044,20 @@ def get_public_marketplace_items(limit: int = 20, offset: int = 0):
         p = get_placeholder()
         if DATABASE_URL:
             cur.execute("""
-                SELECT * FROM listings 
+                SELECT * FROM listings
                 WHERE UPPER(req_type) = 'SELL'
                   AND status != 'deleted'
-                ORDER BY created_at DESC NULLS LAST
+                ORDER BY created_at ASC NULLS LAST
                 LIMIT %s OFFSET %s
             """, (limit, offset))
             rows = cur.fetchall()
             result = [dict(row) for row in rows]
         else:
             cur.execute("""
-                SELECT * FROM listings 
+                SELECT * FROM listings
                 WHERE UPPER(req_type) = 'SELL'
                   AND status != 'deleted'
-                ORDER BY created_at DESC
+                ORDER BY created_at ASC
                 LIMIT ? OFFSET ?
             """, (limit, offset))
             rows = cur.fetchall()
@@ -1077,6 +1069,7 @@ def get_public_marketplace_items(limit: int = 20, offset: int = 0):
                     item['extra_data'] = json.loads(item['extra_data'])
                 except:
                     item['extra_data'] = {}
+            item = _attach_photos_to_item(cur, item, p)
         logger.info(f"🛍️ Marketplace returned {len(result)} SELL items")
         return result
     except Exception as e:
