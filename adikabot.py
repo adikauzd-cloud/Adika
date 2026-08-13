@@ -2968,22 +2968,24 @@ def build_request_keyboard_clean(req_id: int, buyer_id: int) -> InlineKeyboardMa
     ])
 
 async def view_public_marketplace_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """የገበያ ቦታ - ንፁህ እትም (ያለ ድግግሞሽ)"""
+    """የገበያ ቦታ - ንፁህ ካርድ + ፎቶ (አዲሶቹ ከታች)"""
+    from io import BytesIO
+
     items = get_public_marketplace_items(limit=15)
     user_id = update.effective_user.id
-    
+
     if not items:
         await update.message.reply_text(
             "📭 ምንም ንብረቶች የሉም",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return
-    
+
     await update.message.reply_text(
-        f"🛍️ {len(items)} ንብረቶች",
+        f"🛍️ **የገበያ ቦታ** — {len(items)} ንብረቶች",
         parse_mode="Markdown"
     )
-    
+
     for item in items:
         card_text = format_marketplace_card_clean(item)
         reply_markup = build_marketplace_keyboard_clean(
@@ -2991,22 +2993,30 @@ async def view_public_marketplace_clean(update: Update, context: ContextTypes.DE
             owner_id=item.get('user_chat_id'),
             current_user_id=user_id
         )
-        
-        if item.get('photo_id'):
-            try:
+        file_id, photo_bytes = resolve_listing_photo(item)
+        try:
+            if file_id:
                 await update.message.reply_photo(
-                    photo=item['photo_id'],
+                    photo=file_id,
                     caption=card_text,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
-            except:
+            elif photo_bytes:
+                await update.message.reply_photo(
+                    photo=BytesIO(photo_bytes),
+                    caption=card_text,
+                    reply_markup=reply_markup,
+                    parse_mode="Markdown"
+                )
+            else:
                 await update.message.reply_text(
                     card_text,
                     reply_markup=reply_markup,
                     parse_mode="Markdown"
                 )
-        else:
+        except Exception as e:
+            logger.error(f"Marketplace send error: {e}")
             await update.message.reply_text(
                 card_text,
                 reply_markup=reply_markup,
