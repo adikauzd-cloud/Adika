@@ -2981,7 +2981,7 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ደላላ 'ገዢ/ተከራይ አለኝ' ሲጫን - ሻጭ ማስታወቂያ ላይ"""
+    """ገዢ/ተከራይ አለኝ ሲጫን"""
     query = update.callback_query
     await query.answer()
 
@@ -2989,7 +2989,7 @@ async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     broker = get_broker(user_id)
 
     if not broker or broker.get('status') != 'approved':
-        await query.answer("⛔ የተረጋገጡ ደላሎች ብቻ ነው!", show_alert=True)
+        await query.answer("⛔ የተረጋገጡ ደላሎች ብቻ ነው የሚችሉት!", show_alert=True)
         return
 
     parts = query.data.split('_')
@@ -3000,68 +3000,56 @@ async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     item_id = parts[2]
     owner_id = parts[3] if len(parts) >= 4 else None
 
-    listing = get_listing_by_id(int(item_id)) if item_id.isdigit() else None
+    listing = get_listing_by_id(int(item_id)) if str(item_id).isdigit() else None
     if not listing:
-        await query.answer("❌ ማስታወቂያው አልተገኘም።", show_alert=True)
+        await query.answer("❌ ማስታወቂያው አልተገኘም", show_alert=True)
         return
 
-    phone = listing.get('phone', '')
+    phone = listing.get('phone', 'አልተገኘም')
     owner_name = listing.get('user_name', 'ባለቤት')
-
-    # ስልክ ካለ ቀጥታ መደወያ ቁልፍ
-    keyboard = []
-    if phone and not str(phone).startswith("@"):
-        # Telegram tel: link
-        clean_phone = phone.replace(' ', '').replace('-', '')
-        keyboard.append([InlineKeyboardButton(f"📞 ደውል {phone}", url=f"tel:{clean_phone}")])
-    
-    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
 
     text = (
         f"🤝 **ገዢ/ተከራይ አለዎት**\n\n"
-        f"📦 ማስታወቂያ: #ADK-{item_id}\n"
+        f"📦 ማስታወቂያ: `#ADK-{item_id}`\n"
         f"👤 ባለቤት: {owner_name}\n"
         f"📞 ስልክ: `{phone}`\n\n"
-        f"💡 ከታች ያለውን ቁልፍ በመጫን በቀጥታ መደወል ይችላሉ።"
+        f"💡 በቀጥታ ደውለው መገበያየት ይችላሉ።"
     )
 
     try:
-        await query.edit_message_text(
-            text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
+        await query.edit_message_text(text=text, parse_mode="Markdown")
     except Exception:
-        await context.bot.send_message(
-            chat_id=user_id,
-            text=text,
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
+        try:
+            await query.edit_message_caption(caption=text, parse_mode="Markdown")
+        except Exception:
+            await context.bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
 
 
 async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ደላላ 'ለራሴ እፈልገዋለሁ' ሲጫን"""
+    """ለራሴ ነው ሲጫን"""
     query = update.callback_query
     await query.answer()
 
-    user_id = query.from_user.id
     parts = query.data.split('_')
     item_id = parts[2] if len(parts) >= 3 else "?"
 
     listing = get_listing_by_id(int(item_id)) if str(item_id).isdigit() else None
     phone = listing.get('phone', 'አልተገኘም') if listing else 'አልተገኘም'
 
-    await query.answer(f"📞 ስልክ: {phone}", show_alert=True)
+    text = (
+        f"👤 **ለራስዎ ይፈልጋሉ**\n\n"
+        f"📦 ማስታወቂያ: `#ADK-{item_id}`\n"
+        f"📞 የባለቤቱ ስልክ: `{phone}`\n\n"
+        f"💡 በቀጥታ ደውለው መገበያየት ይችላሉ።"
+    )
 
     try:
-        await query.edit_message_text(
-            f"👤 **ለራስዎ ይፈልጋሉ**\n\n"
-            f"📦 ማስታወቂያ: #ADK-{item_id}\n"
-            f"📞 የባለቤቱ ስልክ: `{phone}`\n\n"
-            f"💡 በቀጥታ ደውለው መገበያየት ይችላሉ።",
-            parse_mode="Markdown"
-        )
+        await query.edit_message_text(text=text, parse_mode="Markdown")
+    except Exception:
+        try:
+            await query.edit_message_caption(caption=text, parse_mode="Markdown")
+        except Exception:
+            await context.bot.send_message(chat_id=query.from_user.id, text=text, parse_mode="Markdown")
     except Exception:
         pass
 # ==============================================================================
