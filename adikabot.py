@@ -2667,34 +2667,44 @@ async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message and update.message.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
+    
     raw_buyer_id = context.user_data.get('target_buyer_id')
     req_id = context.user_data.get('target_req_id')
     offer_text = context.user_data.get('offer_text')
+    
     if not raw_buyer_id or not req_id or not offer_text:
         await update.message.reply_text(
-            "❌ የሂደት ስህተት ተከሰቷል። እባክዎ እንደገና ይሞክሩ።",
+            "❌ የሂደት ስህተት ተከሰቷል።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
         return ConversationHandler.END
+    
     buyer_id = int(raw_buyer_id)
     broker_user = update.effective_user
     broker = get_broker(broker_user.id)
-    broker_name = broker.get('full_name') if broker else (broker_user.first_name or "ደላላ/አቅራቢ")
+    broker_name = broker.get('full_name') if broker else (broker_user.first_name or "ደላላ")
     broker_phone = broker.get('phone', 'አልተጠቀሰም') if broker else 'አልተጠቀሰም'
     
-    # ለገዢ የሚላከው መልእክት - ከገበያ ቦታ ጋር ተመሳሳይ ቅርጸት
+    # ንጹህ መልእክት ለገዢ
     message_to_buyer = (
-        f"🎉 **ለጥያቄዎ (#ADK-{req_id}) አዲስ የቀረበ አማራጭ አለ!**\n\n"
-        f"👤 **ደላላ/አቅራቢ:** {broker_name}\n"
-        f"📞 **ስልክ:** `{broker_phone}`\n\n"
-        f"📝 **የንብረቱ ዝርዝር:**\n{offer_text}\n\n"
-        f"💡 ከፈለጉ ደውለው መገበያየት ይችላሉ!"
+        f"🎉 **አዲስ አማራጭ አለ!**\n"
+        f"────────────────────\n"
+        f"📦 ጥያቄ: `#ADK-{req_id}`\n"
+        f"👤 አቅራቢ: {broker_name}\n"
+        f"📞 `{broker_phone}`\n"
+        f"────────────────────\n"
+        f"📝 {offer_text}\n"
+        f"────────────────────\n"
+        f"💡 በቀጥታ ደውለው ይገበያዩ"
     )
+    
     try:
         photo_id = None
         if update.message.photo:
             photo_id = update.message.photo[-1].file_id
+        
         save_broker_offer(int(req_id), broker_user.id, offer_text, photo_id)
+        
         if photo_id:
             await context.bot.send_photo(
                 chat_id=buyer_id,
@@ -2708,17 +2718,19 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 text=message_to_buyer,
                 parse_mode="Markdown"
             )
+        
         await update.message.reply_text(
-            "✅ **መረጃዎ ለፈላጊው በስኬት ተልኳል!**",
+            "✅ **መረጃዎ ለፈላጊው ተልኳል!**",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
             parse_mode="Markdown"
         )
     except Exception as e:
-        logger.error(f"Failed to send offer to buyer {buyer_id}: {e}")
+        logger.error(f"Failed to send offer: {e}")
         await update.message.reply_text(
-            "❌ መረጃውን ለፈላጊው መላክ አልተቻለም።",
+            "❌ መረጃውን መላክ አልተቻለም።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
         )
+    
     context.user_data.clear()
     return ConversationHandler.END
 async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
