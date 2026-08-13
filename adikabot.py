@@ -1626,57 +1626,89 @@ def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int
         ])
     return InlineKeyboardMarkup(keyboard)
 
-async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int):
+async def notify_brokers(bot, message_text: str, req_id: int, buyer_id: int, photos: list = None):
+    """ደላሎችን ማሳወቅ - ፎቶ ይዞ (ያለ ድግግሞሽ)"""
     try:
         approved_brokers = get_approved_brokers()
         if not approved_brokers:
+            logger.warning("No approved brokers found")
             return
+        
         listing = get_listing_by_id(req_id)
         if not listing:
+            logger.error(f"Listing {req_id} not found")
             return
+        
         main_category = listing.get('main_category', '')
         req_type = str(listing.get('req_type', 'BUY')).upper()
         owner_id = listing.get('user_chat_id')
         sent_count = 0
+        
         for broker in approved_brokers:
             try:
                 b_id = broker.get('chat_id')
                 if not b_id:
                     continue
+                
                 prefs = broker.get('notification_prefs', {})
                 if isinstance(prefs, str):
-                    try: prefs = json.loads(prefs)
-                    except: prefs = {}
+                    try: 
+                        prefs = json.loads(prefs)
+                    except: 
+                        prefs = {}
+                
                 if not prefs.get('enabled', True):
                     continue
                 if main_category in ['መኪና', 'car', 'CAR'] and not prefs.get('car', True):
                     continue
                 if main_category in ['ቤት', 'house'] and not prefs.get('house', True):
                     continue
+                
+                # ቁልፎች
                 if req_type == "SELL":
                     kbd = [[
                         InlineKeyboardButton("🤝 ገዢ አለኝ", callback_data=f"have_buyer_{req_id}_{owner_id}"),
-                        InlineKeyboardButton("👤 ለራሴ ነው", callback_data=f"want_myself_{req_id}")
+                        InlineKeyboardButton("👤 ለራሴ", callback_data=f"want_myself_{req_id}")
                     ]]
                 else:
                     kbd = [[
                         InlineKeyboardButton("✅ አለኝ", callback_data=f"have_item_{req_id}_{buyer_id}"),
                         InlineKeyboardButton("⏭️ ይለፈኝ", callback_data=f"nohave_item_{req_id}")
                     ]]
-                await bot.send_message(
-                    chat_id=b_id,
-                    text=message_text,
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup(kbd)
-                )
+                
+                # ✅ ፎቶ ካለ ከፎቶ ጋር ላክ፣ ከሌለ በጽሁፍ ብቻ
+                if photos and len(photos) > 0:
+                    try:
+                        await bot.send_photo(
+                            chat_id=b_id,
+                            photo=photos[0],
+                            caption=message_text,
+                            parse_mode="HTML",
+                            reply_markup=InlineKeyboardMarkup(kbd)
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to send photo to broker {b_id}: {e}")
+                        await bot.send_message(
+                            chat_id=b_id,
+                            text=message_text,
+                            parse_mode="HTML",
+                            reply_markup=InlineKeyboardMarkup(kbd)
+                        )
+                else:
+                    await bot.send_message(
+                        chat_id=b_id,
+                        text=message_text,
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(kbd)
+                    )
                 sent_count += 1
                 await asyncio.sleep(0.05)
             except Exception as e:
                 logger.error(f"Notify broker error: {e}")
+        
         logger.info(f"✅ Sent to {sent_count} brokers for #ADK-{req_id}")
     except Exception as e:
         logger.error(f"notify_brokers error: {e}", exc_info=True)
-
 
 # ==============================================================================
 # 7. CONVERSATION STATES
