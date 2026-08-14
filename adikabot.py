@@ -2967,10 +2967,331 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 
 # ==============================================================================
-# 11-12. BROKER REGISTRATION & OFFER FLOW (እንዳሉ)
+# 11. BROKER REGISTRATION (FULL)
 # ==============================================================================
-# ... (ለአጭርነት አላሳየውም - እንደበፊቱ ይቆያል)
 
+async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የደላላ ምዝገባ መጀመሪያ"""
+    context.user_data.clear()
+    keyboard = [
+        [InlineKeyboardButton("👨💼 ደላላ", callback_data="role_broker")],
+        [InlineKeyboardButton("🚢 አስመጪ / አቅራቢ", callback_data="role_importer")],
+        [InlineKeyboardButton("👤 ባለቤት / አቅራቢ", callback_data="role_owner")],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
+    ]
+    await update.message.reply_text(
+        "📝 **የምዝገባ አይነት ይምረጡ፦**\n\n"
+        "💡 *ማብራሪያ፦*\n"
+        "• ደላላ - ሽያጭ/ኪራይ የሚያመቻች\n"
+        "• አስመጪ/አቅራቢ - ከውጭ የሚያስገባ\n"
+        "• ባለቤት/አቅራቢ - ንብረት ያለው",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return BROKER_ROLE
+
+async def broker_role_chosen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የደላላ ሚና ምርጫ"""
+    query = update.callback_query
+    if query.data == "flow_home":
+        return await go_home(update, context)
+    await query.answer()
+    role_map = {
+        "role_broker": "ደላላ",
+        "role_importer": "አስመጪ/አቅራቢ",
+        "role_owner": "ባለቤት/አቅራቢ"
+    }
+    role = role_map.get(query.data, "አቅራቢ")
+    context.user_data['broker_role'] = role
+    await query.edit_message_text(
+        f"👤 **ምዝገባ፦ {role}**\n\n1️⃣ ሙሉ ስምዎን ያስገቡ፦",
+        parse_mode="Markdown"
+    )
+    return BROKER_NAME
+
+async def broker_reg_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የደላላ ስም መመዝገብ"""
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    context.user_data['broker_name'] = update.message.text
+    await update.message.reply_text("2️⃣ **የስልክ ቁጥርዎን ያስገቡ፦**", parse_mode="Markdown")
+    return BROKER_PHONE
+
+async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የደላላ ስልክ መመዝገብ"""
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    if not validate_phone(update.message.text):
+        await update.message.reply_text("❌ ትክክለኛ የስልክ ቁጥር ያስገቡ። (ለምሳሌ፦ 0911223344)")
+        return BROKER_PHONE
+    context.user_data['broker_phone'] = update.message.text
+    keyboard = [[InlineKeyboardButton(sc, callback_data=f"broker_sc_{sc}")] for sc in SUB_CITIES]
+    keyboard.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+    await update.message.reply_text(
+        "3️⃣ **የሚሰሩበትን ክፍለ ከተማ ይምረጡ፦**",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+    return BROKER_SUBCITY
+
+async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የደላላ ክፍለ ከተማ ምርጫ"""
+    query = update.callback_query
+    if query.data == "flow_home":
+        return await go_home(update, context)
+    await query.answer()
+    sub_city = query.data.replace("broker_sc_", "")
+    context.user_data['broker_subcity'] = sub_city
+    await query.edit_message_text(
+        "4️⃣ **የፋይዳ (National ID) ወይም የነዋሪነት መታወቂያ ፎቶ ያንሱና ይላኩ፦**\n\n"
+        "💡 *ይህ ለማረጋገጫ ብቻ ነው*",
+        parse_mode="Markdown"
+    )
+    return BROKER_NID_PHOTO
+
+async def broker_reg_nid_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የደላላ መታወቂያ ፎቶ መመዝገብ"""
+    if update.message and update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    user = update.effective_user
+    photo_id = update.message.photo[-1].file_id if update.message.photo else None
+    if not photo_id:
+        await update.message.reply_text("❌ እባክዎ የመታወቂያ ፎቶ ይላኩ።")
+        return BROKER_NID_PHOTO
+    role = context.user_data.get('broker_role', 'አቅራቢ')
+    name = context.user_data.get('broker_name', user.first_name)
+    phone = context.user_data.get('broker_phone', '')
+    sub_city = context.user_data.get('broker_subcity', '')
+    broker_id = add_broker(user.id, name, phone, role, photo_id, sub_city)
+    if broker_id:
+        await update.message.reply_text(
+            "✅ **ምዝገባዎ በስኬት ተጠናቋል!** 🎉\n\n"
+            "⏳ አድሚኑ መረጃዎን ካረጋገጠ በኋላ ማስታወቂያ ይደርስዎታል።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
+        )
+        if ADMIN_CHAT_ID_INT != 0:
+            admin_msg = (
+                f"🚨 **አዲስ የ{role} ምዝገባ ጥያቄ!**\n\n"
+                f"👤 ስም: {name}\n"
+                f"🎭 ሚና: {role}\n"
+                f"📞 ስልክ: {phone}\n"
+                f"📍 ክፍለ ከተማ: {sub_city}\n"
+                f"🆔 Telegram ID: `{user.id}`"
+            )
+            admin_kbd = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ አጽድቅ", callback_data=f"admin_appr_{user.id}"),
+                    InlineKeyboardButton("❌ ሰርዝ", callback_data=f"admin_reje_{user.id}")
+                ]
+            ])
+            try:
+                await context.bot.send_photo(
+                    chat_id=ADMIN_CHAT_ID_INT,
+                    photo=photo_id,
+                    caption=admin_msg,
+                    parse_mode="Markdown",
+                    reply_markup=admin_kbd
+                )
+            except Exception as e:
+                logger.error(f"Failed to send admin approval message: {e}")
+    else:
+        await update.message.reply_text(
+            "❌ **ምዝገባውን ማጠናቀቅ አልተቻለም!** እባክዎ እንደገና ይሞክሩ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="Markdown"
+        )
+    context.user_data.clear()
+    return ConversationHandler.END
+
+
+# ==============================================================================
+# 12. BROKER OFFER FLOW (FULL)
+# ==============================================================================
+
+async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ደላላ 'አለኝ' ሲጫን - ለፈላጊ ጥያቄ"""
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    broker = get_broker(user_id)
+    if not broker or broker.get('status') != 'approved':
+        await query.message.reply_text(
+            "⛔ **ይህን ማድረግ የሚችሉት በአድሚን የተረጋገጡ ደላሎች/አቅራቢዎች ብቻ ናቸው!**",
+            parse_mode="Markdown"
+        )
+        return ConversationHandler.END
+    parts = query.data.split('_')
+    if len(parts) < 3:
+        await query.message.reply_text("❌ የተሳሳተ መረጃ ተላኳል።")
+        return ConversationHandler.END
+    req_id = parts[2]
+    buyer_id = parts[3] if len(parts) >= 4 else None
+    if not buyer_id:
+        listing = get_listing_by_id(int(req_id)) if req_id.isdigit() else None
+        if listing:
+            buyer_id = listing.get('user_chat_id')
+    if not buyer_id:
+        await query.message.reply_text("❌ የፈላጊው መረጃ አልተገኘም።")
+        return ConversationHandler.END
+    context.user_data['target_req_id'] = req_id
+    context.user_data['target_buyer_id'] = buyer_id
+    await query.message.reply_text(
+        f"✅ **ጥያቄ #ADK-{req_id}**\n\n"
+        f"✍️ **ያለዎትን ንብረት ዝርዝር መረጃ እና ዋጋ ያስገቡ፦**\n\n"
+        f"💡 *ምሳሌ፦* ቶዮታ ቪትዝ 2021፣ 30,000 KM፣ ዋጋ 2.4 ሚሊዮን",
+        reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True),
+        parse_mode="Markdown"
+    )
+    return BROKER_OFFER_TEXT
+
+async def broker_offer_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የደላላ ቅናሽ ጽሁፍ"""
+    text = update.message.text
+    if text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    context.user_data['offer_text'] = text
+    await update.message.reply_text(
+        "📸 **የንብረቱን ፎቶ ይላኩ፦**\n\n"
+        "(ፎቶ ከሌልዎት `ፎቶ የለውም` ብለው ይጻፉ)",
+        reply_markup=ReplyKeyboardMarkup([["ፎቶ የለውም"], ["🏠 ዋና ገጽ"]], resize_keyboard=True),
+        parse_mode="Markdown"
+    )
+    return BROKER_OFFER_PHOTO
+
+async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """የደላላ ቅናሽ ፎቶ መላክ"""
+    if update.message and update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
+    
+    raw_buyer_id = context.user_data.get('target_buyer_id')
+    req_id = context.user_data.get('target_req_id')
+    offer_text = context.user_data.get('offer_text')
+    
+    if not raw_buyer_id or not req_id or not offer_text:
+        await update.message.reply_text(
+            "❌ <b>የሂደት ስህተት ተከሰቷል</b>",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="HTML"
+        )
+        return ConversationHandler.END
+    
+    buyer_id = int(raw_buyer_id)
+    broker_user = update.effective_user
+    broker = get_broker(broker_user.id)
+    broker_name = broker.get('full_name') if broker else (broker_user.first_name or "ደላላ")
+    broker_phone = broker.get('phone', 'አልተጠቀሰም') if broker else 'አልተጠቀሰም'
+    
+    message_to_buyer = (
+        f"🎉 <b>አዲስ አማራጭ ተገኝቷል!</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📦 <b>ጥያቄ፡</b> <code>#ADK-{req_id}</code>\n"
+        f"👤 <b>አቅራቢ፡</b> {broker_name}\n"
+        f"📞 <b>ስልክ፡</b> <code>{broker_phone}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📝 <b>የንብረቱ ዝርዝር፡</b>\n{offer_text}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 ለበለጠ መረጃ ይደውሉ"
+    )
+    
+    try:
+        photo_id = None
+        if update.message.photo:
+            photo_id = update.message.photo[-1].file_id
+        
+        save_broker_offer(int(req_id), broker_user.id, offer_text, photo_id)
+        
+        if photo_id:
+            await context.bot.send_photo(
+                chat_id=buyer_id,
+                photo=photo_id,
+                caption=message_to_buyer,
+                parse_mode="HTML"
+            )
+        else:
+            await context.bot.send_message(
+                chat_id=buyer_id,
+                text=message_to_buyer,
+                parse_mode="HTML"
+            )
+        
+        await update.message.reply_text(
+            "✅ <b>መረጃዎ ለፈላጊው ተልኳል!</b>",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Failed to send offer: {e}")
+        await update.message.reply_text(
+            "❌ <b>መረጃውን መላክ አልተቻለም</b>",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="HTML"
+        )
+    
+    context.user_data.clear()
+    return ConversationHandler.END
+
+async def have_buyer_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ገዢ አለኝ ሲጫን"""
+    query = update.callback_query
+    user_id = query.from_user.id
+    broker = get_broker(user_id)
+    if not broker or broker.get('status') != 'approved':
+        await query.answer("⛔ የተረጋገጡ ደላሎች ብቻ ነው!", show_alert=True)
+        return
+    await query.answer()
+    parts = query.data.split('_')
+    if len(parts) < 3:
+        await query.answer("❌ የተሳሳተ መረጃ", show_alert=True)
+        return
+    item_id = parts[2]
+    owner_id = parts[3] if len(parts) >= 4 else None
+    listing = get_listing_by_id(int(item_id)) if str(item_id).isdigit() else None
+    if not listing:
+        await query.answer("❌ ማስታወቂያው አልተገኘም", show_alert=True)
+        return
+    phone = listing.get('phone', 'አልተገኘም')
+    owner_name = listing.get('user_name', 'ባለቤት')
+    text = (
+        f"🤝 **ገዢ/ተከራይ አለዎት**\n\n"
+        f"📦 ማስታወቂያ: `#ADK-{item_id}`\n"
+        f"👤 ባለቤት: {owner_name}\n"
+        f"📞 ስልክ: `{phone}`\n\n"
+        f"💡 በቀጥታ ደውለው መገበያየት ይችላሉ።"
+    )
+    try:
+        await query.edit_message_text(text=text, parse_mode="Markdown")
+    except Exception:
+        try:
+            await query.edit_message_caption(caption=text, parse_mode="Markdown")
+        except Exception:
+            await context.bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
+
+async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ለራሴ ነው ሲጫን"""
+    query = update.callback_query
+    await query.answer()
+    parts = query.data.split('_')
+    item_id = parts[2] if len(parts) >= 3 else "?"
+    listing = get_listing_by_id(int(item_id)) if str(item_id).isdigit() else None
+    phone = listing.get('phone', 'አልተገኘም') if listing else 'አልተገኘም'
+    text = (
+        f"👤 **ለራስዎ ይፈልጋሉ**\n\n"
+        f"📦 ማስታወቂያ: `#ADK-{item_id}`\n"
+        f"📞 የባለቤቱ ስልክ: `{phone}`\n\n"
+        f"💡 በቀጥታ ደውለው መገበያየት ይችላሉ።"
+    )
+    try:
+        await query.edit_message_text(text=text, parse_mode="Markdown")
+    except Exception:
+        try:
+            await query.edit_message_caption(caption=text, parse_mode="Markdown")
+        except Exception:
+            await context.bot.send_message(
+                chat_id=query.from_user.id,
+                text=text,
+                parse_mode="Markdown"
+            )
 # ==============================================================================
 # 13. VIEW REQUESTS / MARKETPLACE
 # ==============================================================================
