@@ -3113,79 +3113,42 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 # 13. VIEW REQUESTS / MARKETPLACE / DIRECTORY
 # ==============================================================================
 
-async def open_explorer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Open the Web App Explorer (Marketplace + Buyer Requests) inside Telegram."""
-    hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "adika-vrkk.onrender.com")
-    url = f"https://{hostname}/explorer"
-    keyboard = [[InlineKeyboardButton(
-        "🔍 የገበያ ቦታ + የፈላጊዎች ዝርዝር (Explorer)",
-        web_app=WebAppInfo(url=url)
-    )]]
-    await update.message.reply_text(
-        "📱 **Web App Explorer**\n\n"
-        "ሁሉንም የገበያ ቦታ እና የፈላጊዎች ዝርዝር በአንድ ቦታ፣ በቀላሉ ይመልከቱ።\n"
-        "ፎቶ፣ ዋጋ፣ እይታዎች እና ቀጥተኛ ጥሪ/ቴሌግራም አገናኝ አለው።",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
+# ---------- Hybrid choice: Web App vs Text Mode ----------
 
-async def view_public_marketplace_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    items = get_public_marketplace_items(limit=15)
-    user_id = update.effective_user.id
-    
-    if not items:
-        await update.message.reply_text(
-            "📭 ምንም ንብረቶች የሉም",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
-        )
-        return
-    
+TEXT_PAGE_SIZE = 4  # items per text-mode page (good for slow networks)
+
+
+async def marketplace_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show hybrid choice for Marketplace (Web App vs Text)."""
+    hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "adika-vrkk.onrender.com")
+    web_url = f"https://{hostname}/explorer"
+    keyboard = [
+        [InlineKeyboardButton(
+            "🌐 በዌብ አፕ ክፈት (ሙሉ ፎቶዎች)",
+            web_app=WebAppInfo(url=web_url)
+        )],
+        [InlineKeyboardButton(
+            "⚡ በጽሁፍ እይ (ለዝቅተኛ ኔትወርክ)",
+            callback_data="text_mode_marketplace_1"
+        )],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")],
+    ]
     await update.message.reply_text(
-        f"🛍️ <b>{len(items)} ንብረቶች ተገኝተዋል</b>",
+        "🛍️ <b>የገበያ ቦታ</b>\n\n"
+        "እባክዎን የማሳያ መንገድ ይምረጡ፦\n\n"
+        "🌐 <b>ዌብ አፕ</b> — ሙሉ ፎቶዎች፣ ፈጣን ፍለጋ እና ማጣሪያ\n"
+        "⚡ <b>ጽሁፍ</b> — ለዝቅተኛ ኔትወርክ (ቀላል ጽሁፍ + ገጽ በገጽ)",
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="HTML"
     )
-    
-    for item in items:
-        photos = item.get('photos', [])
-        if not photos:
-            photo_id = item.get('photo_id')
-            if photo_id:
-                photos = [photo_id]
-        
-        card_text = format_marketplace_card_professional(item)
-        reply_markup = build_marketplace_keyboard_clean(
-            item_id=item.get('id'),
-            owner_id=item.get('user_chat_id'),
-            current_user_id=user_id
-        )
-        
-        if photos and len(photos) > 0:
-            try:
-                await update.message.reply_photo(
-                    photo=photos[0],
-                    caption=card_text,
-                    reply_markup=reply_markup,
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                logger.error(f"Failed to send photo: {e}")
-                await update.message.reply_text(
-                    card_text,
-                    reply_markup=reply_markup,
-                    parse_mode="HTML"
-                )
-        else:
-            await update.message.reply_text(
-                card_text,
-                reply_markup=reply_markup,
-                parse_mode="HTML"
-            )
 
-async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def requests_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show hybrid choice for Buyer Requests. Restricted to approved brokers + admin."""
     user_id = update.effective_user.id
     is_admin = (user_id == ADMIN_CHAT_ID_INT)
     broker = get_broker(user_id)
-    
+
     if not is_admin and not broker:
         await update.message.reply_text(
             "⛔ <b>ይህን ማየት የሚችሉት የተረጋገጡ ደላሎች ብቻ ናቸው!</b>",
@@ -3193,7 +3156,6 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="HTML"
         )
         return
-    
     if not is_admin and broker.get('status') != 'approved':
         await update.message.reply_text(
             "⏳ <b>ምዝገባዎ ገና አልጸደቀም</b>",
@@ -3201,44 +3163,247 @@ async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE
             parse_mode="HTML"
         )
         return
-    
-    listings = get_listings_by_category_ordered(limit=20, offset=0, req_type="BUY", order="ASC")
-    total = count_listings(req_type="BUY")
-    
-    if not listings:
+
+    hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "adika-vrkk.onrender.com")
+    # Explorer opens on Requests tab via query param (frontend can read it)
+    web_url = f"https://{hostname}/explorer?tab=requests"
+    keyboard = [
+        [InlineKeyboardButton(
+            "🌐 በዌብ አፕ ክፈት (ሙሉ ፎቶዎች)",
+            web_app=WebAppInfo(url=web_url)
+        )],
+        [InlineKeyboardButton(
+            "⚡ በጽሁፍ እይ (ለዝቅተኛ ኔትወርክ)",
+            callback_data="text_mode_requests_1"
+        )],
+        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")],
+    ]
+    await update.message.reply_text(
+        "📋 <b>የፈላጊዎች ዝርዝር</b>\n\n"
+        "እባክዎን የማሳያ መንገድ ይምረጡ፦\n\n"
+        "🌐 <b>ዌብ አፕ</b> — ሙሉ መረጃ + ፎቶዎች\n"
+        "⚡ <b>ጽሁፍ</b> — ለዝቅተኛ ኔትወርክ (ቀላል ጽሁፍ + ገጽ በገጽ)",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="HTML"
+    )
+
+
+def _build_text_page_keyboard(mode: str, page: int, total_pages: int) -> InlineKeyboardMarkup:
+    """Pagination keyboard: [◀️ የቀደመ] [1/5] [ቀጣይ ▶️]"""
+    buttons = []
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton("◀️ የቀደመ", callback_data=f"text_mode_{mode}_{page-1}"))
+    nav.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop"))
+    if page < total_pages:
+        nav.append(InlineKeyboardButton("ቀጣይ ▶️", callback_data=f"text_mode_{mode}_{page+1}"))
+    if nav:
+        buttons.append(nav)
+    buttons.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+    return InlineKeyboardMarkup(buttons)
+
+
+async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Handle text-mode listing/requests with pagination.
+    callback_data format: text_mode_marketplace_1  |  text_mode_requests_2
+    """
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data or ""
+    if data == "noop":
+        return
+
+    # Parse: text_mode_{mode}_{page}
+    parts = data.split("_")
+    if len(parts) < 4:
+        await query.edit_message_text("❌ የተሳሳተ መረጃ።")
+        return
+
+    mode = parts[2]          # marketplace | requests
+    try:
+        page = max(1, int(parts[3]))
+    except (ValueError, IndexError):
+        page = 1
+
+    user_id = query.from_user.id
+    is_admin = (user_id == ADMIN_CHAT_ID_INT)
+
+    # Access control for requests
+    if mode == "requests":
+        broker = get_broker(user_id)
+        if not is_admin and (not broker or broker.get('status') != 'approved'):
+            await query.edit_message_text(
+                "⛔ ይህን ማየት የሚችሉት የተረጋገጡ ደላሎች ብቻ ናቸው!",
+                parse_mode="HTML"
+            )
+            return
+
+    try:
+        if mode == "marketplace":
+            total = count_listings(req_type="SELL")
+            # Prefer SELL only, newest first
+            items = get_listings_by_category_ordered(
+                limit=TEXT_PAGE_SIZE,
+                offset=(page - 1) * TEXT_PAGE_SIZE,
+                req_type="SELL",
+                order="DESC"
+            )
+            title = "🛍️ <b>የገበያ ቦታ</b> (ጽሁፍ)"
+            empty_msg = "📭 ምንም የሚሸጡ ንብረቶች የሉም።"
+        else:
+            total = count_listings(req_type="BUY")
+            items = get_listings_by_category_ordered(
+                limit=TEXT_PAGE_SIZE,
+                offset=(page - 1) * TEXT_PAGE_SIZE,
+                req_type="BUY",
+                order="DESC"
+            )
+            title = "📋 <b>የፈላጊዎች ዝርዝር</b> (ጽሁፍ)"
+            empty_msg = "📭 ምንም ንቁ ጥያቄዎች የሉም።"
+
+        if not items:
+            await query.edit_message_text(
+                empty_msg,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup([[
+                    InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")
+                ]])
+            )
+            return
+
+        total_pages = max(1, (total + TEXT_PAGE_SIZE - 1) // TEXT_PAGE_SIZE)
+        page = min(page, total_pages)
+
+        # Build combined text for the page (compact for slow networks)
+        lines = [
+            f"{title}",
+            f"📄 ገጽ {page}/{total_pages} • ጠቅላላ {total}",
+            "━━━━━━━━━━━━━━━━━━━━━",
+            ""
+        ]
+
+        for item in items:
+            card = format_marketplace_card_professional(item)
+            lines.append(card)
+            lines.append("")  # spacer between cards
+
+        text = "\n".join(lines)
+        # Telegram message limit ~4096 chars — truncate safely if needed
+        if len(text) > 4000:
+            text = text[:3950] + "\n\n… (ተጨማሪ ለማየት ቀጣይ ገጽ ይጫኑ)"
+
+        keyboard = _build_text_page_keyboard(mode, page, total_pages)
+
+        try:
+            await query.edit_message_text(
+                text=text,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+                disable_web_page_preview=True
+            )
+        except Exception as edit_err:
+            # Message too long or identical content → send new message
+            logger.warning(f"edit_message_text failed, sending new: {edit_err}")
+            await context.bot.send_message(
+                chat_id=query.message.chat_id,
+                text=text,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+                disable_web_page_preview=True
+            )
+
+    except Exception as e:
+        logger.error(f"text_mode_callback error: {e}", exc_info=True)
+        try:
+            await query.edit_message_text(
+                "❌ መረጃ ማምጣት አልተቻለም። እባክዎ እንደገና ይሞክሩ።",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+
+
+# Keep old full-photo chat view available if needed later
+async def view_public_marketplace_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    items = get_public_marketplace_items(limit=15)
+    user_id = update.effective_user.id
+    if not items:
         await update.message.reply_text(
-            f"📭 <b>ምንም ንቁ ጥያቄዎች የሉም</b>",
+            "📭 ምንም ንብረቶች የሉም",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True)
+        )
+        return
+    await update.message.reply_text(
+        f"🛍️ <b>{len(items)} ንብረቶች ተገኝተዋል</b>",
+        parse_mode="HTML"
+    )
+    for item in items:
+        photos = item.get('photos') or ([item['photo_id']] if item.get('photo_id') else [])
+        card_text = format_marketplace_card_professional(item)
+        reply_markup = build_marketplace_keyboard_clean(
+            item_id=item.get('id'),
+            owner_id=item.get('user_chat_id'),
+            current_user_id=user_id
+        )
+        if photos:
+            try:
+                await update.message.reply_photo(
+                    photo=photos[0], caption=card_text,
+                    reply_markup=reply_markup, parse_mode="HTML"
+                )
+            except Exception:
+                await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="HTML")
+        else:
+            await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="HTML")
+
+
+async def view_requests_clean(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Legacy full list (kept for compatibility). Prefer hybrid via requests_choice."""
+    user_id = update.effective_user.id
+    is_admin = (user_id == ADMIN_CHAT_ID_INT)
+    broker = get_broker(user_id)
+    if not is_admin and not broker:
+        await update.message.reply_text(
+            "⛔ <b>ይህን ማየት የሚችሉት የተረጋገጡ ደላሎች ብቻ ናቸው!</b>",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
             parse_mode="HTML"
         )
         return
-    
+    if not is_admin and broker.get('status') != 'approved':
+        await update.message.reply_text(
+            "⏳ <b>ምዝገባዎ ገና አልጸደቀም</b>",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="HTML"
+        )
+        return
+    listings = get_listings_by_category_ordered(limit=20, offset=0, req_type="BUY", order="DESC")
+    total = count_listings(req_type="BUY")
+    if not listings:
+        await update.message.reply_text(
+            "📭 <b>ምንም ንቁ ጥያቄዎች የሉም</b>",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            parse_mode="HTML"
+        )
+        return
     broker_name = "👑 አድሚን" if is_admin else (broker.get('full_name') if broker else "ደላላ")
-    
     await update.message.reply_text(
-        f"📋 <b>የፈላጊዎች ዝርዝር</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━━━\n"
-        f"👤 <b>{broker_name}</b>\n"
-        f"🔔 <b>ጠቅላላ:</b> {total} ጥያቄዎች",
+        f"📋 <b>የፈላጊዎች ዝርዝር</b>\n━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>{broker_name}</b>\n🔔 <b>ጠቅላላ:</b> {total} ጥያቄዎች",
         parse_mode="HTML"
     )
-    
     for listing in listings:
         card_text = format_marketplace_card_professional(listing)
         reply_markup = build_request_keyboard_clean(
             req_id=listing.get('id'),
             buyer_id=listing.get('user_chat_id')
         )
-        
         try:
-            await update.message.reply_text(
-                card_text,
-                reply_markup=reply_markup,
-                parse_mode="HTML"
-            )
+            await update.message.reply_text(card_text, reply_markup=reply_markup, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Failed to send listing: {e}")
-            continue
+
 
 async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [[InlineKeyboardButton(sc, callback_data=f"dir_sc_{sc}")] for sc in SUB_CITIES]
@@ -3628,9 +3793,9 @@ def main():
     app.add_handler(broker_conv)
     app.add_handler(broker_response_conv)
 
-    # Message handlers
-    app.add_handler(MessageHandler(filters.Regex("^🛍️ የገበያ ቦታ"), open_explorer))
-    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), view_requests_clean))
+    # Message handlers — Hybrid choice for Marketplace & Requests
+    app.add_handler(MessageHandler(filters.Regex("^🛍️ የገበያ ቦታ"), marketplace_choice))
+    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), requests_choice))
     app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
     app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
     app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ምርጫ$"), notification_prefs_start))
@@ -3638,6 +3803,8 @@ def main():
 
     # Callback query handlers
     app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
+    app.add_handler(CallbackQueryHandler(text_mode_callback, pattern=r"^text_mode_"))
+    app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
     app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
     app.add_handler(CallbackQueryHandler(delete_request_callback, pattern=r"^delete_req_"))
     app.add_handler(CallbackQueryHandler(nohave_item_callback, pattern="^nohave_item_"))
