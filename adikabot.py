@@ -1,8 +1,4 @@
-# ==============================================================================
-# ADIKA MARKETPLACE BOT - FULLY CLEANED + WEB APP EXPLORER (React + Tailwind)
-# Includes: Seller/Buyer WebApps, Broker system, Marketplace + Buyer Requests
-# Explorer Mini App with tabs, cards, filters, view counts, Call/Telegram buttons
-# ==============================================================================
+
 
 import logging
 import os
@@ -17,7 +13,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import sqlite3
 
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, Response
 
 from telegram import (
     Update,
@@ -679,11 +675,11 @@ def home():
 
 @web_app.route('/seller-form')
 def webapp_seller_form():
-   return render_template_string(SELLER_FORM_HTML)
+   return Response(SELLER_FORM_HTML, mimetype='text/html; charset=utf-8')
 
 @web_app.route('/buyer-form')
 def webapp_buyer_form():
-   return render_template_string(BUYER_FORM_HTML)
+   return Response(BUYER_FORM_HTML, mimetype='text/html; charset=utf-8')
 
 def _send_notification_safe(notification_text: str, req_id: int, buyer_id: int):
    if not bot_app:
@@ -1321,7 +1317,7 @@ EXPLORER_HTML = r"""
 
 @web_app.route('/explorer')
 def explorer_page():
-    return render_template_string(EXPLORER_HTML)
+    return Response(EXPLORER_HTML, mimetype='text/html; charset=utf-8')
 
 
 @web_app.route('/api/explorer/listings', methods=['GET'])
@@ -4342,6 +4338,21 @@ async def notification_prefs_callback(update: Update, context: ContextTypes.DEFA
 # 17. MAIN ENGINE
 # ==============================================================================
 
+
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Global error handler – log and notify user without crashing the bot."""
+    logger.error("Exception while handling an update:", exc_info=context.error)
+    # Try to notify the user if possible
+    try:
+        if update and isinstance(update, Update) and update.effective_chat:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="⚠️ ይቅርታ፣ ስህተት ተከስቷል። እባክዎ እንደገና ይሞክሩ ወይም /start ይጫኑ።"
+            )
+    except Exception as notify_err:
+        logger.warning(f"Could not send error message to user: {notify_err}")
+
+
 def main():
     global bot_app
 
@@ -4466,6 +4477,8 @@ def main():
     app.add_handler(CallbackQueryHandler(have_buyer_callback, pattern="^have_buyer_"))
     app.add_handler(CallbackQueryHandler(want_myself_callback, pattern="^want_myself_"))
     app.add_handler(CallbackQueryHandler(notification_prefs_callback, pattern="^notif_pref_"))
+
+    app.add_error_handler(error_handler)
 
     logger.info("🚀 Adika Marketplace Bot በስኬት ተጀምሯል...")
     app.run_polling()
