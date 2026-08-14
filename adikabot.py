@@ -2437,7 +2437,49 @@ def clean_description(desc: str, max_len: int = 60) -> str:
         clean = clean[:max_len] + "..."
     return clean.strip()
 
+def relative_time_am(created_at) -> str:
+    """Human-readable relative time in Amharic."""
+    if not created_at:
+        return ""
+    try:
+        if isinstance(created_at, str):
+            # Handle ISO / SQLite formats
+            for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
+                try:
+                    created_at = datetime.strptime(created_at[:26].replace("T", " "), fmt if "T" not in created_at else fmt)
+                    break
+                except ValueError:
+                    continue
+            if isinstance(created_at, str):
+                try:
+                    created_at = datetime.fromisoformat(str(created_at).replace("Z", ""))
+                except Exception:
+                    return str(created_at)[:16]
+        now = datetime.utcnow()
+        # If timezone-aware, compare naively
+        if hasattr(created_at, "tzinfo") and created_at.tzinfo:
+            created_at = created_at.replace(tzinfo=None)
+        delta = now - created_at
+        secs = int(delta.total_seconds())
+        if secs < 0:
+            secs = 0
+        if secs < 60:
+            return "አሁን"
+        if secs < 3600:
+            return f"ከ {secs // 60} ደቂቃ በፊት"
+        if secs < 86400:
+            return f"ከ {secs // 3600} ሰዓት በፊት"
+        if secs < 172800:
+            return f"ትላንት {created_at.strftime('%H:%M')}"
+        if secs < 604800:
+            return f"ከ {secs // 86400} ቀን በፊት"
+        return created_at.strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return ""
+
+
 def format_marketplace_card_professional(item: dict) -> str:
+    """Text-mode card for Seller Listings and Buyer Requests."""
     item_id = item.get('id', 'N/A')
     main_cat = item.get('main_category', '')
     sub_cat = (item.get('sub_category') or '').strip()
@@ -2445,56 +2487,41 @@ def format_marketplace_card_professional(item: dict) -> str:
     phone = item.get('phone', '-')
     action = item.get('action_type', '')
     req_type = str(item.get('req_type', '')).upper()
+    status = str(item.get('status', 'pending')).lower()
+    views = item.get('view_count') or 0
 
     extra = item.get('extra_data', {})
     if isinstance(extra, str):
         try:
             extra = json.loads(extra)
-        except:
+        except Exception:
             extra = {}
 
+    # --- Header badge ---
     if req_type == "BUY":
-        icon = "🔍"
-        title = "VEHICLE REQUEST" if main_cat in ["መኪና", "car", "CAR"] else "PROPERTY REQUEST"
+        header = f"[🎯 ፈላጊ]  <code>#ADK-{item_id}</code>"
         price_label = "በጀት"
+        price_display = f"💰 <b>{price_label}:</b> {extra.get('budget_range') or price or '—'} ብር"
     else:
-        if main_cat in ["መኪና", "car", "CAR"]:
-            icon, title = "✨", "VEHICLE LISTING"
+        if status in ('sold', 'rented'):
+            header = f"[🔴 ተሸጧል]  <code>#ADK-{item_id}</code>"
         else:
-            icon, title = "🏠", "PROPERTY LISTING"
-        price_label = "ዋጋ"
-
-    action_map = {
-        "መሸጥ": "ለሽያጭ", "SELL": "ለሽያጭ",
-        "ማከራየት": "ለኪራይ", "RENT": "ለኪራይ",
-        "መግዛት": "መግዛት እፈልጋለሁ", "BUY": "መግዛት እፈልጋለሁ",
-        "መከራየት": "መከራየት እፈልጋለሁ"
-    }
-    action_label = action_map.get(action, "")
-
-    if req_type == "BUY":
-        budget = extra.get('budget_range') or price
-        price_display = f"💰 <b>{price_label}: {budget} ብር</b>" if budget else "💰 በጀት አልተገለጸም"
-    else:
+            header = f"[🟢 ይገኛል]  <code>#ADK-{item_id}</code>"
         negotiable = "የሚደራደር" if extra.get('negotiable', True) else "የማይደራደር"
         urgent = " ⚡ አስቸኳይ" if extra.get('urgent_sale') else ""
-        price_display = f"💰 <b>{price_label}: {price} ብር</b> <i>({negotiable})</i>{urgent}"
+        price_display = f"💰 <b>ዋጋ:</b> {price} ብር <i>({negotiable})</i>{urgent}"
 
-    title_display = main_cat
+    title_display = main_cat or "ንብረት"
     if sub_cat:
         clean_sub = sub_cat.replace('🚗', '').replace('🚚', '').replace('🚜', '').strip()
         if clean_sub:
             title_display += f" ({clean_sub})"
-    if req_type == "BUY" and item.get('property_type'):
-        clean_prop = str(item['property_type']).replace('🏠', '').replace('🏢', '').replace('🏡', '').strip()
-        if clean_prop:
-            title_display += f" • {clean_prop}"
 
     details = []
     if main_cat in ["መኪና", "car", "CAR"]:
         if extra.get('condition'): details.append(f"├ ሁኔታ: {extra['condition']}")
         if extra.get('fuel_type'): details.append(f"├ ነዳጅ: {extra['fuel_type']}")
-        if extra.get('transmission'): details.append(f"├ ጊር: {extra['transmission']}")
+        if extra.get('transmission'): details.append(f"├ ማርሽ: {extra['transmission']}")
         if extra.get('mileage'): details.append(f"├ ኪሎሜትር: {extra['mileage']} KM")
         if extra.get('car_type'):
             ct = str(extra['car_type']).replace('🚗', '').replace('🚚', '').replace('🚜', '').strip()
@@ -2508,31 +2535,28 @@ def format_marketplace_card_professional(item: dict) -> str:
             ht = str(extra['house_type']).replace('🏠', '').replace('🏢', '').replace('🏡', '').strip()
             if ht: details.append(f"├ አይነት: {ht}")
 
+    rel = relative_time_am(item.get('created_at'))
     lines = [
-        f"{icon} <b>{title}</b> • <code>#ADK-{item_id}</code>",
+        header,
         "━━━━━━━━━━━━━━━━━━━━━",
         f"📌 <b>{title_display}</b>",
+        price_display,
     ]
-    if action_label:
-        lines.append(f"📋 {action_label}")
-    lines.append(price_display)
-    lines.append("")
-
     if details:
-        lines.append("⚙️ ዝርዝር መረጃ")
+        lines.append("")
+        lines.append("⚙️ ዝርዝር")
         lines.extend(details)
-        lines.append("")
 
-    desc = clean_description(item.get('description', ''), 55)
+    desc = clean_description(item.get('description', ''), 60)
     if desc:
-        lines.append(f"📝 ተጨማሪ: {desc}")
         lines.append("")
+        lines.append(f"📝 {desc}")
 
-    lines.extend([
-        "━━━━━━━━━━━━━━━━━━━━━",
-        f"📞 <b>ያነጋግሩ:</b> <code>{phone}</code>"
-    ])
+    lines.append("━━━━━━━━━━━━━━━━━━━━━")
+    lines.append(f"👁️ <b>{views}</b> እይታዎች" + (f"  •  🕐 {rel}" if rel else ""))
+    lines.append(f"📞 <code>{phone}</code>")
     return "\n".join(lines)
+
 
 def format_seller_card(item: dict) -> str:
     return format_marketplace_card_professional(item)
@@ -3836,69 +3860,193 @@ async def requests_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def _build_text_page_keyboard(mode: str, page: int, total_pages: int) -> InlineKeyboardMarkup:
-    """Pagination keyboard: [◀️ የቀደመ] [1/5] [ቀጣይ ▶️]"""
-    buttons = []
+def _build_text_page_keyboard(
+    mode: str,
+    page: int,
+    total_pages: int,
+    items: list = None,
+    viewer_id: int = 0,
+) -> InlineKeyboardMarkup:
+    """
+    Pagination + per-item action rows for text mode.
+    mode: 'marketplace' | 'requests'
+    """
+    rows = []
+    items = items or []
+
+    for item in items:
+        item_id = item.get('id')
+        owner_id = item.get('user_chat_id')
+        phone = (item.get('phone') or '').strip()
+        extra = item.get('extra_data') or {}
+        if isinstance(extra, str):
+            try:
+                extra = json.loads(extra)
+            except Exception:
+                extra = {}
+        tg_user = (extra.get('telegram_user') or '').strip().lstrip('@')
+        status = str(item.get('status', '')).lower()
+        is_owner = viewer_id and owner_id and int(viewer_id) == int(owner_id)
+        is_admin = viewer_id and ADMIN_CHAT_ID_INT and int(viewer_id) == int(ADMIN_CHAT_ID_INT)
+
+        action_row = []
+        if mode == "marketplace":
+            if phone and status not in ('sold', 'rented', 'deleted'):
+                action_row.append(
+                    InlineKeyboardButton("📞 ደውል", callback_data=f"tm_call_{item_id}")
+                )
+            if tg_user and status not in ('sold', 'rented', 'deleted'):
+                action_row.append(
+                    InlineKeyboardButton("💬 ቻት", url=f"https://t.me/{tg_user}")
+                )
+            if (is_owner or is_admin) and status not in ('sold', 'rented'):
+                action_row.append(
+                    InlineKeyboardButton("✅ ተሸጧል ብለህ መዝግብ", callback_data=f"tm_sold_{item_id}")
+                )
+        else:  # requests
+            if phone:
+                action_row.append(
+                    InlineKeyboardButton("📩 አነጋግር", callback_data=f"tm_call_{item_id}")
+                )
+            if tg_user:
+                action_row.append(
+                    InlineKeyboardButton("💬 ቻት", url=f"https://t.me/{tg_user}")
+                )
+        if action_row:
+            rows.append(action_row)
+
+    # Pagination nav
     nav = []
     if page > 1:
-        nav.append(InlineKeyboardButton("◀️ የቀደመ", callback_data=f"text_mode_{mode}_{page-1}"))
+        nav.append(InlineKeyboardButton("◀️ ቀዳሚ", callback_data=f"text_mode_{mode}_{page - 1}"))
     nav.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop"))
     if page < total_pages:
-        nav.append(InlineKeyboardButton("ቀጣይ ▶️", callback_data=f"text_mode_{mode}_{page+1}"))
+        nav.append(InlineKeyboardButton("ቀጣይ ▶️", callback_data=f"text_mode_{mode}_{page + 1}"))
     if nav:
-        buttons.append(nav)
-    buttons.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
-    return InlineKeyboardMarkup(buttons)
+        rows.append(nav)
+    rows.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _increment_views_batch(item_ids: list, amount: int = 13) -> dict:
+    """Increment view_count by `amount` for each listing id. Returns {id: new_count}."""
+    result = {}
+    if not item_ids:
+        return result
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        for lid in item_ids:
+            try:
+                cur.execute(
+                    f"UPDATE listings SET view_count = COALESCE(view_count, 0) + {int(amount)} WHERE id = {p}",
+                    (lid,),
+                )
+                cur.execute(f"SELECT view_count FROM listings WHERE id = {p}", (lid,))
+                row = cur.fetchone()
+                if row is not None:
+                    result[lid] = row['view_count'] if isinstance(row, dict) else row[0]
+            except Exception as e:
+                logger.warning(f"view increment failed for {lid}: {e}")
+        if not DATABASE_URL:
+            conn.commit()
+    except Exception as e:
+        logger.error(f"_increment_views_batch error: {e}")
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return result
 
 
 async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Handle text-mode listing/requests with pagination.
-    callback_data format: text_mode_marketplace_1  |  text_mode_requests_2
+    Text-mode Seller Listings / Buyer Requests with pagination.
+    callback_data: text_mode_marketplace_1 | text_mode_requests_2 | tm_sold_123 | tm_call_123
     """
     query = update.callback_query
     await query.answer()
-
     data = query.data or ""
     if data == "noop":
         return
 
-    # Parse: text_mode_{mode}_{page}
-    parts = data.split("_")
-    if len(parts) < 4:
-        await query.edit_message_text("❌ የተሳሳተ መረጃ።")
+    user_id = query.from_user.id
+
+    # --- Owner: mark as sold ---
+    if data.startswith("tm_sold_"):
+        try:
+            listing_id = int(data.replace("tm_sold_", ""))
+        except ValueError:
+            return
+        listing = get_listing_by_id(listing_id)
+        if not listing:
+            await query.answer("ማስታወቂያ አልተገኘም", show_alert=True)
+            return
+        owner_id = listing.get('user_chat_id')
+        is_admin = (user_id == ADMIN_CHAT_ID_INT and ADMIN_CHAT_ID_INT != 0)
+        if int(owner_id or 0) != int(user_id) and not is_admin:
+            await query.answer("⛔ የባለቤት ብቻ ነው!", show_alert=True)
+            return
+        ok = update_listing_status(listing_id, "sold")
+        if ok:
+            await query.answer("✅ እንደተሸጠ ተመዝግቧል!", show_alert=True)
+            # Refresh current page if possible from message – re-trigger marketplace page 1
+            try:
+                # Re-run text mode marketplace page 1
+                fake_data = "text_mode_marketplace_1"
+                query.data = fake_data
+            except Exception:
+                pass
+        else:
+            await query.answer("ስህተት ተከስቷል", show_alert=True)
+        # Fall through to re-render marketplace page 1
+        data = "text_mode_marketplace_1"
+
+    # --- Call: show phone ---
+    if data.startswith("tm_call_"):
+        try:
+            listing_id = int(data.replace("tm_call_", ""))
+        except ValueError:
+            return
+        listing = get_listing_by_id(listing_id)
+        phone = (listing or {}).get('phone') or 'አልተገኘም'
+        await query.answer(f"📞 {phone}", show_alert=True)
         return
 
-    mode = parts[2]          # marketplace | requests
+    # Parse: text_mode_{mode}_{page}
+    parts = data.split("_")
+    if len(parts) < 4 or parts[0] != "text" or parts[1] != "mode":
+        return
+    mode = parts[2]  # marketplace | requests
     try:
         page = max(1, int(parts[3]))
     except (ValueError, IndexError):
         page = 1
 
-    user_id = query.from_user.id
     is_admin = (user_id == ADMIN_CHAT_ID_INT)
-
-    # Access control for requests
     if mode == "requests":
         broker = get_broker(user_id)
         if not is_admin and (not broker or broker.get('status') != 'approved'):
             await query.edit_message_text(
                 "⛔ ይህን ማየት የሚችሉት የተረጋገጡ ደላሎች ብቻ ናቸው!",
-                parse_mode="HTML"
+                parse_mode="HTML",
             )
             return
 
     try:
         if mode == "marketplace":
             total = count_listings(req_type="SELL")
-            # Prefer SELL only, newest first
             items = get_listings_by_category_ordered(
                 limit=TEXT_PAGE_SIZE,
                 offset=(page - 1) * TEXT_PAGE_SIZE,
                 req_type="SELL",
-                order="DESC"
+                order="DESC",
             )
-            title = "🛍️ <b>የገበያ ቦታ</b> (ጽሁፍ)"
+            title = "🛒 <b>የገበያ ቦታ</b> (ጽሁፍ)"
             empty_msg = "📭 ምንም የሚሸጡ ንብረቶች የሉም።"
         else:
             total = count_listings(req_type="BUY")
@@ -3906,9 +4054,9 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 limit=TEXT_PAGE_SIZE,
                 offset=(page - 1) * TEXT_PAGE_SIZE,
                 req_type="BUY",
-                order="DESC"
+                order="DESC",
             )
-            title = "📋 <b>የፈላጊዎች ዝርዝር</b> (ጽሁፍ)"
+            title = "📋 <b>የፈላጊዎች ጥያቄዎች</b> (ጽሁፍ)"
             empty_msg = "📭 ምንም ንቁ ጥያቄዎች የሉም።"
 
         if not items:
@@ -3917,57 +4065,58 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 parse_mode="HTML",
                 reply_markup=InlineKeyboardMarkup([[
                     InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")
-                ]])
+                ]]),
             )
             return
+
+        # Increment views by +13 for every rendered card
+        ids = [it.get('id') for it in items if it.get('id')]
+        new_counts = _increment_views_batch(ids, amount=13)
+        for it in items:
+            if it.get('id') in new_counts:
+                it['view_count'] = new_counts[it['id']]
 
         total_pages = max(1, (total + TEXT_PAGE_SIZE - 1) // TEXT_PAGE_SIZE)
         page = min(page, total_pages)
 
-        # Build combined text for the page (compact for slow networks)
         lines = [
-            f"{title}",
-            f"📄 ገጽ {page}/{total_pages} • ጠቅላላ {total}",
+            title,
+            f"📄 ገጽ <b>{page}/{total_pages}</b>  •  ጠቅላላ <b>{total}</b>",
             "━━━━━━━━━━━━━━━━━━━━━",
-            ""
+            "",
         ]
-
-        for item in items:
-            card = format_marketplace_card_professional(item)
-            lines.append(card)
-            lines.append("")  # spacer between cards
+        for it in items:
+            lines.append(format_marketplace_card_professional(it))
+            lines.append("")
 
         text = "\n".join(lines)
-        # Telegram message limit ~4096 chars — truncate safely if needed
         if len(text) > 4000:
             text = text[:3950] + "\n\n… (ተጨማሪ ለማየት ቀጣይ ገጽ ይጫኑ)"
 
-        keyboard = _build_text_page_keyboard(mode, page, total_pages)
+        keyboard = _build_text_page_keyboard(mode, page, total_pages, items=items, viewer_id=user_id)
 
         try:
             await query.edit_message_text(
                 text=text,
                 parse_mode="HTML",
                 reply_markup=keyboard,
-                disable_web_page_preview=True
+                disable_web_page_preview=True,
             )
         except Exception as edit_err:
-            # Message too long or identical content → send new message
-            logger.warning(f"edit_message_text failed, sending new: {edit_err}")
+            logger.warning(f"edit_message_text failed: {edit_err}")
             await context.bot.send_message(
                 chat_id=query.message.chat_id,
                 text=text,
                 parse_mode="HTML",
                 reply_markup=keyboard,
-                disable_web_page_preview=True
+                disable_web_page_preview=True,
             )
-
     except Exception as e:
         logger.error(f"text_mode_callback error: {e}", exc_info=True)
         try:
             await query.edit_message_text(
                 "❌ መረጃ ማምጣት አልተቻለም። እባክዎ እንደገና ይሞክሩ።",
-                parse_mode="HTML"
+                parse_mode="HTML",
             )
         except Exception:
             pass
@@ -4467,7 +4616,7 @@ def main():
 
     # Callback query handlers
     app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
-    app.add_handler(CallbackQueryHandler(text_mode_callback, pattern=r"^text_mode_"))
+    app.add_handler(CallbackQueryHandler(text_mode_callback, pattern=r"^(text_mode_|tm_sold_|tm_call_)"))
     app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
     app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
     app.add_handler(CallbackQueryHandler(delete_request_callback, pattern=r"^delete_req_"))
