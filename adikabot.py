@@ -1,4 +1,5 @@
 
+
 import logging
 import os
 import re
@@ -639,10 +640,11 @@ def submit_request():
 
 
 # ==============================================================================
-# WEB APP EXPLORER (React + Tailwind) - Marketplace + Buyer Requests
+# WEB APP EXPLORER (React + Tailwind) - Full Production UI
+# Features: Relative time, Mark as Sold, View booster, 2-col grid, Delete, Status
 # ==============================================================================
 
-EXPLORER_HTML = """
+EXPLORER_HTML = r"""
 <!DOCTYPE html>
 <html lang="am">
 <head>
@@ -655,41 +657,257 @@ EXPLORER_HTML = """
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
-    body { background: #f1f5f9; margin: 0; font-family: system-ui, -apple-system, sans-serif; }
-    .card-shadow { box-shadow: 0 4px 20px -2px rgba(0,0,0,0.08); }
-    .badge-active { background: #22c55e; }
-    .badge-sold { background: #ef4444; }
-    .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    body { background: #f8fafc; margin: 0; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+    .glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); }
+    .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+    .aspect-4-3 { aspect-ratio: 4/3; }
+    .sold-overlay { background: rgba(0,0,0,0.55); }
+    @keyframes pulse-skel { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .skel { animation: pulse-skel 1.4s ease-in-out infinite; background: #e2e8f0; }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    const { useState, useEffect, useCallback } = React;
+    const { useState, useEffect, useCallback, useRef, useMemo } = React;
+
+    // ---------- Telegram WebApp ----------
     const tg = window.Telegram.WebApp;
     tg.expand();
     tg.ready();
     tg.setHeaderColor('#1e40af');
-    tg.setBackgroundColor('#f1f5f9');
+    tg.setBackgroundColor('#f8fafc');
+    const currentUserId = tg.initDataUnsafe?.user?.id || null;
+    const ADMIN_ID = 0; // set via server if needed; client uses ownership check from API
 
+    // ---------- Relative time (Amharic-friendly short EN) ----------
+    function relativeTime(iso) {
+      if (!iso) return '';
+      const d = new Date(iso);
+      if (isNaN(d)) return '';
+      const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+      if (sec < 45) return 'Just now';
+      if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
+      if (sec < 86400) return Math.floor(sec / 3600) + 'h ago';
+      if (sec < 604800) return Math.floor(sec / 86400) + 'd ago';
+      if (sec < 2592000) return Math.floor(sec / 604800) + 'w ago';
+      return Math.floor(sec / 2592000) + 'mo ago';
+    }
+
+    // ---------- View booster session set ----------
+    const viewedThisSession = new Set();
+
+    // ---------- Skeleton ----------
+    function SkeletonCard() {
+      return (
+        <div className="bg-white rounded-xl overflow-hidden shadow-sm">
+          <div className="aspect-4-3 skel" />
+          <div className="p-2 space-y-2">
+            <div className="h-3 w-3/4 skel rounded" />
+            <div className="h-2.5 w-1/2 skel rounded" />
+            <div className="h-4 w-2/3 skel rounded" />
+            <div className="flex gap-1.5 pt-1">
+              <div className="h-7 flex-1 skel rounded-lg" />
+              <div className="h-7 flex-1 skel rounded-lg" />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ---------- Single Card ----------
+    function Card({ item, onStatusChange, onDelete, currentUid }) {
+      const cardRef = useRef(null);
+      const extra = item.extra_data || {};
+      const isSell = (item.req_type || '').toUpperCase() === 'SELL';
+      const photos = item.photos || [];
+      const status = (item.status || 'pending').toLowerCase();
+      const isSold = status === 'sold' || status === 'rented' || status === 'expired';
+      const isOwner = currentUid && (String(item.user_chat_id) === String(currentUid));
+      const priceLabel = isSell ? '💰 ዋጋ' : '💰 በጀት';
+      const [menuOpen, setMenuOpen] = useState(false);
+      const [confirmDel, setConfirmDel] = useState(false);
+      const [localViews, setLocalViews] = useState(item.view_count || 0);
+
+      // IntersectionObserver – boost views once per session when 50% visible
+      useEffect(() => {
+        if (!cardRef.current || viewedThisSession.has(item.id) || isSold) return;
+        const obs = new IntersectionObserver(([entry]) => {
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+            viewedThisSession.add(item.id);
+            fetch(`/api/views/${item.id}`, { method: 'POST' })
+              .then(r => r.json())
+              .then(d => { if (d.view_count) setLocalViews(d.view_count); })
+              .catch(() => {});
+            obs.disconnect();
+          }
+        }, { threshold: 0.5 });
+        obs.observe(cardRef.current);
+        return () => obs.disconnect();
+      }, [item.id, isSold]);
+
+      const callPhone = (e) => {
+        e.stopPropagation();
+        if (isSold || !item.phone) return;
+        window.location.href = `tel:${String(item.phone).replace(/\s+/g, '')}`;
+      };
+      const openTg = (e) => {
+        e.stopPropagation();
+        if (isSold || !extra.telegram_user) return;
+        const u = String(extra.telegram_user).replace('@', '');
+        window.open(`https://t.me/${u}`, '_blank');
+      };
+
+      const markStatus = async (newStatus) => {
+        setMenuOpen(false);
+        try {
+          const res = await fetch(`/api/items/${item.id}/status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: newStatus, user_id: currentUid })
+          });
+          const data = await res.json();
+          if (data.status === 'success') onStatusChange(item.id, newStatus);
+        } catch (err) { console.error(err); }
+      };
+
+      const doDelete = async () => {
+        setConfirmDel(false);
+        try {
+          const res = await fetch(`/api/items/${item.id}`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: currentUid })
+          });
+          const data = await res.json();
+          if (data.status === 'success') onDelete(item.id);
+        } catch (err) { console.error(err); }
+      };
+
+      const statusBadge = () => {
+        if (status === 'sold') return <span className="text-[9px] font-bold text-white bg-red-500 px-1.5 py-0.5 rounded-full">✅ ተሸጧል</span>;
+        if (status === 'rented') return <span className="text-[9px] font-bold text-white bg-orange-500 px-1.5 py-0.5 rounded-full">✅ ተከራይቷል</span>;
+        if (status === 'expired') return <span className="text-[9px] font-bold text-white bg-gray-500 px-1.5 py-0.5 rounded-full">⏳ ጊዜው አልፏል</span>;
+        return <span className="text-[9px] font-bold text-white bg-green-500 px-1.5 py-0.5 rounded-full">🟢 ንቁ</span>;
+      };
+
+      return (
+        <div ref={cardRef} className="bg-white rounded-xl overflow-hidden shadow-sm relative">
+          {/* Photo */}
+          <div className="relative aspect-4-3 bg-gradient-to-br from-blue-50 to-indigo-100">
+            {photos.length > 0 ? (
+              <img src={photos[0]} alt="" className="w-full h-full object-cover" loading="lazy"
+                onError={e => { e.target.style.display = 'none'; }} />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-3xl">
+                {item.main_category === 'መኪና' ? '🚗' : '🏠'}
+              </div>
+            )}
+            {/* Sold overlay */}
+            {isSold && (
+              <div className="absolute inset-0 sold-overlay flex items-center justify-center">
+                <span className="text-white font-bold text-sm px-3 py-1 rounded-full bg-black/60">
+                  {status === 'rented' ? '✅ ተከራይቷል' : status === 'expired' ? '⏳ ጊዜው አልፏል' : '✅ ተሸጧል'}
+                </span>
+              </div>
+            )}
+            {/* Top-left status */}
+            <div className="absolute top-1.5 left-1.5">{statusBadge()}</div>
+            {/* Top-right owner menu */}
+            {isOwner && (
+              <div className="absolute top-1.5 right-1.5">
+                <button onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+                  className="w-7 h-7 rounded-full bg-black/40 text-white text-sm flex items-center justify-center">⋮</button>
+                {menuOpen && (
+                  <div className="absolute right-0 mt-1 w-36 bg-white rounded-lg shadow-lg border text-xs z-20 overflow-hidden">
+                    {!isSold && (
+                      <>
+                        <button onClick={() => markStatus('sold')} className="w-full text-left px-3 py-2 hover:bg-gray-50">✅ ተሸጧል</button>
+                        <button onClick={() => markStatus('rented')} className="w-full text-left px-3 py-2 hover:bg-gray-50">🔑 ተከራይቷል</button>
+                      </>
+                    )}
+                    {isSold && (
+                      <button onClick={() => markStatus('pending')} className="w-full text-left px-3 py-2 hover:bg-gray-50">🔄 እንደገና ንቁ አድርግ</button>
+                    )}
+                    <button onClick={() => { setMenuOpen(false); setConfirmDel(true); }}
+                      className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600">🗑️ አጥፋ</button>
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Bottom-right views + time */}
+            <div className="absolute bottom-1.5 right-1.5 flex gap-1">
+              <span className="text-[9px] bg-black/50 text-white px-1.5 py-0.5 rounded-full">👀 {localViews}</span>
+              <span className="text-[9px] bg-black/50 text-white px-1.5 py-0.5 rounded-full">{relativeTime(item.created_at)}</span>
+            </div>
+          </div>
+
+          {/* Content */}
+          <div className="p-2 space-y-1">
+            <h3 className="font-bold text-gray-900 text-[12px] line-clamp-1 leading-tight">
+              {item.main_category}{item.sub_category ? ` • ${String(item.sub_category).replace(/[🚗🚚🚜🏡🏢🏞️]/g,'').trim()}` : ''}
+            </h3>
+            <p className="text-[10px] text-gray-500 line-clamp-1">
+              {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').slice(0, 40)}
+            </p>
+            <div className="text-[13px] font-bold text-blue-700">
+              {priceLabel}: {item.price || '—'}
+              {extra.urgent_sale && <span className="text-red-500 text-[10px] ml-1">⚡</span>}
+            </div>
+            {/* Actions */}
+            <div className="flex gap-1.5 pt-0.5">
+              <button onClick={callPhone} disabled={isSold}
+                className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-200 text-gray-400' : 'bg-green-600 text-white'}`}>
+                📞 ደውል
+              </button>
+              {extra.telegram_user && (
+                <button onClick={openTg} disabled={isSold}
+                  className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-200 text-gray-400' : 'bg-blue-500 text-white'}`}>
+                  💬 ቻት
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Delete confirm modal */}
+          {confirmDel && (
+            <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setConfirmDel(false)}>
+              <div className="bg-white rounded-2xl p-5 max-w-xs w-full shadow-xl" onClick={e => e.stopPropagation()}>
+                <p className="font-bold text-center mb-3">እርግጠኛ ነዎት?</p>
+                <p className="text-sm text-gray-600 text-center mb-4">ማስታወቂያ #{item.id} ይጠፋል።</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setConfirmDel(false)} className="flex-1 py-2 rounded-xl bg-gray-200 font-medium text-sm">ሰርዝ</button>
+                  <button onClick={doDelete} className="flex-1 py-2 rounded-xl bg-red-600 text-white font-medium text-sm">አጥፋ</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ---------- Main App ----------
     function App() {
-      const [tab, setTab] = useState('marketplace');
+      const params = new URLSearchParams(window.location.search);
+      const initialTab = params.get('tab') === 'requests' ? 'requests' : 'marketplace';
+      const [tab, setTab] = useState(initialTab);
       const [items, setItems] = useState([]);
       const [page, setPage] = useState(1);
       const [hasMore, setHasMore] = useState(false);
-      const [loading, setLoading] = useState(false);
-      const [filters, setFilters] = useState({ q: '', category: '', min_price: '', max_price: '' });
+      const [loading, setLoading] = useState(true);
+      const [filters, setFilters] = useState({ q: '', category: '' });
 
       const loadData = useCallback(async (pageNum = 1, append = false) => {
         setLoading(true);
         try {
-          const params = new URLSearchParams({
+          const qs = new URLSearchParams({
             page: pageNum, limit: 12,
             type: tab === 'marketplace' ? 'SELL' : 'BUY',
             order: 'DESC',
-            ...Object.fromEntries(Object.entries(filters).filter(([_,v]) => v))
+            active_only: '1',
+            ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v))
           });
-          const res = await fetch(`/api/explorer/listings?${params}`);
+          const res = await fetch(`/api/explorer/listings?${qs}`);
           const data = await res.json();
           if (data.status === 'success') {
             setItems(prev => append ? [...prev, ...data.items] : data.items);
@@ -702,155 +920,97 @@ EXPLORER_HTML = """
 
       useEffect(() => { loadData(1, false); }, [tab, filters.category]);
 
-      const openCard = async (id) => {
-        fetch(`/api/explorer/view/${id}`, { method: 'POST' }).catch(()=>{});
+      const onStatusChange = (id, newStatus) => {
+        setItems(prev => prev.map(it => it.id === id ? { ...it, status: newStatus } : it));
       };
-
-      const callPhone = (phone) => {
-        if (!phone) return;
-        window.location.href = `tel:${phone.replace(/\\s+/g,'')}`;
-      };
-
-      const openTelegram = (username) => {
-        if (!username) return;
-        const clean = username.replace('@','');
-        window.open(`https://t.me/${clean}`, '_blank');
-      };
+      const onDelete = (id) => setItems(prev => prev.filter(it => it.id !== id));
 
       return (
-        <div className="min-h-screen pb-20">
-          <div className="sticky top-0 z-50 bg-white border-b shadow-sm">
+        <div className="min-h-screen pb-16">
+          {/* Sticky header */}
+          <div className="sticky top-0 z-30 glass border-b">
             <div className="flex">
               <button onClick={() => setTab('marketplace')}
-                className={`flex-1 py-3 text-sm font-bold ${tab==='marketplace' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
+                className={`flex-1 py-2.5 text-xs font-bold ${tab === 'marketplace' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
                 🛒 የገበያ ቦታ
               </button>
               <button onClick={() => setTab('requests')}
-                className={`flex-1 py-3 text-sm font-bold ${tab==='requests' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
-                📋 የፈላጊዎች ዝርዝር
+                className={`flex-1 py-2.5 text-xs font-bold ${tab === 'requests' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
+                📋 የፈላጊዎች
               </button>
             </div>
-            <div className="p-3 space-y-2 bg-gray-50">
-              <input type="search" placeholder="ፈልግ (መግለጫ, ስልክ...)"
-                className="w-full px-3 py-2 rounded-lg border text-sm"
-                value={filters.q}
-                onChange={e => setFilters(f => ({...f, q: e.target.value}))}
-                onKeyDown={e => e.key==='Enter' && loadData(1)} />
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                <select className="text-xs border rounded-lg px-2 py-1.5 bg-white"
-                  value={filters.category}
-                  onChange={e => setFilters(f => ({...f, category: e.target.value}))}>
-                  <option value="">ሁሉም ምድብ</option>
-                  <option value="መኪና">🚗 መኪና</option>
-                  <option value="ቤት">🏠 ቤት</option>
-                </select>
-                <input type="number" placeholder="ዝቅተኛ ዋጋ" className="w-24 text-xs border rounded-lg px-2 py-1.5"
-                  value={filters.min_price} onChange={e => setFilters(f => ({...f, min_price: e.target.value}))} />
-                <input type="number" placeholder="ከፍተኛ ዋጋ" className="w-24 text-xs border rounded-lg px-2 py-1.5"
-                  value={filters.max_price} onChange={e => setFilters(f => ({...f, max_price: e.target.value}))} />
-                <button onClick={() => loadData(1)}
-                  className="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg font-medium">ፈልግ</button>
-              </div>
+            <div className="px-2.5 py-2 flex gap-2">
+              <input type="search" placeholder="ፈልግ..." value={filters.q}
+                onChange={e => setFilters(f => ({ ...f, q: e.target.value }))}
+                onKeyDown={e => e.key === 'Enter' && loadData(1)}
+                className="flex-1 text-xs border rounded-lg px-2.5 py-1.5 bg-white" />
+              <select value={filters.category}
+                onChange={e => setFilters(f => ({ ...f, category: e.target.value }))}
+                className="text-xs border rounded-lg px-2 py-1.5 bg-white">
+                <option value="">ሁሉም</option>
+                <option value="መኪና">🚗 መኪና</option>
+                <option value="ቤት">🏠 ቤት</option>
+              </select>
+              <button onClick={() => loadData(1)}
+                className="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg font-medium">ፈልግ</button>
             </div>
           </div>
 
-          <div className="p-3 grid grid-cols-1 gap-4">
-            {items.map(item => {
-              const extra = item.extra_data || {};
-              const isSell = (item.req_type || '').toUpperCase() === 'SELL';
-              const photos = item.photos || [];
-              const status = item.status === 'sold' ? '🔴 የተሸጠ' : '🟢 ንቁ';
-              const priceLabel = isSell ? '💰 ዋጋ' : '💰 በጀት';
-              return (
-                <div key={item.id} className="bg-white rounded-2xl overflow-hidden card-shadow" onClick={() => openCard(item.id)}>
-                  {photos.length > 0 ? (
-                    <img src={photos[0].startsWith('data:') ? photos[0] : photos[0]}
-                      alt="" className="w-full h-48 object-cover" onError={e => e.target.style.display='none'} />
-                  ) : (
-                    <div className="w-full h-32 bg-gradient-to-br from-blue-100 to-indigo-100 flex items-center justify-center text-4xl">
-                      {item.main_category === 'መኪና' ? '🚗' : '🏠'}
-                    </div>
-                  )}
-                  <div className="p-4 space-y-2">
-                    <div className="flex justify-between items-start">
-                      <h3 className="font-bold text-gray-900 text-sm line-clamp-2">
-                        {item.main_category} {item.sub_category ? `• ${item.sub_category}` : ''}
-                      </h3>
-                      <span className={`text-[10px] text-white px-2 py-0.5 rounded-full ${item.status==='sold' ? 'badge-sold' : 'badge-active'}`}>
-                        {status}
-                      </span>
-                    </div>
-                    <div className="text-blue-700 font-bold text-lg">
-                      {priceLabel}: {item.price || '—'} ብር
-                      {extra.negotiable && <span className="text-xs font-normal text-green-600 ml-1">(የሚደራደር)</span>}
-                      {extra.urgent_sale && <span className="text-xs text-red-600 ml-1">⚡ አስቸኳይ</span>}
-                    </div>
-                    <p className="text-xs text-gray-600 line-clamp-2">
-                      {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').slice(0,90)}...
-                    </p>
-                    <div className="flex items-center gap-3 text-xs text-gray-500">
-                      <span>👀 {item.view_count || 0} እይታዎች</span>
-                      <span>#{item.id}</span>
-                    </div>
-                    <div className="flex gap-2 pt-2">
-                      <button onClick={(e) => { e.stopPropagation(); callPhone(item.phone); }}
-                        className="flex-1 bg-green-600 text-white py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-1">
-                        📞 ደውል
-                      </button>
-                      {extra.telegram_user && (
-                        <button onClick={(e) => { e.stopPropagation(); openTelegram(extra.telegram_user); }}
-                          className="flex-1 bg-blue-500 text-white py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-1">
-                          💬 ቴሌግራም
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          {/* 2-col grid */}
+          <div className="p-2.5 grid grid-cols-2 gap-2.5">
+            {loading && items.length === 0 && Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+            {items.map(item => (
+              <Card key={item.id} item={item} currentUid={currentUserId}
+                onStatusChange={onStatusChange} onDelete={onDelete} />
+            ))}
           </div>
 
-          {loading && <div className="text-center py-8 text-gray-500">እየጫነ ነው...</div>}
           {!loading && items.length === 0 && (
             <div className="text-center py-16 text-gray-400">
-              <div className="text-5xl mb-3">📭</div>
-              <p>ምንም ንብረት አልተገኘም</p>
+              <div className="text-4xl mb-2">📭</div>
+              <p className="text-sm">ምንም ንብረት አልተገኘም</p>
             </div>
           )}
+
           {hasMore && !loading && (
-            <div className="text-center pb-8">
+            <div className="text-center pb-6">
               <button onClick={() => loadData(page + 1, true)}
-                className="bg-white border border-blue-600 text-blue-600 px-6 py-2 rounded-full font-medium">
+                className="bg-white border border-blue-600 text-blue-600 px-5 py-2 rounded-full text-xs font-medium">
                 ተጨማሪ ይመልከቱ
               </button>
             </div>
           )}
+          {loading && items.length > 0 && (
+            <div className="text-center py-4 text-xs text-gray-400">እየጫነ ነው...</div>
+          )}
         </div>
       );
     }
+
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
   </script>
 </body>
 </html>
 """
 
+
 @web_app.route('/explorer')
 def explorer_page():
     return render_template_string(EXPLORER_HTML)
 
+
 @web_app.route('/api/explorer/listings', methods=['GET'])
 def api_explorer_listings():
-    """Marketplace (SELL) + Buyer Requests (BUY) with filters & pagination. ORDER BY id DESC by default."""
+    """Fetch listings/requests with pagination, filters, relative-ready timestamps."""
     try:
         page = max(1, int(request.args.get('page', 1)))
         limit = min(50, max(1, int(request.args.get('limit', 12))))
         offset = (page - 1) * limit
         req_type = request.args.get('type', '').upper()
         category = request.args.get('category', '')
-        min_price = request.args.get('min_price', '')
-        max_price = request.args.get('max_price', '')
         search = request.args.get('q', '').strip()
         order = request.args.get('order', 'DESC').upper()
+        active_only = request.args.get('active_only', '1') == '1'
         if order not in ('ASC', 'DESC'):
             order = 'DESC'
 
@@ -861,6 +1021,8 @@ def api_explorer_listings():
         where = ["status != 'deleted'"]
         params = []
 
+        if active_only:
+            where.append("status NOT IN ('sold', 'rented', 'expired')")
         if req_type in ('SELL', 'BUY'):
             where.append(f"UPPER(req_type) = UPPER({p})")
             params.append(req_type)
@@ -872,7 +1034,7 @@ def api_explorer_listings():
                 where.append(f"(description ILIKE {p} OR price ILIKE {p} OR phone ILIKE {p})")
             else:
                 where.append(f"(description LIKE {p} OR price LIKE {p} OR phone LIKE {p})")
-            params.extend([f'%{search}%', f'%{search}%', f'%{search}%'])
+            params.extend([f'%{search}%'] * 3)
 
         where_sql = " AND ".join(where)
         order_sql = "ASC" if order == "ASC" else "DESC"
@@ -895,13 +1057,23 @@ def api_explorer_listings():
             if isinstance(item.get('extra_data'), str):
                 try:
                     item['extra_data'] = json.loads(item['extra_data'])
-                except:
+                except Exception:
                     item['extra_data'] = {}
+            # photos
             cur.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (item['id'],))
             photos = [r['photo_id'] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
             if not photos and item.get('photo_id'):
                 photos = [item['photo_id']]
             item['photos'] = photos
+            # Ensure view_count baseline for old rows
+            if item.get('view_count') is None:
+                item['view_count'] = 0
+            # Serialize created_at for frontend
+            if item.get('created_at') and not isinstance(item['created_at'], str):
+                try:
+                    item['created_at'] = item['created_at'].isoformat()
+                except Exception:
+                    item['created_at'] = str(item['created_at'])
             items.append(item)
 
         conn.close()
@@ -917,29 +1089,182 @@ def api_explorer_listings():
         logger.error(f"api_explorer_listings error: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
 
-@web_app.route('/api/explorer/view/<int:listing_id>', methods=['POST'])
-def api_increment_view(listing_id):
-    """Increment view_count when a card is opened."""
+
+@web_app.route('/api/views/<int:listing_id>', methods=['POST'])
+def api_view_booster(listing_id):
+    """
+    Social-proof view booster.
+    Increments view_count by a random amount between +3 and +7.
+    Called once per card per session from the frontend IntersectionObserver.
+    """
+    import random
     try:
+        boost = random.randint(3, 7)
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
-        cur.execute(f"UPDATE listings SET view_count = COALESCE(view_count, 0) + 1 WHERE id = {p}", (listing_id,))
-        if not DATABASE_URL:
-            conn.commit()
+        # Ensure baseline exists for brand-new rows that still have 0
         cur.execute(f"SELECT view_count FROM listings WHERE id = {p}", (listing_id,))
         row = cur.fetchone()
-        count = row['view_count'] if isinstance(row, dict) else (row[0] if row else 0)
+        if not row:
+            conn.close()
+            return jsonify({"status": "error", "message": "not found"}), 404
+        current = row['view_count'] if isinstance(row, dict) else row[0]
+        if current is None or current == 0:
+            # Assign initial baseline 35–90 then add boost
+            baseline = random.randint(35, 90)
+            new_count = baseline + boost
+        else:
+            new_count = int(current) + boost
+        cur.execute(f"UPDATE listings SET view_count = {p} WHERE id = {p}", (new_count, listing_id))
+        if not DATABASE_URL:
+            conn.commit()
         conn.close()
-        return jsonify({"status": "success", "view_count": count})
+        return jsonify({"status": "success", "view_count": new_count})
     except Exception as e:
-        logger.error(f"view increment error: {e}")
+        logger.error(f"view booster error: {e}")
         return jsonify({"status": "error"}), 500
+
+
+@web_app.route('/api/items/<int:listing_id>/status', methods=['PATCH'])
+def api_update_item_status(listing_id):
+    """
+    Mark listing as sold / rented / pending (re-activate).
+    Only the owner (user_chat_id) or ADMIN may update.
+    Body: { "status": "sold"|"rented"|"pending", "user_id": <telegram_id> }
+    """
+    try:
+        data = request.json or {}
+        new_status = str(data.get('status', '')).lower().strip()
+        user_id = data.get('user_id')
+        if new_status not in ('sold', 'rented', 'pending', 'expired'):
+            return jsonify({"status": "error", "message": "Invalid status"}), 400
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        cur.execute(f"SELECT user_chat_id, status FROM listings WHERE id = {p}", (listing_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"status": "error", "message": "Not found"}), 404
+
+        owner_id = row['user_chat_id'] if isinstance(row, dict) else row[0]
+        is_admin = (str(user_id) == str(ADMIN_CHAT_ID_INT) and ADMIN_CHAT_ID_INT != 0)
+        is_owner = (str(user_id) == str(owner_id))
+        if not (is_owner or is_admin):
+            conn.close()
+            return jsonify({"status": "error", "message": "Forbidden"}), 403
+
+        cur.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (new_status, listing_id))
+        if not DATABASE_URL:
+            conn.commit()
+        conn.close()
+        logger.info(f"✅ Listing #{listing_id} status → {new_status} by user {user_id}")
+        return jsonify({"status": "success", "new_status": new_status})
+    except Exception as e:
+        logger.error(f"status update error: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@web_app.route('/api/items/<int:listing_id>', methods=['DELETE'])
+def api_delete_item(listing_id):
+    """Soft-delete a listing (status='deleted'). Owner or Admin only."""
+    try:
+        data = request.json or {}
+        user_id = data.get('user_id')
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        cur.execute(f"SELECT user_chat_id FROM listings WHERE id = {p}", (listing_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"status": "error", "message": "Not found"}), 404
+        owner_id = row['user_chat_id'] if isinstance(row, dict) else row[0]
+        is_admin = (str(user_id) == str(ADMIN_CHAT_ID_INT) and ADMIN_CHAT_ID_INT != 0)
+        is_owner = (str(user_id) == str(owner_id))
+        if not (is_owner or is_admin):
+            conn.close()
+            return jsonify({"status": "error", "message": "Forbidden"}), 403
+        cur.execute(f"UPDATE listings SET status = 'deleted' WHERE id = {p}", (listing_id,))
+        if not DATABASE_URL:
+            conn.commit()
+        conn.close()
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"delete item error: {e}")
+        return jsonify({"status": "error"}), 500
+
+
+# ---------- Auto-Expiry / Cleanup Job ----------
+def expire_old_listings(days: int = 30) -> int:
+    """
+    Mark listings older than `days` as 'expired' if they are still active (pending).
+    Safe: only touches status, never deletes rows.
+    Returns number of rows updated.
+    """
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        if DATABASE_URL:
+            # PostgreSQL
+            cur.execute("""
+                UPDATE listings
+                SET status = 'expired'
+                WHERE status = 'pending'
+                  AND created_at < (NOW() - INTERVAL '%s days')
+            """ % int(days))
+            # rowcount available on cursor
+            count = cur.rowcount
+        else:
+            # SQLite
+            cur.execute("""
+                UPDATE listings
+                SET status = 'expired'
+                WHERE status = 'pending'
+                  AND created_at < datetime('now', ?)
+            """, (f'-{int(days)} days',))
+            count = cur.rowcount
+            conn.commit()
+        logger.info(f"🧹 Auto-expiry: {count} listings marked expired (>{days} days)")
+        return count or 0
+    except Exception as e:
+        logger.error(f"expire_old_listings error: {e}", exc_info=True)
+        return 0
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def start_cleanup_scheduler():
+    """
+    Background thread that runs expire_old_listings once per day.
+    No external dependency (APScheduler optional). Uses simple sleep loop.
+    """
+    import time
+    def _loop():
+        # Run once shortly after boot, then every 24h
+        time.sleep(60)
+        while True:
+            try:
+                expire_old_listings(30)
+            except Exception as e:
+                logger.error(f"cleanup loop error: {e}")
+            time.sleep(24 * 3600)
+    t = threading.Thread(target=_loop, daemon=True, name="adika-cleanup")
+    t.start()
+    logger.info("🧹 Cleanup scheduler started (every 24h, 30-day expiry)")
 
 
 def run_flask():
    port = int(os.environ.get("PORT", 8080))
    web_app.run(host="0.0.0.0", port=port, use_reloader=False)
+
 
 
 # ==============================================================================
@@ -1161,17 +1486,19 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
         price = str(price or "")
         phone = str(phone or "")
         photo_id = str(photo_id) if photo_id else None
+        import random as _rnd
+        baseline_views = _rnd.randint(35, 90)  # social-proof baseline
         query = f"""
             INSERT INTO listings 
             (user_chat_id, user_name, req_type, main_category, sub_category, 
-             action_type, property_type, description, price, phone, photo_id, extra_data, status)
-            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending')
+             action_type, property_type, description, price, phone, photo_id, extra_data, status, view_count)
+            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending', {p})
         """
         params = (
             user_chat_id, user_name, req_type, main_category, 
             sub_category, action_type, property_type, 
             description, price, phone, photo_id,
-            extra_json
+            extra_json, baseline_views
         )
         logger.info(f"📝 Inserting listing: user={user_chat_id}, type={req_type}, cat={main_category}")
         if DATABASE_URL:
@@ -3695,6 +4022,7 @@ def main():
 
     init_db()
     threading.Thread(target=run_flask, daemon=True).start()
+    start_cleanup_scheduler()  # 30-day auto-expiry background job
 
     app = Application.builder().token(BOT_TOKEN).build()
     bot_app = app
