@@ -1,5 +1,3 @@
-
-
 import logging
 import os
 import re
@@ -407,7 +405,7 @@ BUYER_FORM_HTML = """
            </div>
            <div class="flex items-center gap-2 bg-blue-50 p-3 rounded-lg border border-blue-200">
                <input type="checkbox" id="createAlert" class="w-4 h-4 text-blue-600">
-               <label for="createAlert" class="text-sm font-medium text-blue-700">🔔 ተመሳሳይ ንብረት ሲለቀቅ ይድረሰኝ</label>
+               <label for="createAlert" class="text-sm font-medium text-blue-700">🔔 ተመሳሳይ ንብረት ሲለቀቅ ማሳወቂያ ይድረሰኝ</label>
            </div>
            <textarea id="details" placeholder="ዝርዝር ፍላጎትዎን ያስገቡ..." class="w-full p-2 border rounded h-24" required></textarea>
            <input type="tel" id="phone" placeholder="ስልክ ቁጥር" class="w-full p-2 border rounded" required>
@@ -657,30 +655,31 @@ EXPLORER_HTML = r"""
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
-    body { background: #f8fafc; margin: 0; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
-    .glass { background: rgba(255,255,255,0.85); backdrop-filter: blur(12px); }
+    body { background: #f1f5f9; margin: 0; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
+    .glass { background: rgba(255,255,255,0.88); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+    .glass-dark { background: rgba(0,0,0,0.48); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
     .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
     .aspect-4-3 { aspect-ratio: 4/3; }
     .sold-overlay { background: rgba(0,0,0,0.55); }
-    @keyframes pulse-skel { 0%,100%{opacity:1} 50%{opacity:.4} }
+    @keyframes pulse-skel { 0%,100%{opacity:1} 50%{opacity:.45} }
     .skel { animation: pulse-skel 1.4s ease-in-out infinite; background: #e2e8f0; }
+    .modal-enter { animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    const { useState, useEffect, useCallback, useRef, useMemo } = React;
+    const { useState, useEffect, useCallback, useRef } = React;
 
-    // ---------- Telegram WebApp ----------
     const tg = window.Telegram.WebApp;
     tg.expand();
     tg.ready();
     tg.setHeaderColor('#1e40af');
-    tg.setBackgroundColor('#f8fafc');
+    tg.setBackgroundColor('#f1f5f9');
     const currentUserId = tg.initDataUnsafe?.user?.id || null;
-    const ADMIN_ID = 0; // set via server if needed; client uses ownership check from API
 
-    // ---------- Relative time (Amharic-friendly short EN) ----------
     function relativeTime(iso) {
       if (!iso) return '';
       const d = new Date(iso);
@@ -694,42 +693,167 @@ EXPLORER_HTML = r"""
       return Math.floor(sec / 2592000) + 'mo ago';
     }
 
-    // ---------- View booster session set ----------
     const viewedThisSession = new Set();
 
-    // ---------- Skeleton ----------
     function SkeletonCard() {
       return (
-        <div className="bg-white rounded-xl overflow-hidden shadow-sm">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="aspect-4-3 skel" />
-          <div className="p-2 space-y-2">
+          <div className="p-2.5 space-y-2">
             <div className="h-3 w-3/4 skel rounded" />
             <div className="h-2.5 w-1/2 skel rounded" />
             <div className="h-4 w-2/3 skel rounded" />
-            <div className="flex gap-1.5 pt-1">
-              <div className="h-7 flex-1 skel rounded-lg" />
-              <div className="h-7 flex-1 skel rounded-lg" />
-            </div>
+            <div className="flex gap-1.5"><div className="h-8 flex-1 skel rounded-xl" /><div className="h-8 flex-1 skel rounded-xl" /></div>
           </div>
         </div>
       );
     }
 
-    // ---------- Single Card ----------
-    function Card({ item, onStatusChange, onDelete, currentUid }) {
+    /* ---------- Item Detail Modal ---------- */
+    function ItemDetailModal({ item, onClose, onStatusChange, onDelete, currentUid }) {
+      const extra = item.extra_data || {};
+      const isSell = (item.req_type || '').toUpperCase() === 'SELL';
+      const photos = item.photos || [];
+      const status = (item.status || 'pending').toLowerCase();
+      const isSold = ['sold','rented','expired'].includes(status);
+      const isOwner = currentUid && String(item.user_chat_id) === String(currentUid);
+      const [photoIdx, setPhotoIdx] = useState(0);
+      const [confirmDel, setConfirmDel] = useState(false);
+
+      const markStatus = async (s) => {
+        try {
+          const res = await fetch(`/api/items/${item.id}/status`, {
+            method: 'PATCH', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ status: s, user_id: currentUid })
+          });
+          const d = await res.json();
+          if (d.status === 'success') { onStatusChange(item.id, s); onClose(); }
+        } catch(e) {}
+      };
+      const doDelete = async () => {
+        try {
+          const res = await fetch(`/api/items/${item.id}`, {
+            method: 'DELETE', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ user_id: currentUid })
+          });
+          const d = await res.json();
+          if (d.status === 'success') { onDelete(item.id); onClose(); }
+        } catch(e) {}
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center modal-enter" onClick={onClose}>
+          <div className="bg-white w-full max-w-md max-h-[92vh] rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            {/* Image carousel */}
+            <div className="relative aspect-4-3 bg-gray-100 shrink-0">
+              {photos.length > 0 ? (
+                <img src={photos[photoIdx]} className="w-full h-full object-cover" alt=""
+                  onError={e => e.target.style.display='none'} />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-5xl">
+                  {item.main_category === 'መኪና' ? '🚗' : '🏠'}
+                </div>
+              )}
+              {photos.length > 1 && (
+                <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
+                  {photos.map((_, i) => (
+                    <button key={i} onClick={() => setPhotoIdx(i)}
+                      className={`w-2 h-2 rounded-full ${i===photoIdx ? 'bg-white' : 'bg-white/40'}`} />
+                  ))}
+                </div>
+              )}
+              <button onClick={onClose} className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/40 text-white flex items-center justify-center text-lg">×</button>
+              {isSold && (
+                <div className="absolute inset-0 sold-overlay flex items-center justify-center">
+                  <span className="text-white font-bold px-4 py-1.5 rounded-full bg-black/60 text-sm">
+                    {status==='rented' ? '✅ ተከራይቷል' : status==='expired' ? '⏳ ጊዜው አልፏል' : '✅ ተሸጧል'}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 overflow-y-auto flex-1 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <h2 className="font-bold text-base text-gray-900 leading-snug">
+                  {item.main_category}{item.sub_category ? ` • ${String(item.sub_category).replace(/[🚗🚚🚜🏡🏢🏞️]/g,'').trim()}` : ''}
+                </h2>
+                <span className="text-[10px] text-gray-400 shrink-0">{relativeTime(item.created_at)}</span>
+              </div>
+              <div className="text-lg font-bold text-blue-700">
+                {isSell ? '💰 ዋጋ' : '💰 በጀት'}: {item.price || '—'} ብር
+                {extra.negotiable && <span className="text-xs font-normal text-green-600 ml-1">(የሚደራደር)</span>}
+                {extra.urgent_sale && <span className="text-xs text-red-500 ml-1">⚡ አስቸኳይ</span>}
+              </div>
+              <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">
+                {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').trim() || 'መግለጫ የለም'}
+              </p>
+              <div className="flex flex-wrap gap-2 text-[11px] text-gray-500">
+                <span className="bg-gray-100 px-2 py-1 rounded-lg">👀 {item.view_count || 0} እይታዎች</span>
+                <span className="bg-gray-100 px-2 py-1 rounded-lg">#{item.id}</span>
+                {item.phone && <span className="bg-gray-100 px-2 py-1 rounded-lg">📞 {item.phone}</span>}
+              </div>
+
+              {/* Contact actions */}
+              {!isSold && (
+                <div className="flex gap-2 pt-1">
+                  <a href={item.phone ? `tel:${String(item.phone).replace(/\s+/g,'')}` : '#'}
+                    className="flex-1 py-3 rounded-xl bg-emerald-600 text-white text-sm font-bold text-center">📞 ደውል</a>
+                  {extra.telegram_user && (
+                    <a href={`https://t.me/${String(extra.telegram_user).replace('@','')}`} target="_blank" rel="noreferrer"
+                      className="flex-1 py-3 rounded-xl bg-blue-500 text-white text-sm font-bold text-center">💬 ቻት</a>
+                  )}
+                </div>
+              )}
+
+              {/* Owner controls */}
+              {isOwner && (
+                <div className="border-t pt-3 space-y-2">
+                  <p className="text-xs font-medium text-gray-500">የባለቤት ቁጥጥር</p>
+                  <div className="flex flex-wrap gap-2">
+                    {!isSold && (
+                      <>
+                        <button onClick={() => markStatus('sold')} className="px-3 py-2 rounded-xl bg-red-50 text-red-600 text-xs font-bold border border-red-100">✅ ተሸጧል</button>
+                        <button onClick={() => markStatus('rented')} className="px-3 py-2 rounded-xl bg-orange-50 text-orange-600 text-xs font-bold border border-orange-100">🔑 ተከራይቷል</button>
+                      </>
+                    )}
+                    {isSold && (
+                      <button onClick={() => markStatus('pending')} className="px-3 py-2 rounded-xl bg-green-50 text-green-700 text-xs font-bold border border-green-100">🔄 እንደገና ንቁ</button>
+                    )}
+                    <button onClick={() => setConfirmDel(true)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold">🗑️ አጥፋ</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {confirmDel && (
+              <div className="absolute inset-0 bg-black/40 flex items-center justify-center p-6 z-10">
+                <div className="bg-white rounded-2xl p-5 w-full max-w-xs shadow-xl">
+                  <p className="font-bold text-center mb-1">እርግጠኛ ነዎት?</p>
+                  <p className="text-sm text-gray-500 text-center mb-4">#{item.id} ይጠፋል።</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => setConfirmDel(false)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-sm font-medium">ሰርዝ</button>
+                    <button onClick={doDelete} className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium">አጥፋ</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    /* ---------- Card ---------- */
+    function Card({ item, onOpen, onStatusChange, onDelete, currentUid }) {
       const cardRef = useRef(null);
       const extra = item.extra_data || {};
       const isSell = (item.req_type || '').toUpperCase() === 'SELL';
       const photos = item.photos || [];
       const status = (item.status || 'pending').toLowerCase();
-      const isSold = status === 'sold' || status === 'rented' || status === 'expired';
-      const isOwner = currentUid && (String(item.user_chat_id) === String(currentUid));
-      const priceLabel = isSell ? '💰 ዋጋ' : '💰 በጀት';
+      const isSold = ['sold','rented','expired'].includes(status);
+      const isOwner = currentUid && String(item.user_chat_id) === String(currentUid);
       const [menuOpen, setMenuOpen] = useState(false);
-      const [confirmDel, setConfirmDel] = useState(false);
       const [localViews, setLocalViews] = useState(item.view_count || 0);
 
-      // IntersectionObserver – boost views once per session when 50% visible
       useEffect(() => {
         if (!cardRef.current || viewedThisSession.has(item.id) || isSold) return;
         const obs = new IntersectionObserver(([entry]) => {
@@ -746,147 +870,105 @@ EXPLORER_HTML = r"""
         return () => obs.disconnect();
       }, [item.id, isSold]);
 
-      const callPhone = (e) => {
-        e.stopPropagation();
-        if (isSold || !item.phone) return;
-        window.location.href = `tel:${String(item.phone).replace(/\s+/g, '')}`;
-      };
-      const openTg = (e) => {
-        e.stopPropagation();
-        if (isSold || !extra.telegram_user) return;
-        const u = String(extra.telegram_user).replace('@', '');
-        window.open(`https://t.me/${u}`, '_blank');
-      };
-
-      const markStatus = async (newStatus) => {
+      const markStatus = async (s) => {
         setMenuOpen(false);
         try {
           const res = await fetch(`/api/items/${item.id}/status`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: newStatus, user_id: currentUid })
+            method: 'PATCH', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ status: s, user_id: currentUid })
           });
-          const data = await res.json();
-          if (data.status === 'success') onStatusChange(item.id, newStatus);
-        } catch (err) { console.error(err); }
-      };
-
-      const doDelete = async () => {
-        setConfirmDel(false);
-        try {
-          const res = await fetch(`/api/items/${item.id}`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: currentUid })
-          });
-          const data = await res.json();
-          if (data.status === 'success') onDelete(item.id);
-        } catch (err) { console.error(err); }
+          const d = await res.json();
+          if (d.status === 'success') onStatusChange(item.id, s);
+        } catch(e) {}
       };
 
       const statusBadge = () => {
-        if (status === 'sold') return <span className="text-[9px] font-bold text-white bg-red-500 px-1.5 py-0.5 rounded-full">✅ ተሸጧል</span>;
-        if (status === 'rented') return <span className="text-[9px] font-bold text-white bg-orange-500 px-1.5 py-0.5 rounded-full">✅ ተከራይቷል</span>;
-        if (status === 'expired') return <span className="text-[9px] font-bold text-white bg-gray-500 px-1.5 py-0.5 rounded-full">⏳ ጊዜው አልፏል</span>;
-        return <span className="text-[9px] font-bold text-white bg-green-500 px-1.5 py-0.5 rounded-full">🟢 ንቁ</span>;
+        if (status === 'sold') return <span className="text-[9px] font-bold text-white bg-red-500/90 px-1.5 py-0.5 rounded-full">✅ ተሸጧል</span>;
+        if (status === 'rented') return <span className="text-[9px] font-bold text-white bg-orange-500/90 px-1.5 py-0.5 rounded-full">✅ ተከራይቷል</span>;
+        if (status === 'expired') return <span className="text-[9px] font-bold text-white bg-gray-500/90 px-1.5 py-0.5 rounded-full">⏳ አልፏል</span>;
+        const cat = item.main_category === 'መኪና' ? '🚗' : '🏠';
+        return <span className="text-[9px] font-bold text-white bg-emerald-500/90 px-1.5 py-0.5 rounded-full">{cat} ንቁ</span>;
       };
 
       return (
-        <div ref={cardRef} className="bg-white rounded-xl overflow-hidden shadow-sm relative">
-          {/* Photo */}
-          <div className="relative aspect-4-3 bg-gradient-to-br from-blue-50 to-indigo-100">
+        <div ref={cardRef}
+          className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow overflow-hidden relative active:scale-[0.98]">
+          {/* Photo – opens modal */}
+          <div className="relative aspect-4-3 bg-gradient-to-br from-slate-50 to-blue-50 cursor-pointer" onClick={() => onOpen(item)}>
             {photos.length > 0 ? (
               <img src={photos[0]} alt="" className="w-full h-full object-cover" loading="lazy"
-                onError={e => { e.target.style.display = 'none'; }} />
+                onError={e => { e.target.style.display='none'; }} />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-3xl">
+              <div className="w-full h-full flex items-center justify-center text-3xl opacity-70">
                 {item.main_category === 'መኪና' ? '🚗' : '🏠'}
               </div>
             )}
-            {/* Sold overlay */}
             {isSold && (
-              <div className="absolute inset-0 sold-overlay flex items-center justify-center">
-                <span className="text-white font-bold text-sm px-3 py-1 rounded-full bg-black/60">
-                  {status === 'rented' ? '✅ ተከራይቷል' : status === 'expired' ? '⏳ ጊዜው አልፏል' : '✅ ተሸጧል'}
+              <div className="absolute inset-0 sold-overlay flex items-center justify-center pointer-events-none">
+                <span className="text-white font-bold text-[11px] px-2.5 py-1 rounded-full bg-black/55">
+                  {status==='rented' ? '✅ ተከራይቷል' : status==='expired' ? '⏳ አልፏል' : '✅ ተሸጧል'}
                 </span>
               </div>
             )}
-            {/* Top-left status */}
             <div className="absolute top-1.5 left-1.5">{statusBadge()}</div>
-            {/* Top-right owner menu */}
             {isOwner && (
-              <div className="absolute top-1.5 right-1.5">
-                <button onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
-                  className="w-7 h-7 rounded-full bg-black/40 text-white text-sm flex items-center justify-center">⋮</button>
+              <div className="absolute top-1.5 right-1.5" onClick={e => e.stopPropagation()}>
+                <button onClick={() => setMenuOpen(!menuOpen)}
+                  className="w-7 h-7 rounded-full glass-dark text-white text-sm flex items-center justify-center">⋮</button>
                 {menuOpen && (
-                  <div className="absolute right-0 mt-1 w-36 bg-white rounded-lg shadow-lg border text-xs z-20 overflow-hidden">
+                  <div className="absolute right-0 mt-1 w-32 bg-white rounded-xl shadow-lg border border-gray-100 text-[11px] z-20 overflow-hidden">
                     {!isSold && (
                       <>
                         <button onClick={() => markStatus('sold')} className="w-full text-left px-3 py-2 hover:bg-gray-50">✅ ተሸጧል</button>
                         <button onClick={() => markStatus('rented')} className="w-full text-left px-3 py-2 hover:bg-gray-50">🔑 ተከራይቷል</button>
                       </>
                     )}
-                    {isSold && (
-                      <button onClick={() => markStatus('pending')} className="w-full text-left px-3 py-2 hover:bg-gray-50">🔄 እንደገና ንቁ አድርግ</button>
-                    )}
-                    <button onClick={() => { setMenuOpen(false); setConfirmDel(true); }}
-                      className="w-full text-left px-3 py-2 hover:bg-red-50 text-red-600">🗑️ አጥፋ</button>
+                    {isSold && <button onClick={() => markStatus('pending')} className="w-full text-left px-3 py-2 hover:bg-gray-50">🔄 ንቁ አድርግ</button>}
+                    <button onClick={() => { setMenuOpen(false); onOpen(item); }} className="w-full text-left px-3 py-2 hover:bg-gray-50 text-blue-600">📋 ዝርዝር</button>
                   </div>
                 )}
               </div>
             )}
-            {/* Bottom-right views + time */}
-            <div className="absolute bottom-1.5 right-1.5 flex gap-1">
-              <span className="text-[9px] bg-black/50 text-white px-1.5 py-0.5 rounded-full">👀 {localViews}</span>
-              <span className="text-[9px] bg-black/50 text-white px-1.5 py-0.5 rounded-full">{relativeTime(item.created_at)}</span>
+            {/* Bottom glass badge: views + time */}
+            <div className="absolute bottom-1.5 left-1.5 right-1.5 flex justify-between pointer-events-none">
+              <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">👀 {localViews}</span>
+              <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">{relativeTime(item.created_at)}</span>
             </div>
           </div>
 
           {/* Content */}
-          <div className="p-2 space-y-1">
-            <h3 className="font-bold text-gray-900 text-[12px] line-clamp-1 leading-tight">
+          <div className="p-2.5 space-y-1">
+            <h3 className="font-bold text-gray-900 text-[12px] line-clamp-1 leading-tight" onClick={() => onOpen(item)}>
               {item.main_category}{item.sub_category ? ` • ${String(item.sub_category).replace(/[🚗🚚🚜🏡🏢🏞️]/g,'').trim()}` : ''}
             </h3>
             <p className="text-[10px] text-gray-500 line-clamp-1">
-              {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').slice(0, 40)}
+              {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').slice(0, 42)}
             </p>
             <div className="text-[13px] font-bold text-blue-700">
-              {priceLabel}: {item.price || '—'}
-              {extra.urgent_sale && <span className="text-red-500 text-[10px] ml-1">⚡</span>}
+              {isSell ? '💰 ዋጋ' : '💰 በጀት'}: {item.price || '—'}
+              {extra.urgent_sale && <span className="text-red-500 text-[10px] ml-0.5">⚡</span>}
             </div>
-            {/* Actions */}
             <div className="flex gap-1.5 pt-0.5">
-              <button onClick={callPhone} disabled={isSold}
-                className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-200 text-gray-400' : 'bg-green-600 text-white'}`}>
+              <a href={!isSold && item.phone ? `tel:${String(item.phone).replace(/\s+/g,'')}` : undefined}
+                onClick={e => { if (isSold || !item.phone) e.preventDefault(); }}
+                className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-emerald-600 text-white'}`}>
                 📞 ደውል
-              </button>
-              {extra.telegram_user && (
-                <button onClick={openTg} disabled={isSold}
-                  className={`flex-1 py-1.5 rounded-lg text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-200 text-gray-400' : 'bg-blue-500 text-white'}`}>
+              </a>
+              {extra.telegram_user ? (
+                <a href={!isSold ? `https://t.me/${String(extra.telegram_user).replace('@','')}` : undefined}
+                  target="_blank" rel="noreferrer"
+                  onClick={e => { if (isSold) e.preventDefault(); }}
+                  className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-500 text-white'}`}>
                   💬 ቻት
-                </button>
-              )}
+                </a>
+              ) : null}
             </div>
           </div>
-
-          {/* Delete confirm modal */}
-          {confirmDel && (
-            <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={() => setConfirmDel(false)}>
-              <div className="bg-white rounded-2xl p-5 max-w-xs w-full shadow-xl" onClick={e => e.stopPropagation()}>
-                <p className="font-bold text-center mb-3">እርግጠኛ ነዎት?</p>
-                <p className="text-sm text-gray-600 text-center mb-4">ማስታወቂያ #{item.id} ይጠፋል።</p>
-                <div className="flex gap-2">
-                  <button onClick={() => setConfirmDel(false)} className="flex-1 py-2 rounded-xl bg-gray-200 font-medium text-sm">ሰርዝ</button>
-                  <button onClick={doDelete} className="flex-1 py-2 rounded-xl bg-red-600 text-white font-medium text-sm">አጥፋ</button>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       );
     }
 
-    // ---------- Main App ----------
+    /* ---------- App ---------- */
     function App() {
       const params = new URLSearchParams(window.location.search);
       const initialTab = params.get('tab') === 'requests' ? 'requests' : 'marketplace';
@@ -896,6 +978,8 @@ EXPLORER_HTML = r"""
       const [hasMore, setHasMore] = useState(false);
       const [loading, setLoading] = useState(true);
       const [filters, setFilters] = useState({ q: '', category: '' });
+      const [showFilter, setShowFilter] = useState(false);
+      const [detailItem, setDetailItem] = useState(null);
 
       const loadData = useCallback(async (pageNum = 1, append = false) => {
         setLoading(true);
@@ -903,9 +987,8 @@ EXPLORER_HTML = r"""
           const qs = new URLSearchParams({
             page: pageNum, limit: 12,
             type: tab === 'marketplace' ? 'SELL' : 'BUY',
-            order: 'DESC',
-            active_only: '1',
-            ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v))
+            order: 'DESC', active_only: '1',
+            ...Object.fromEntries(Object.entries(filters).filter(([,v]) => v))
           });
           const res = await fetch(`/api/explorer/listings?${qs}`);
           const data = await res.json();
@@ -914,54 +997,68 @@ EXPLORER_HTML = r"""
             setHasMore(data.has_more);
             setPage(pageNum);
           }
-        } catch (e) { console.error(e); }
+        } catch(e) { console.error(e); }
         finally { setLoading(false); }
       }, [tab, filters]);
 
       useEffect(() => { loadData(1, false); }, [tab, filters.category]);
 
-      const onStatusChange = (id, newStatus) => {
-        setItems(prev => prev.map(it => it.id === id ? { ...it, status: newStatus } : it));
-      };
+      // Debounced search on Enter or after typing settles via button-free icon click
+      const doSearch = () => loadData(1, false);
+
+      const onStatusChange = (id, s) => setItems(prev => prev.map(it => it.id === id ? {...it, status: s} : it));
       const onDelete = (id) => setItems(prev => prev.filter(it => it.id !== id));
 
       return (
         <div className="min-h-screen pb-16">
-          {/* Sticky header */}
-          <div className="sticky top-0 z-30 glass border-b">
+          {/* Sticky glass header */}
+          <div className="sticky top-0 z-30 glass border-b border-gray-200/60">
             <div className="flex">
               <button onClick={() => setTab('marketplace')}
-                className={`flex-1 py-2.5 text-xs font-bold ${tab === 'marketplace' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
+                className={`flex-1 py-2.5 text-xs font-bold transition ${tab==='marketplace' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
                 🛒 የገበያ ቦታ
               </button>
               <button onClick={() => setTab('requests')}
-                className={`flex-1 py-2.5 text-xs font-bold ${tab === 'requests' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
+                className={`flex-1 py-2.5 text-xs font-bold transition ${tab==='requests' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
                 📋 የፈላጊዎች
               </button>
             </div>
-            <div className="px-2.5 py-2 flex gap-2">
-              <input type="search" placeholder="ፈልግ..." value={filters.q}
-                onChange={e => setFilters(f => ({ ...f, q: e.target.value }))}
-                onKeyDown={e => e.key === 'Enter' && loadData(1)}
-                className="flex-1 text-xs border rounded-lg px-2.5 py-1.5 bg-white" />
-              <select value={filters.category}
-                onChange={e => setFilters(f => ({ ...f, category: e.target.value }))}
-                className="text-xs border rounded-lg px-2 py-1.5 bg-white">
-                <option value="">ሁሉም</option>
-                <option value="መኪና">🚗 መኪና</option>
-                <option value="ቤት">🏠 ቤት</option>
-              </select>
-              <button onClick={() => loadData(1)}
-                className="bg-blue-600 text-white text-xs px-3 py-1.5 rounded-lg font-medium">ፈልግ</button>
+            {/* Search: icon inside input + filter icon */}
+            <div className="px-2.5 py-2 flex gap-2 items-center">
+              <div className="relative flex-1">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
+                <input type="search" placeholder="ፈልግ..." value={filters.q}
+                  onChange={e => setFilters(f => ({...f, q: e.target.value}))}
+                  onKeyDown={e => e.key === 'Enter' && doSearch()}
+                  className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-200" />
+              </div>
+              <button onClick={() => setShowFilter(!showFilter)}
+                className={`w-9 h-9 rounded-xl border flex items-center justify-center text-sm shrink-0 ${showFilter || filters.category ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-gray-50 border-gray-200 text-gray-500'}`}
+                title="Filter">
+                ⚙️
+              </button>
             </div>
+            {showFilter && (
+              <div className="px-2.5 pb-2 flex gap-2">
+                <select value={filters.category}
+                  onChange={e => setFilters(f => ({...f, category: e.target.value}))}
+                  className="flex-1 text-xs border border-gray-200 rounded-xl px-2.5 py-2 bg-white">
+                  <option value="">ሁሉም ምድብ</option>
+                  <option value="መኪና">🚗 መኪና</option>
+                  <option value="ቤት">🏠 ቤት</option>
+                </select>
+                <button onClick={doSearch}
+                  className="bg-blue-600 text-white text-xs px-4 py-2 rounded-xl font-medium">ተግብር</button>
+              </div>
+            )}
           </div>
 
           {/* 2-col grid */}
           <div className="p-2.5 grid grid-cols-2 gap-2.5">
-            {loading && items.length === 0 && Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)}
+            {loading && items.length === 0 && Array.from({length: 6}).map((_,i) => <SkeletonCard key={i} />)}
             {items.map(item => (
               <Card key={item.id} item={item} currentUid={currentUserId}
-                onStatusChange={onStatusChange} onDelete={onDelete} />
+                onOpen={setDetailItem} onStatusChange={onStatusChange} onDelete={onDelete} />
             ))}
           </div>
 
@@ -971,17 +1068,20 @@ EXPLORER_HTML = r"""
               <p className="text-sm">ምንም ንብረት አልተገኘም</p>
             </div>
           )}
-
           {hasMore && !loading && (
             <div className="text-center pb-6">
-              <button onClick={() => loadData(page + 1, true)}
-                className="bg-white border border-blue-600 text-blue-600 px-5 py-2 rounded-full text-xs font-medium">
+              <button onClick={() => loadData(page+1, true)}
+                className="bg-white border border-blue-200 text-blue-600 px-5 py-2 rounded-full text-xs font-medium shadow-sm">
                 ተጨማሪ ይመልከቱ
               </button>
             </div>
           )}
-          {loading && items.length > 0 && (
-            <div className="text-center py-4 text-xs text-gray-400">እየጫነ ነው...</div>
+          {loading && items.length > 0 && <div className="text-center py-3 text-xs text-gray-400">እየጫነ ነው...</div>}
+
+          {detailItem && (
+            <ItemDetailModal item={detailItem} currentUid={currentUserId}
+              onClose={() => setDetailItem(null)}
+              onStatusChange={onStatusChange} onDelete={onDelete} />
           )}
         </div>
       );
@@ -992,6 +1092,7 @@ EXPLORER_HTML = r"""
 </body>
 </html>
 """
+
 
 
 @web_app.route('/explorer')
@@ -2498,12 +2599,12 @@ async def buyer_budget_range(update: Update, context: ContextTypes.DEFAULT_TYPE)
        return await go_home(update, context)
    context.user_data['budget_range'] = update.message.text.strip()
    keyboard = [
-       [InlineKeyboardButton("✅ አዎ - ማሳወቂያ ደርሶኝ", callback_data="alert_yes")],
+       [InlineKeyboardButton("✅ አዎ - ማሳወቂያ ይድረሰኝ", callback_data="alert_yes")],
        [InlineKeyboardButton("❌ አይ - አያስፈልገኝም", callback_data="alert_no")],
        [InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")]
    ]
    await update.message.reply_text(
-       "🔔 **ተመሳሳይ ንብረት ሲለቀቅ ማሳወቂያ እንዲደርስዎ ይፈልጋሉ?**",
+       "🔔 **ተመሳሳይ ንብረት ሲለቀቅ ማሳወቂያ እንዲደርስዎት ይፈልጋሉ?**",
        reply_markup=InlineKeyboardMarkup(keyboard),
        parse_mode="Markdown"
    )
