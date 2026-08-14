@@ -1,4 +1,8 @@
-
+# ==============================================================================
+# ADIKA MARKETPLACE BOT - FULLY CLEANED + WEB APP EXPLORER (React + Tailwind)
+# Includes: Seller/Buyer WebApps, Broker system, Marketplace + Buyer Requests
+# Explorer Mini App with tabs, cards, filters, view counts, Call/Telegram buttons
+# ==============================================================================
 
 import logging
 import os
@@ -863,6 +867,8 @@ EXPLORER_HTML = r"""
     .sold-overlay { background: rgba(0,0,0,0.55); }
     @keyframes pulse-skel { 0%,100%{opacity:1} 50%{opacity:.45} }
     .skel { animation: pulse-skel 1.4s ease-in-out infinite; background: #e2e8f0; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     .modal-enter { animation: fadeIn 0.2s ease; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
   </style>
@@ -1177,10 +1183,20 @@ EXPLORER_HTML = r"""
       const [hasMore, setHasMore] = useState(false);
       const [loading, setLoading] = useState(true);
       const [filters, setFilters] = useState({ q: '', category: '' });
-      const [showFilter, setShowFilter] = useState(false);
+      const [searchInput, setSearchInput] = useState('');
       const [detailItem, setDetailItem] = useState(null);
+      const cacheRef = useRef({}); // client-side tab/category cache
 
       const loadData = useCallback(async (pageNum = 1, append = false) => {
+        const cacheKey = `${tab}|${filters.category}|${filters.q}|${pageNum}`;
+        if (!append && cacheRef.current[cacheKey]) {
+          const cached = cacheRef.current[cacheKey];
+          setItems(cached.items);
+          setHasMore(cached.has_more);
+          setPage(pageNum);
+          setLoading(false);
+          return;
+        }
         setLoading(true);
         try {
           const qs = new URLSearchParams({
@@ -1195,15 +1211,24 @@ EXPLORER_HTML = r"""
             setItems(prev => append ? [...prev, ...data.items] : data.items);
             setHasMore(data.has_more);
             setPage(pageNum);
+            if (!append) {
+              cacheRef.current[cacheKey] = { items: data.items, has_more: data.has_more };
+            }
           }
         } catch(e) { console.error(e); }
         finally { setLoading(false); }
       }, [tab, filters]);
 
-      useEffect(() => { loadData(1, false); }, [tab, filters.category]);
+      // Reload on tab / category change
+      useEffect(() => { loadData(1, false); }, [tab, filters.category, filters.q]);
 
-      // Debounced search on Enter or after typing settles via button-free icon click
-      const doSearch = () => loadData(1, false);
+      // Debounce search input → filters.q (300ms)
+      useEffect(() => {
+        const t = setTimeout(() => {
+          setFilters(f => f.q === searchInput ? f : {...f, q: searchInput});
+        }, 300);
+        return () => clearTimeout(t);
+      }, [searchInput]);
 
       const onStatusChange = (id, s) => setItems(prev => prev.map(it => it.id === id ? {...it, status: s} : it));
       const onDelete = (id) => setItems(prev => prev.filter(it => it.id !== id));
@@ -1222,34 +1247,34 @@ EXPLORER_HTML = r"""
                 📋 የፈላጊዎች
               </button>
             </div>
-            {/* Search: icon inside input + filter icon */}
-            <div className="px-2.5 py-2 flex gap-2 items-center">
-              <div className="relative flex-1">
+            {/* Search with icon */}
+            <div className="px-2.5 pt-2 pb-1.5">
+              <div className="relative">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
-                <input type="search" placeholder="ፈልግ..." value={filters.q}
-                  onChange={e => setFilters(f => ({...f, q: e.target.value}))}
-                  onKeyDown={e => e.key === 'Enter' && doSearch()}
-                  className="w-full pl-9 pr-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-200" />
+                <input type="search" placeholder="ፈልግ..." value={searchInput}
+                  onChange={e => setSearchInput(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-gray-50/80 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-200 focus:bg-white" />
               </div>
-              <button onClick={() => setShowFilter(!showFilter)}
-                className={`w-9 h-9 rounded-xl border flex items-center justify-center text-sm shrink-0 ${showFilter || filters.category ? 'bg-blue-50 border-blue-200 text-blue-600' : 'bg-gray-50 border-gray-200 text-gray-500'}`}
-                title="Filter">
-                ⚙️
-              </button>
             </div>
-            {showFilter && (
-              <div className="px-2.5 pb-2 flex gap-2">
-                <select value={filters.category}
-                  onChange={e => setFilters(f => ({...f, category: e.target.value}))}
-                  className="flex-1 text-xs border border-gray-200 rounded-xl px-2.5 py-2 bg-white">
-                  <option value="">ሁሉም ምድብ</option>
-                  <option value="መኪና">🚗 መኪና</option>
-                  <option value="ቤት">🏠 ቤት</option>
-                </select>
-                <button onClick={doSearch}
-                  className="bg-blue-600 text-white text-xs px-4 py-2 rounded-xl font-medium">ተግብር</button>
-              </div>
-            )}
+            {/* Glassmorphism category pills */}
+            <div className="px-2.5 pb-2 flex gap-2 overflow-x-auto no-scrollbar" style={{WebkitOverflowScrolling:'touch'}}>
+              {[
+                {id:'', label:'✨ ሁሉም'},
+                {id:'መኪና', label:'🚗 መኪና'},
+                {id:'ቤት', label:'🏠 ቤት / ቦታ'},
+                {id:'ንግድ', label:'🏢 የሥራ ቦታ / ንግድ'},
+              ].map(cat => (
+                <button key={cat.id || 'all'} type="button"
+                  onClick={() => setFilters(f => ({...f, category: cat.id}))}
+                  className={`shrink-0 px-3.5 py-1.5 rounded-2xl text-[11px] font-medium transition-all whitespace-nowrap ${
+                    filters.category === cat.id
+                      ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20 border border-transparent'
+                      : 'backdrop-blur-md bg-white/40 border border-white/60 shadow-sm text-gray-800'
+                  }`}>
+                  {cat.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* 2-col grid */}
@@ -2343,10 +2368,10 @@ def get_matching_alerts(main_category: str, price: str) -> list:
 # ==============================================================================
 
 MAIN_KEYBOARD = [
-   ["🔍 መግዛት / መከራየት", "📢 መሸጥ / ማከራየት"],
-   ["🛍️ የገበያ ቦታ (Explorer)", "📋 የፈላጊዎች ዝርዝር"],
-   ["👥 የደላሎች/አቅራቢዎች ማውጫ", "📝 እንደ አቅራቢ/ደላላ መመዝገብ"],
-   ["📞 ድጋፍ", "⚙️ የማሳወቂያ ምርጫ"],
+   ["🔍 ለመግዛት / ለመከራየት", "📢 ለመሸጥ / ለማከራየት"],
+   ["🛒 የገበያ ቦታ", "📋 የፈላጊዎች ጥያቄዎች"],
+   ["👥 የደላሎች መድረክ", "✍️ የደላላ/አቅራቢ መመዝገቢያ"],
+   ["⚙️ የማሳወቂያ ማስተካከያ", "📞 እገዛ / Support"],
    ["🏠 ዋና ገጽ"]
 ]
 SUB_CITIES = [
@@ -4332,7 +4357,7 @@ def main():
 
     # Buyer Conversation
     buyer_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^🔍 መግዛት / መከራየት$"), buyer_start)],
+        entry_points=[MessageHandler(filters.Regex("^🔍 ለመግዛት / ለመከራየት$"), buyer_start)],
         states={
             BUYER_MAIN: [CallbackQueryHandler(buyer_category_chosen, pattern="^flow_buy_cat_"), cancel_handler],
             BUYER_ACTION: [CallbackQueryHandler(buyer_action_chosen, pattern="^flow_buy_action_"), cancel_handler],
@@ -4350,7 +4375,7 @@ def main():
 
     # Seller Conversation
     seller_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^📢 መሸጥ / ማከራየት$"), seller_start)],
+        entry_points=[MessageHandler(filters.Regex("^📢 ለመሸጥ / ለማከራየት$"), seller_start)],
         states={
             SELLER_MAIN: [CallbackQueryHandler(seller_category_chosen, pattern="^flow_sell_cat_"), cancel_handler],
             SELLER_ACTION: [CallbackQueryHandler(seller_action_chosen, pattern="^flow_sell_action_"), cancel_handler],
@@ -4387,7 +4412,7 @@ def main():
 
     # Broker Registration
     broker_conv = ConversationHandler(
-        entry_points=[MessageHandler(filters.Regex("^📝 እንደ አቅራቢ/ደላላ መመዝገብ$"), broker_reg_start)],
+        entry_points=[MessageHandler(filters.Regex("^✍️ የደላላ/አቅራቢ መመዝገቢያ$"), broker_reg_start)],
         states={
             BROKER_ROLE: [CallbackQueryHandler(broker_role_chosen, pattern="^role_"), cancel_handler],
             BROKER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name), cancel_handler],
@@ -4422,11 +4447,11 @@ def main():
     app.add_handler(broker_response_conv)
 
     # Message handlers — Hybrid choice for Marketplace & Requests
-    app.add_handler(MessageHandler(filters.Regex("^🛍️ የገበያ ቦታ"), marketplace_choice))
-    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ዝርዝር$"), requests_choice))
-    app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች/አቅራቢዎች ማውጫ$"), view_brokers_directory))
-    app.add_handler(MessageHandler(filters.Regex("^📞 ድጋፍ$"), help_command))
-    app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ምርጫ$"), notification_prefs_start))
+    app.add_handler(MessageHandler(filters.Regex("^🛒 የገበያ ቦታ$"), marketplace_choice))
+    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ጥያቄዎች$"), requests_choice))
+    app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች መድረክ$"), view_brokers_directory))
+    app.add_handler(MessageHandler(filters.Regex("^📞 እገዛ / Support$"), help_command))
+    app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ማስተካከያ$"), notification_prefs_start))
     app.add_handler(cancel_handler)
 
     # Callback query handlers
