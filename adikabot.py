@@ -3869,51 +3869,33 @@ def _build_single_card_keyboard(
     show_pagination: bool = False,
 ) -> InlineKeyboardMarkup:
     """
-    ONE clean keyboard per card — no duplication.
-      Row 1: [📞 ደውል] [💬 ቻት]   (or [📩 አነጋግር] for requests)
-      Row 2: [✅ ተሸጧል ብለህ መዝግብ]  (owner/admin only, marketplace)
-      Row 3: [◀️ ቀዳሚ] [1/N] [ቀጣይ ▶️]  (only on last card of page)
-      Row 4: [🏠 ዋና ገጽ]           (only on last card of page)
+    Uniform keyboard for Seller Listings AND Buyer Requests:
+      Row 1: [ 📞 Call ] [ 🏷️ Sold Out ]
+      Row 2: [ ◀️ ቀዳሚ ] [ page/total ] [ ቀጣይ ▶️ ]   (last card of page only)
+      Row 3: [ 🏠 ዋና ገጽ ]                           (last card of page only)
+    Chat / አነጋግር buttons intentionally removed.
     """
     rows = []
     item_id = item.get('id')
     owner_id = item.get('user_chat_id')
     phone = (item.get('phone') or '').strip()
     status = str(item.get('status', '')).lower()
-    extra = item.get('extra_data') or {}
-    if isinstance(extra, str):
-        try:
-            extra = json.loads(extra)
-        except Exception:
-            extra = {}
-    tg_user = (extra.get('telegram_user') or '').strip().lstrip('@')
+    inactive = status in ('sold', 'rented', 'deleted', 'expired')
 
     is_owner = bool(viewer_id and owner_id and int(viewer_id) == int(owner_id))
     is_admin = bool(viewer_id and ADMIN_CHAT_ID_INT and int(viewer_id) == int(ADMIN_CHAT_ID_INT))
-    inactive = status in ('sold', 'rented', 'deleted', 'expired')
 
-    # Row 1 — contact actions (single row, built once)
-    contact_row = []
-    if mode == "marketplace":
-        if phone and not inactive:
-            contact_row.append(InlineKeyboardButton("📞 ደውል", callback_data=f"tm_call_{item_id}"))
-        if tg_user and not inactive:
-            contact_row.append(InlineKeyboardButton("💬 ቻት", url=f"https://t.me/{tg_user}"))
-    else:
-        if phone:
-            contact_row.append(InlineKeyboardButton("📩 አነጋግር", callback_data=f"tm_call_{item_id}"))
-        if tg_user:
-            contact_row.append(InlineKeyboardButton("💬 ቻት", url=f"https://t.me/{tg_user}"))
-    if contact_row:
-        rows.append(contact_row)
+    # Row 1 — Call + Sold Out side-by-side
+    row1 = []
+    if phone and not inactive:
+        row1.append(InlineKeyboardButton("📞 Call", callback_data=f"tm_call_{item_id}"))
+    # Sold Out: owner/admin on marketplace; on requests also allow owner to close
+    if (is_owner or is_admin) and not inactive:
+        row1.append(InlineKeyboardButton("🏷️ Sold Out", callback_data=f"tm_sold_{item_id}"))
+    if row1:
+        rows.append(row1)
 
-    # Row 2 — owner mark-sold (marketplace only, once)
-    if mode == "marketplace" and (is_owner or is_admin) and not inactive:
-        rows.append([
-            InlineKeyboardButton("✅ ተሸጧል ብለህ መዝግብ", callback_data=f"tm_sold_{item_id}")
-        ])
-
-    # Row 3+4 — pagination + home only on the last card of the page
+    # Row 2 + 3 — pagination & home only on last card of the page
     if show_pagination:
         nav = []
         if page > 1:
@@ -3965,9 +3947,9 @@ def _increment_views_batch(item_ids: list, amount: int = 13) -> dict:
 
 async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Text-mode listings/requests — ONE message per card (no button duplication).
-    Newest posts at BOTTOM (ORDER BY created_at ASC).
-    callback_data: text_mode_marketplace_1 | text_mode_requests_2 | tm_sold_N | tm_call_N
+    Text-mode Seller Listings & Buyer Requests.
+    - ORDER BY created_at DESC → newest first on Page 1
+    - One message per card, uniform Call / Sold Out keyboard
     """
     query = update.callback_query
     await query.answer()
@@ -3978,7 +3960,7 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     user_id = query.from_user.id
     chat_id = query.message.chat_id if query.message else user_id
 
-    # --- Owner: mark as sold ---
+    # --- Mark Sold Out ---
     if data.startswith("tm_sold_"):
         try:
             listing_id = int(data.replace("tm_sold_", ""))
@@ -3986,45 +3968,45 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
         listing = get_listing_by_id(listing_id)
         if not listing:
-            await query.answer("ማስታወቂያ አልተገኘም", show_alert=True)
+            await query.answer("Not found", show_alert=True)
             return
         owner_id = listing.get('user_chat_id')
         is_admin = (user_id == ADMIN_CHAT_ID_INT and ADMIN_CHAT_ID_INT != 0)
         if int(owner_id or 0) != int(user_id) and not is_admin:
-            await query.answer("⛔ የባለቤት ብቻ ነው!", show_alert=True)
+            await query.answer("⛔ Owner only!", show_alert=True)
             return
         if update_listing_status(listing_id, "sold"):
-            await query.answer("✅ እንደተሸጠ ተመዝግቧል!", show_alert=True)
+            await query.answer("✅ Marked as Sold Out!", show_alert=True)
             try:
-                # Update badge on this message only
                 listing['status'] = 'sold'
                 card = format_marketplace_card_professional(listing)
+                mode = "marketplace" if str(listing.get('req_type', '')).upper() == 'SELL' else "requests"
                 await query.edit_message_text(
                     text=card,
                     parse_mode="HTML",
                     reply_markup=_build_single_card_keyboard(
-                        "marketplace", listing, viewer_id=user_id, show_pagination=False
+                        mode, listing, viewer_id=user_id, show_pagination=False
                     ),
                     disable_web_page_preview=True,
                 )
             except Exception:
                 pass
         else:
-            await query.answer("ስህተት ተከስቷል", show_alert=True)
+            await query.answer("Error", show_alert=True)
         return
 
-    # --- Show phone ---
+    # --- Call: show phone ---
     if data.startswith("tm_call_"):
         try:
             listing_id = int(data.replace("tm_call_", ""))
         except ValueError:
             return
         listing = get_listing_by_id(listing_id)
-        phone = (listing or {}).get('phone') or 'አልተገኘም'
+        phone = (listing or {}).get('phone') or 'N/A'
         await query.answer(f"📞 {phone}", show_alert=True)
         return
 
-    # Parse page navigation
+    # Parse text_mode_{mode}_{page}
     parts = data.split("_")
     if len(parts) < 4 or parts[0] != "text" or parts[1] != "mode":
         return
@@ -4045,14 +4027,14 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
     try:
-        # ASC = oldest first, newest at BOTTOM (Telegram reading flow)
+        # NEWEST FIRST on Page 1
         if mode == "marketplace":
             total = count_listings(req_type="SELL")
             items = get_listings_by_category_ordered(
                 limit=TEXT_PAGE_SIZE,
                 offset=(page - 1) * TEXT_PAGE_SIZE,
                 req_type="SELL",
-                order="ASC",
+                order="DESC",
             )
             title = "🛒 <b>የገበያ ቦታ</b> (ጽሁፍ)"
             empty_msg = "📭 ምንም የሚሸጡ ንብረቶች የሉም።"
@@ -4062,7 +4044,7 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 limit=TEXT_PAGE_SIZE,
                 offset=(page - 1) * TEXT_PAGE_SIZE,
                 req_type="BUY",
-                order="ASC",
+                order="DESC",
             )
             title = "📋 <b>የፈላጊዎች ጥያቄዎች</b> (ጽሁፍ)"
             empty_msg = "📭 ምንም ንቁ ጥያቄዎች የሉም።"
@@ -4077,7 +4059,6 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return
 
-        # +13 views per rendered card
         ids = [it.get('id') for it in items if it.get('id')]
         new_counts = _increment_views_batch(ids, amount=13)
         for it in items:
@@ -4087,7 +4068,6 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         total_pages = max(1, (total + TEXT_PAGE_SIZE - 1) // TEXT_PAGE_SIZE)
         page = min(page, total_pages)
 
-        # Replace the choice message with a page header
         try:
             await query.edit_message_text(
                 f"{title}\n📄 ገጽ <b>{page}/{total_pages}</b>  •  ጠቅላላ <b>{total}</b>",
@@ -4100,7 +4080,6 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 parse_mode="HTML",
             )
 
-        # ONE message per card → one clean keyboard each (no duplication)
         for idx, it in enumerate(items):
             is_last = (idx == len(items) - 1)
             card_text = format_marketplace_card_professional(it)
