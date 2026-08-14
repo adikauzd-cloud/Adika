@@ -3860,71 +3860,71 @@ async def requests_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-def _build_text_page_keyboard(
+def _build_single_card_keyboard(
     mode: str,
-    page: int,
-    total_pages: int,
-    items: list = None,
+    item: dict,
     viewer_id: int = 0,
+    page: int = 1,
+    total_pages: int = 1,
+    show_pagination: bool = False,
 ) -> InlineKeyboardMarkup:
     """
-    Pagination + per-item action rows for text mode.
-    mode: 'marketplace' | 'requests'
+    ONE clean keyboard per card — no duplication.
+      Row 1: [📞 ደውል] [💬 ቻት]   (or [📩 አነጋግር] for requests)
+      Row 2: [✅ ተሸጧል ብለህ መዝግብ]  (owner/admin only, marketplace)
+      Row 3: [◀️ ቀዳሚ] [1/N] [ቀጣይ ▶️]  (only on last card of page)
+      Row 4: [🏠 ዋና ገጽ]           (only on last card of page)
     """
     rows = []
-    items = items or []
+    item_id = item.get('id')
+    owner_id = item.get('user_chat_id')
+    phone = (item.get('phone') or '').strip()
+    status = str(item.get('status', '')).lower()
+    extra = item.get('extra_data') or {}
+    if isinstance(extra, str):
+        try:
+            extra = json.loads(extra)
+        except Exception:
+            extra = {}
+    tg_user = (extra.get('telegram_user') or '').strip().lstrip('@')
 
-    for item in items:
-        item_id = item.get('id')
-        owner_id = item.get('user_chat_id')
-        phone = (item.get('phone') or '').strip()
-        extra = item.get('extra_data') or {}
-        if isinstance(extra, str):
-            try:
-                extra = json.loads(extra)
-            except Exception:
-                extra = {}
-        tg_user = (extra.get('telegram_user') or '').strip().lstrip('@')
-        status = str(item.get('status', '')).lower()
-        is_owner = viewer_id and owner_id and int(viewer_id) == int(owner_id)
-        is_admin = viewer_id and ADMIN_CHAT_ID_INT and int(viewer_id) == int(ADMIN_CHAT_ID_INT)
+    is_owner = bool(viewer_id and owner_id and int(viewer_id) == int(owner_id))
+    is_admin = bool(viewer_id and ADMIN_CHAT_ID_INT and int(viewer_id) == int(ADMIN_CHAT_ID_INT))
+    inactive = status in ('sold', 'rented', 'deleted', 'expired')
 
-        action_row = []
-        if mode == "marketplace":
-            if phone and status not in ('sold', 'rented', 'deleted'):
-                action_row.append(
-                    InlineKeyboardButton("📞 ደውል", callback_data=f"tm_call_{item_id}")
-                )
-            if tg_user and status not in ('sold', 'rented', 'deleted'):
-                action_row.append(
-                    InlineKeyboardButton("💬 ቻት", url=f"https://t.me/{tg_user}")
-                )
-            if (is_owner or is_admin) and status not in ('sold', 'rented'):
-                action_row.append(
-                    InlineKeyboardButton("✅ ተሸጧል ብለህ መዝግብ", callback_data=f"tm_sold_{item_id}")
-                )
-        else:  # requests
-            if phone:
-                action_row.append(
-                    InlineKeyboardButton("📩 አነጋግር", callback_data=f"tm_call_{item_id}")
-                )
-            if tg_user:
-                action_row.append(
-                    InlineKeyboardButton("💬 ቻት", url=f"https://t.me/{tg_user}")
-                )
-        if action_row:
-            rows.append(action_row)
+    # Row 1 — contact actions (single row, built once)
+    contact_row = []
+    if mode == "marketplace":
+        if phone and not inactive:
+            contact_row.append(InlineKeyboardButton("📞 ደውል", callback_data=f"tm_call_{item_id}"))
+        if tg_user and not inactive:
+            contact_row.append(InlineKeyboardButton("💬 ቻት", url=f"https://t.me/{tg_user}"))
+    else:
+        if phone:
+            contact_row.append(InlineKeyboardButton("📩 አነጋግር", callback_data=f"tm_call_{item_id}"))
+        if tg_user:
+            contact_row.append(InlineKeyboardButton("💬 ቻት", url=f"https://t.me/{tg_user}"))
+    if contact_row:
+        rows.append(contact_row)
 
-    # Pagination nav
-    nav = []
-    if page > 1:
-        nav.append(InlineKeyboardButton("◀️ ቀዳሚ", callback_data=f"text_mode_{mode}_{page - 1}"))
-    nav.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop"))
-    if page < total_pages:
-        nav.append(InlineKeyboardButton("ቀጣይ ▶️", callback_data=f"text_mode_{mode}_{page + 1}"))
-    if nav:
-        rows.append(nav)
-    rows.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+    # Row 2 — owner mark-sold (marketplace only, once)
+    if mode == "marketplace" and (is_owner or is_admin) and not inactive:
+        rows.append([
+            InlineKeyboardButton("✅ ተሸጧል ብለህ መዝግብ", callback_data=f"tm_sold_{item_id}")
+        ])
+
+    # Row 3+4 — pagination + home only on the last card of the page
+    if show_pagination:
+        nav = []
+        if page > 1:
+            nav.append(InlineKeyboardButton("◀️ ቀዳሚ", callback_data=f"text_mode_{mode}_{page - 1}"))
+        nav.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop"))
+        if page < total_pages:
+            nav.append(InlineKeyboardButton("ቀጣይ ▶️", callback_data=f"text_mode_{mode}_{page + 1}"))
+        if nav:
+            rows.append(nav)
+        rows.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+
     return InlineKeyboardMarkup(rows)
 
 
@@ -3965,8 +3965,9 @@ def _increment_views_batch(item_ids: list, amount: int = 13) -> dict:
 
 async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    Text-mode Seller Listings / Buyer Requests with pagination.
-    callback_data: text_mode_marketplace_1 | text_mode_requests_2 | tm_sold_123 | tm_call_123
+    Text-mode listings/requests — ONE message per card (no button duplication).
+    Newest posts at BOTTOM (ORDER BY created_at ASC).
+    callback_data: text_mode_marketplace_1 | text_mode_requests_2 | tm_sold_N | tm_call_N
     """
     query = update.callback_query
     await query.answer()
@@ -3975,6 +3976,7 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
 
     user_id = query.from_user.id
+    chat_id = query.message.chat_id if query.message else user_id
 
     # --- Owner: mark as sold ---
     if data.startswith("tm_sold_"):
@@ -3991,22 +3993,27 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if int(owner_id or 0) != int(user_id) and not is_admin:
             await query.answer("⛔ የባለቤት ብቻ ነው!", show_alert=True)
             return
-        ok = update_listing_status(listing_id, "sold")
-        if ok:
+        if update_listing_status(listing_id, "sold"):
             await query.answer("✅ እንደተሸጠ ተመዝግቧል!", show_alert=True)
-            # Refresh current page if possible from message – re-trigger marketplace page 1
             try:
-                # Re-run text mode marketplace page 1
-                fake_data = "text_mode_marketplace_1"
-                query.data = fake_data
+                # Update badge on this message only
+                listing['status'] = 'sold'
+                card = format_marketplace_card_professional(listing)
+                await query.edit_message_text(
+                    text=card,
+                    parse_mode="HTML",
+                    reply_markup=_build_single_card_keyboard(
+                        "marketplace", listing, viewer_id=user_id, show_pagination=False
+                    ),
+                    disable_web_page_preview=True,
+                )
             except Exception:
                 pass
         else:
             await query.answer("ስህተት ተከስቷል", show_alert=True)
-        # Fall through to re-render marketplace page 1
-        data = "text_mode_marketplace_1"
+        return
 
-    # --- Call: show phone ---
+    # --- Show phone ---
     if data.startswith("tm_call_"):
         try:
             listing_id = int(data.replace("tm_call_", ""))
@@ -4017,11 +4024,11 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await query.answer(f"📞 {phone}", show_alert=True)
         return
 
-    # Parse: text_mode_{mode}_{page}
+    # Parse page navigation
     parts = data.split("_")
     if len(parts) < 4 or parts[0] != "text" or parts[1] != "mode":
         return
-    mode = parts[2]  # marketplace | requests
+    mode = parts[2]
     try:
         page = max(1, int(parts[3]))
     except (ValueError, IndexError):
@@ -4038,13 +4045,14 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return
 
     try:
+        # ASC = oldest first, newest at BOTTOM (Telegram reading flow)
         if mode == "marketplace":
             total = count_listings(req_type="SELL")
             items = get_listings_by_category_ordered(
                 limit=TEXT_PAGE_SIZE,
                 offset=(page - 1) * TEXT_PAGE_SIZE,
                 req_type="SELL",
-                order="DESC",
+                order="ASC",
             )
             title = "🛒 <b>የገበያ ቦታ</b> (ጽሁፍ)"
             empty_msg = "📭 ምንም የሚሸጡ ንብረቶች የሉም።"
@@ -4054,7 +4062,7 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 limit=TEXT_PAGE_SIZE,
                 offset=(page - 1) * TEXT_PAGE_SIZE,
                 req_type="BUY",
-                order="DESC",
+                order="ASC",
             )
             title = "📋 <b>የፈላጊዎች ጥያቄዎች</b> (ጽሁፍ)"
             empty_msg = "📭 ምንም ንቁ ጥያቄዎች የሉም።"
@@ -4069,7 +4077,7 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return
 
-        # Increment views by +13 for every rendered card
+        # +13 views per rendered card
         ids = [it.get('id') for it in items if it.get('id')]
         new_counts = _increment_views_batch(ids, amount=13)
         for it in items:
@@ -4079,43 +4087,45 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         total_pages = max(1, (total + TEXT_PAGE_SIZE - 1) // TEXT_PAGE_SIZE)
         page = min(page, total_pages)
 
-        lines = [
-            title,
-            f"📄 ገጽ <b>{page}/{total_pages}</b>  •  ጠቅላላ <b>{total}</b>",
-            "━━━━━━━━━━━━━━━━━━━━━",
-            "",
-        ]
-        for it in items:
-            lines.append(format_marketplace_card_professional(it))
-            lines.append("")
-
-        text = "\n".join(lines)
-        if len(text) > 4000:
-            text = text[:3950] + "\n\n… (ተጨማሪ ለማየት ቀጣይ ገጽ ይጫኑ)"
-
-        keyboard = _build_text_page_keyboard(mode, page, total_pages, items=items, viewer_id=user_id)
-
+        # Replace the choice message with a page header
         try:
             await query.edit_message_text(
-                text=text,
+                f"{title}\n📄 ገጽ <b>{page}/{total_pages}</b>  •  ጠቅላላ <b>{total}</b>",
                 parse_mode="HTML",
-                reply_markup=keyboard,
-                disable_web_page_preview=True,
             )
-        except Exception as edit_err:
-            logger.warning(f"edit_message_text failed: {edit_err}")
+        except Exception:
             await context.bot.send_message(
-                chat_id=query.message.chat_id,
-                text=text,
+                chat_id=chat_id,
+                text=f"{title}\n📄 ገጽ <b>{page}/{total_pages}</b>  •  ጠቅላላ <b>{total}</b>",
                 parse_mode="HTML",
-                reply_markup=keyboard,
+            )
+
+        # ONE message per card → one clean keyboard each (no duplication)
+        for idx, it in enumerate(items):
+            is_last = (idx == len(items) - 1)
+            card_text = format_marketplace_card_professional(it)
+            kbd = _build_single_card_keyboard(
+                mode=mode,
+                item=it,
+                viewer_id=user_id,
+                page=page,
+                total_pages=total_pages,
+                show_pagination=is_last,
+            )
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=card_text,
+                parse_mode="HTML",
+                reply_markup=kbd,
                 disable_web_page_preview=True,
             )
+
     except Exception as e:
         logger.error(f"text_mode_callback error: {e}", exc_info=True)
         try:
-            await query.edit_message_text(
-                "❌ መረጃ ማምጣት አልተቻለም። እባክዎ እንደገና ይሞክሩ።",
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text="❌ መረጃ ማምጣት አልተቻለም። እባክዎ እንደገና ይሞክሩ።",
                 parse_mode="HTML",
             )
         except Exception:
