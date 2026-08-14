@@ -1827,8 +1827,10 @@ def get_matching_alerts(main_category: str, price: str) -> list:
 
 
 # ==============================================================================
-# 5. CONSTANTS & KEYBOARDS
+# 5. CONSTANTS & KEYBOARDS (UPDATED WITH EXPLORER BUTTON)
 # ==============================================================================
+
+EXPLORER_URL = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'adika-vrkk.onrender.com')}/explorer"
 
 MAIN_KEYBOARD = [
    ["🔍 መግዛት / መከራየት", "📢 መሸጥ / ማከራየት"],
@@ -1837,19 +1839,12 @@ MAIN_KEYBOARD = [
    ["📞 ድጋፍ", "⚙️ የማሳወቂያ ምርጫ"],
    ["🏠 ዋና ገጽ"]
 ]
-SUB_CITIES = [
-   "ቦሌ", "የካ", "አራዳ", "ልደታ",
-   "ቂርቆስ", "አዲስ ከተማ", "ንፋስ ስልክ ላፍቶ",
-   "ኮልፌ ቀራኒዮ", "አቃቂ ቃሊቲ", "ጉሌሌ", "ላምበርት/የካ"
-]
 
-CAR_SUB_CATEGORIES = ["🚗 የቤት መኪና", "🚚 የሥራ መኪና", "🚜 ከባድ ተሽከርካሪ/ማሽን"]
-HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየም", "🏢 ሪል እስቴት", "🏞️ መሬት/ቦታ"]
-PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
-FUEL_TYPES = ["⛽ ቤንዚን", "🛢️ ናፍጣ", "⚡ ኤሌክትሪክ", "🔋 ሀይብሪድ"]
-TRANSMISSION_TYPES = ["🕹️ ማንዋል", "🤖 ኦቶማቲክ"]
-CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈልግ"]
-
+# የሚኒ አፕ አዝራር - በተናጠል ወይም በትዕዛዝ መጠቀም ይቻላል
+EXPLORER_BUTTON = InlineKeyboardButton(
+    "🛍️ ማሰሻ (የሚኒ አፕ)", 
+    web_app=WebAppInfo(url=EXPLORER_URL)
+)
 
 # ==============================================================================
 # 6. HELPER FUNCTIONS
