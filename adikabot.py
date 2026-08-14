@@ -1,3 +1,9 @@
+# ==============================================================================
+# ADIKA MARKETPLACE BOT - FULLY CLEANED + WEB APP EXPLORER (React + Tailwind)
+# Includes: Seller/Buyer WebApps, Broker system, Marketplace + Buyer Requests
+# Explorer Mini App with tabs, cards, filters, view counts, Call/Telegram buttons
+# ==============================================================================
+
 import logging
 import os
 import re
@@ -58,417 +64,614 @@ bot_app: Optional[Application] = None
 
 web_app = Flask(__name__)
 
-SELLER_FORM_HTML = """
+SELLER_FORM_HTML = r"""
 <!DOCTYPE html>
-<html>
+<html lang="am">
 <head>
-   <meta charset="UTF-8">
-   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-   <script src="https://cdn.tailwindcss.com"></script>
-   <style>
-       .image-preview-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-       .image-preview-wrapper { position: relative; }
-       .image-preview { width: 80px; height: 80px; object-fit: cover; border-radius: 8px; border: 2px solid #e5e7eb; }
-       .remove-btn { position: absolute; top: -6px; right: -6px; background: #ef4444; color: white; border-radius: 50%; width: 22px; height: 22px; font-size: 14px; display: flex; align-items: center; justify-content: center; cursor: pointer; border: none; }
-       .urgent-badge { background-color: #ef4444; color: white; padding: 2px 8px; border-radius: 9999px; font-size: 12px; font-weight: bold; animation: pulse 1.5s infinite; }
-       @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
-   </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ንብረት ለገበያ</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { margin:0; background:#f8fafc; font-family:system-ui,-apple-system,sans-serif; -webkit-tap-highlight-color:transparent; }
+    .chip-active { background:#2563eb; color:#fff; font-weight:700; box-shadow:0 1px 3px rgba(37,99,235,.3); }
+    .chip-idle { background:#f3f4f6; color:#4b5563; border:1px solid #e5e7eb; }
+    input, textarea, select { font-size: 16px !important; } /* prevent iOS zoom */
+  </style>
 </head>
-<body class="bg-gray-100 p-4">
-   <div class="max-w-md mx-auto bg-white p-6 rounded-xl shadow-md">
-       <h2 class="text-xl font-bold mb-4 text-center">ንብረት ለገበያ ያቅርቡ</h2>
-       <form id="listingForm" class="space-y-4">
-           <div>
-               <label class="block text-sm font-medium text-gray-700 mb-1">📦 ዋና ምድብ</label>
-               <select id="category" class="w-full p-2 border rounded focus:ring-2 focus:ring-blue-500">
-                   <option value="መኪና">🚗 መኪና</option>
-                   <option value="ቤት">🏠 ቤት</option>
-               </select>
-           </div>
-           <div id="dynamicFilters"></div>
-           <div>
-               <label class="block text-sm font-medium text-gray-700 mb-1">💰 ዋጋ (በብር)</label>
-               <input type="number" id="price" placeholder="ለምሳሌ፦ 2500000" class="w-full p-2 border rounded" required>
-           </div>
-           <div class="flex items-center gap-2">
-               <input type="checkbox" id="negotiable" checked class="w-4 h-4 text-blue-600">
-               <label for="negotiable" class="text-sm text-gray-700">💰 ዋጋው የሚደራደር ነው</label>
-           </div>
-           <div class="flex items-center gap-2 bg-red-50 p-3 rounded-lg border border-red-200">
-               <input type="checkbox" id="urgentSale" class="w-4 h-4 text-red-600">
-               <label for="urgentSale" class="text-sm font-medium text-red-700">⚡ አስቸኳይ ሽያጭ (Urgent Sale)</label>
-           </div>
-           <div>
-               <label class="block text-sm font-medium text-gray-700 mb-1">📝 ዝርዝር መግለጫ</label>
-               <textarea id="description" placeholder="የንብረቱን ሙሉ ዝርዝር መረጃ ያስገቡ..." class="w-full p-2 border rounded h-24" required></textarea>
-           </div>
-           <div>
-               <label class="block text-sm font-medium text-gray-700 mb-1">📸 ፎቶዎች (እስከ 5)</label>
-               <input type="file" id="photos" accept="image/*" multiple class="w-full p-2 border rounded text-sm">
-               <p class="text-xs text-gray-500 mt-1">ፎቶዎች በራስ-ሰር ይጨመቃሉ • ከ1 በላይ መምረጥ ይችላሉ</p>
-               <div id="photoPreviews" class="image-preview-container"></div>
-           </div>
-           <div>
-               <label class="block text-sm font-medium text-gray-700 mb-1">📞 ስልክ ቁጥር</label>
-               <input type="tel" id="phone" placeholder="0911223344" class="w-full p-2 border rounded" required>
-           </div>
-           <div>
-               <label class="block text-sm font-medium text-gray-700 mb-1">📱 Telegram Username (አማራጭ)</label>
-               <input type="text" id="telegramUser" placeholder="@username" class="w-full p-2 border rounded">
-           </div>
-           <div class="flex gap-3 pt-4">
-               <button type="submit" id="submitBtn" class="flex-1 bg-blue-600 text-white p-3 rounded font-bold hover:bg-blue-700 transition">✅ አረጋግጥና ለጥፍ</button>
-               <button type="button" id="cancelBtn" class="flex-1 bg-gray-400 text-white p-3 rounded font-bold hover:bg-gray-500 transition">❌ ሰርዝ</button>
-           </div>
-       </form>
-       <p id="statusMsg" class="text-center mt-4 text-sm hidden"></p>
-   </div>
-   <script>
-       let tg = window.Telegram.WebApp;
-       tg.expand();
-       tg.ready();
-       const categorySelect = document.getElementById('category');
-       const dynamicFiltersDiv = document.getElementById('dynamicFilters');
-       const carFiltersHTML = `
-           <div class="space-y-3 border-t pt-3">
-               <div>
-                   <label class="block text-sm font-medium text-gray-700 mb-1">⛽ የነዳጅ አይነት</label>
-                   <select id="fuelType" class="w-full p-2 border rounded">
-                       <option value="">-- ይምረጡ --</option>
-                       <option value="ቤንዚን">⛽ ቤንዚን</option>
-                       <option value="ናፍጣ">🛢️ ናፍጣ</option>
-                       <option value="ኤሌክትሪክ">⚡ ኤሌክትሪክ</option>
-                       <option value="ሀይብሪድ">🔋 ሀይብሪድ</option>
-                   </select>
-               </div>
-               <div>
-                   <label class="block text-sm font-medium text-gray-700 mb-1">⚙️ ማርሽ (Transmission)</label>
-                   <select id="transmission" class="w-full p-2 border rounded">
-                       <option value="">-- ይምረጡ --</option>
-                       <option value="ማንዋል">🕹️ ማንዋል</option>
-                       <option value="ኦቶማቲክ">🤖 ኦቶማቲክ</option>
-                   </select>
-               </div>
-               <div>
-                   <label class="block text-sm font-medium text-gray-700 mb-1">🛣️ የኪሎሜትር መጠን (KM)</label>
-                   <input type="number" id="mileage" placeholder="ለምሳሌ፦ 50000" class="w-full p-2 border rounded">
-               </div>
-               <div>
-                   <label class="block text-sm font-medium text-gray-700 mb-1">📊 ሁኔታ</label>
-                   <select id="condition" class="w-full p-2 border rounded">
-                       <option value="">-- ይምረጡ --</option>
-                       <option value="አዲስ">🆕 አዲስ</option>
-                       <option value="ያገለገለ">✅ ያገለገለ</option>
-                       <option value="ጥገና የሚፈልግ">🔧 ጥገና የሚፈልግ</option>
-                   </select>
-               </div>
-               <div>
-                   <label class="block text-sm font-medium text-gray-700 mb-1">🚗 የመኪና አይነት/ሞዴል</label>
-                   <select id="carType" class="w-full p-2 border rounded">
-                       <option value="">-- ይምረጡ --</option>
-                       <option value="የቤት መኪና">🚗 የቤት መኪና</option>
-                       <option value="የሥራ መኪና">🚚 የሥራ መኪና</option>
-                       <option value="ከባድ ተሽከርካሪ">🚜 ከባድ ተሽከርካሪ</option>
-                   </select>
-               </div>
-           </div>
-       `;
-       const houseFiltersHTML = `
-           <div class="space-y-3 border-t pt-3">
-               <div>
-                   <label class="block text-sm font-medium text-gray-700 mb-1">🛏️ የመኝታ ክፍል ብዛት</label>
-                   <select id="bedrooms" class="w-full p-2 border rounded">
-                       <option value="">-- ይምረጡ --</option>
-                       <option value="1">1</option><option value="2">2</option><option value="3">3</option>
-                       <option value="4">4</option><option value="5+">5+</option>
-                   </select>
-               </div>
-               <div>
-                   <label class="block text-sm font-medium text-gray-700 mb-1">🛁 የመታጠቢያ ክፍል ብዛት</label>
-                   <select id="bathrooms" class="w-full p-2 border rounded">
-                       <option value="">-- ይምረጡ --</option>
-                       <option value="1">1</option><option value="2">2</option><option value="3">3</option>
-                       <option value="4+">4+</option>
-                   </select>
-               </div>
-               <div class="flex items-center gap-2">
-                   <input type="checkbox" id="parking" class="w-4 h-4 text-blue-600">
-                   <label for="parking" class="text-sm text-gray-700">🚗 ፓርኪንግ አለው</label>
-               </div>
-               <div>
-                   <label class="block text-sm font-medium text-gray-700 mb-1">📊 ሁኔታ</label>
-                   <select id="houseCondition" class="w-full p-2 border rounded">
-                       <option value="">-- ይምረጡ --</option>
-                       <option value="አዲስ">🆕 አዲስ</option>
-                       <option value="ጥሩ">✅ ጥሩ</option>
-                       <option value="እድሳት የሚፈልግ">🔧 እድሳት የሚፈልግ</option>
-                   </select>
-               </div>
-               <div>
-                   <label class="block text-sm font-medium text-gray-700 mb-1">🏠 የቤት አይነት</label>
-                   <select id="houseType" class="w-full p-2 border rounded">
-                       <option value="">-- ይምረጡ --</option>
-                       <option value="ቪላ">🏡 ቪላ</option>
-                       <option value="አፓርታማ">🏢 አፓርታማ</option>
-                       <option value="ኮንዶሚኒየም">🏢 ኮንዶሚኒየም</option>
-                       <option value="ሪል እስቴት">🏢 ሪል እስቴት</option>
-                       <option value="መሬት">🏞️ መሬት/ቦታ</option>
-                   </select>
-               </div>
-           </div>
-       `;
-       function updateFilters() {
-           dynamicFiltersDiv.innerHTML = categorySelect.value === 'መኪና' ? carFiltersHTML : houseFiltersHTML;
-       }
-       categorySelect.addEventListener('change', updateFilters);
-       updateFilters();
-       const photoInput = document.getElementById('photos');
-       const previewDiv = document.getElementById('photoPreviews');
-       let compressedFiles = [];
-       async function compressImage(file) {
-           return new Promise((resolve) => {
-               const reader = new FileReader();
-               reader.onload = (e) => {
-                   const img = new Image();
-                   img.onload = () => {
-                       const canvas = document.createElement('canvas');
-                       let width = img.width;
-                       let height = img.height;
-                       const maxDim = 1200;
-                       if (width > maxDim || height > maxDim) {
-                           if (width > height) { height = (height / width) * maxDim; width = maxDim; }
-                           else { width = (width / height) * maxDim; height = maxDim; }
-                       }
-                       canvas.width = width;
-                       canvas.height = height;
-                       const ctx = canvas.getContext('2d');
-                       ctx.drawImage(img, 0, 0, width, height);
-                       canvas.toBlob((blob) => {
-                           resolve(new File([blob], file.name, { type: 'image/jpeg', lastModified: Date.now() }));
-                       }, 'image/jpeg', 0.7);
-                   };
-                   img.src = e.target.result;
-               };
-               reader.readAsDataURL(file);
-           });
-       }
-       function renderPreviews() {
-           previewDiv.innerHTML = '';
-           compressedFiles.forEach((file, index) => {
-               const reader = new FileReader();
-               reader.onload = (e) => {
-                   const wrapper = document.createElement('div');
-                   wrapper.className = 'image-preview-wrapper';
-                   const img = document.createElement('img');
-                   img.src = e.target.result;
-                   img.className = 'image-preview';
-                   const removeBtn = document.createElement('button');
-                   removeBtn.className = 'remove-btn';
-                   removeBtn.innerHTML = '×';
-                   removeBtn.type = 'button';
-                   removeBtn.onclick = () => {
-                       compressedFiles.splice(index, 1);
-                       renderPreviews();
-                   };
-                   wrapper.appendChild(img);
-                   wrapper.appendChild(removeBtn);
-                   previewDiv.appendChild(wrapper);
-               };
-               reader.readAsDataURL(file);
-           });
-       }
-       photoInput.addEventListener('change', async () => {
-           const newFiles = Array.from(photoInput.files);
-           if (newFiles.length === 0) return;
-           for (const file of newFiles) {
-               if (compressedFiles.length >= 5) break;
-               const compressed = await compressImage(file);
-               compressedFiles.push(compressed);
-           }
-           photoInput.value = '';
-           renderPreviews();
-       });
-       document.getElementById('cancelBtn').addEventListener('click', () => {
-           if (confirm('እርግጠኛ ነዎት? ሁሉም ያስገቡት መረጃ ይጠፋል።')) {
-               tg.close();
-           }
-       });
-       document.getElementById('listingForm').onsubmit = async (e) => {
-           e.preventDefault();
-           const btn = document.getElementById('submitBtn');
-           const status = document.getElementById('statusMsg');
-           btn.disabled = true;
-           btn.innerText = "እየተላከ ነው...";
-           status.classList.add('hidden');
-           const isCar = categorySelect.value === 'መኪና';
-           const extraData = isCar ? {
-               fuel_type: document.getElementById('fuelType')?.value || '',
-               transmission: document.getElementById('transmission')?.value || '',
-               mileage: document.getElementById('mileage')?.value || '',
-               condition: document.getElementById('condition')?.value || '',
-               car_type: document.getElementById('carType')?.value || '',
-           } : {
-               bedrooms: document.getElementById('bedrooms')?.value || '',
-               bathrooms: document.getElementById('bathrooms')?.value || '',
-               parking: document.getElementById('parking')?.checked ? 'አለ' : 'የለም',
-               condition: document.getElementById('houseCondition')?.value || '',
-               house_type: document.getElementById('houseType')?.value || '',
-           };
-           const data = {
-               user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "unknown",
-               category: categorySelect.value,
-               price: document.getElementById('price').value,
-               negotiable: document.getElementById('negotiable').checked,
-               urgent_sale: document.getElementById('urgentSale').checked,
-               description: document.getElementById('description').value,
-               phone: document.getElementById('phone').value,
-               telegram_user: document.getElementById('telegramUser').value || '',
-               ...extraData
-           };
-           try {
-               if (compressedFiles.length > 0) {
-                   const photoPromises = compressedFiles.map(f => {
-                       return new Promise((resolve) => {
-                           const reader = new FileReader();
-                           reader.onload = (ev) => resolve(ev.target.result);
-                           reader.readAsDataURL(f);
-                       });
-                   });
-                   data.photos = await Promise.all(photoPromises);
-               }
-               const res = await fetch('/api/submit-listing', {
-                   method: 'POST',
-                   headers: {'Content-Type': 'application/json'},
-                   body: JSON.stringify(data)
-               });
-               const result = await res.json();
-               if (result.status === "success") {
-                   status.innerHTML = `
-                       <div class="text-green-600 font-medium">
-                           ✅ ማስታወቂያዎ በስኬት ተመዝግቧል!<br>
-                           🆔 ቁጥር፦ <b>#ADK-${result.req_id}</b><br><br>
-                           📬 ለሁሉም ደላሎች ተልኳል።<br>
-                           🗑️ ማስታወቂያውን ማጥፋት ከፈለጉ<br>
-                           ከገበያ ቦታ ገብተው <b>አጥፋ</b> ቁልፍን ይጫኑ።
-                       </div>
-                   `;
-                   status.classList.remove('hidden');
-                   document.getElementById('listingForm').classList.add('hidden');
-                   setTimeout(() => tg.close(), 4000);
-               } else {
-                   status.innerText = "❌ " + (result.message || "ስህተት ተከስቷል");
-                   status.classList.remove('hidden');
-                   status.classList.add('text-red-600');
-                   btn.disabled = false;
-                   btn.innerText = "✅ አረጋግጥና ለጥፍ";
-               }
-           } catch (err) {
-               status.innerText = "❌ የኔትወርክ ስህተት። እንደገና ይሞክሩ።";
-               status.classList.remove('hidden');
-               status.classList.add('text-red-600');
-               btn.disabled = false;
-               btn.innerText = "✅ አረጋግጥና ለጥፍ";
-           }
-       };
-   </script>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+    const tg = window.Telegram.WebApp;
+    tg.expand(); tg.ready();
+    tg.setHeaderColor('#1e40af'); tg.setBackgroundColor('#f8fafc');
+
+    const user = tg.initDataUnsafe?.user || {};
+    const autoUsername = user.username ? '@' + user.username : '';
+    const autoPhone = user.phone_number || '';
+
+    function formatPrice(val) {
+      const digits = String(val).replace(/[^\d]/g, '');
+      if (!digits) return '';
+      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+    function parsePrice(val) {
+      return String(val).replace(/[^\d]/g, '');
+    }
+
+    function Chip({ label, active, onClick, danger }) {
+      return (
+        <button type="button" onClick={onClick}
+          className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-all ${
+            active
+              ? (danger ? 'bg-red-500 text-white font-bold shadow-sm' : 'chip-active')
+              : 'chip-idle'
+          }`}>
+          {label}
+        </button>
+      );
+    }
+
+    function ToggleCard({ active, onToggle, icon, label, danger }) {
+      return (
+        <button type="button" onClick={onToggle}
+          className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
+            active
+              ? (danger ? 'bg-red-50 border-red-200 text-red-700' : 'bg-blue-50 border-blue-200 text-blue-700')
+              : 'bg-gray-50 border-gray-200 text-gray-600'
+          }`}>
+          <div className={`w-10 h-6 rounded-full relative transition-colors ${active ? (danger ? 'bg-red-500' : 'bg-blue-600') : 'bg-gray-300'}`}>
+            <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+          </div>
+          <span className="text-sm font-medium">{icon} {label}</span>
+        </button>
+      );
+    }
+
+    function SellerForm() {
+      const [step, setStep] = useState(1);
+      const [category, setCategory] = useState('መኪና');
+      // car fields
+      const [fuel, setFuel] = useState('');
+      const [transmission, setTransmission] = useState('');
+      const [mileage, setMileage] = useState('');
+      const [condition, setCondition] = useState('');
+      const [carType, setCarType] = useState('');
+      // house fields
+      const [bedrooms, setBedrooms] = useState('');
+      const [bathrooms, setBathrooms] = useState('');
+      const [parking, setParking] = useState(false);
+      const [houseCondition, setHouseCondition] = useState('');
+      const [houseType, setHouseType] = useState('');
+      // common
+      const [price, setPrice] = useState('');
+      const [negotiable, setNegotiable] = useState(true);
+      const [urgent, setUrgent] = useState(false);
+      const [description, setDescription] = useState('');
+      const [phone, setPhone] = useState(autoPhone);
+      const [telegramUser, setTelegramUser] = useState(autoUsername);
+      const [photos, setPhotos] = useState([]); // data URLs
+      const [status, setStatus] = useState('');
+      const [submitting, setSubmitting] = useState(false);
+      const fileRef = useRef(null);
+      const [dragOver, setDragOver] = useState(false);
+
+      const compressImage = (file) => new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let w = img.width, h = img.height;
+            const max = 1200;
+            if (w > max || h > max) {
+              if (w > h) { h = (h / w) * max; w = max; }
+              else { w = (w / h) * max; h = max; }
+            }
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL('image/jpeg', 0.7));
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+
+      const addFiles = async (fileList) => {
+        const files = Array.from(fileList || []).slice(0, 5 - photos.length);
+        for (const f of files) {
+          if (!f.type.startsWith('image/')) continue;
+          const dataUrl = await compressImage(f);
+          setPhotos(prev => prev.length < 5 ? [...prev, dataUrl] : prev);
+        }
+      };
+
+      const removePhoto = (i) => setPhotos(prev => prev.filter((_, idx) => idx !== i));
+
+      const canNext1 = category && (category === 'መኪና' ? (carType || condition) : (houseType || houseCondition));
+      const canNext2 = parsePrice(price).length > 0;
+      const canSubmit = phone && description;
+
+      const submit = async () => {
+        if (!canSubmit || submitting) return;
+        setSubmitting(true);
+        setStatus('');
+        const isCar = category === 'መኪና';
+        const data = {
+          user_id: user.id || 'unknown',
+          category,
+          price: parsePrice(price),
+          negotiable,
+          urgent_sale: urgent,
+          description,
+          phone,
+          telegram_user: telegramUser,
+          photos,
+          ...(isCar ? {
+            fuel_type: fuel, transmission, mileage, condition, car_type: carType
+          } : {
+            bedrooms, bathrooms,
+            parking: parking ? 'አለ' : 'የለም',
+            condition: houseCondition, house_type: houseType
+          })
+        };
+        try {
+          const res = await fetch('/api/submit-listing', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(data)
+          });
+          const result = await res.json();
+          if (result.status === 'success') {
+            setStatus('ok');
+            setTimeout(() => tg.close(), 2800);
+          } else {
+            setStatus(result.message || 'ስህተት');
+            setSubmitting(false);
+          }
+        } catch (e) {
+          setStatus('የኔትወርክ ስህተት');
+          setSubmitting(false);
+        }
+      };
+
+      const steps = ['መረጃ', 'ዋጋና ፎቶ', 'አድራሻ'];
+
+      if (status === 'ok') {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-6">
+            <div className="text-center space-y-3">
+              <div className="text-5xl">✅</div>
+              <p className="font-bold text-lg text-green-700">ማስታወቂያዎ ተመዝግቧል!</p>
+              <p className="text-sm text-gray-500">ለደላሎች ተልኳል…</p>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen pb-28">
+          {/* Progress */}
+          <div className="sticky top-0 z-20 bg-white/90 backdrop-blur border-b px-4 pt-3 pb-2">
+            <h1 className="text-center font-bold text-sm text-gray-800 mb-2">ንብረት ለገበያ ያቅርቡ</h1>
+            <div className="flex items-center gap-1">
+              {steps.map((s, i) => (
+                <React.Fragment key={s}>
+                  <div className={`flex-1 text-center`}>
+                    <div className={`mx-auto w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                      step > i+1 ? 'bg-blue-600 text-white' : step === i+1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-500'
+                    }`}>{i+1}</div>
+                    <div className={`text-[10px] mt-0.5 ${step===i+1 ? 'text-blue-600 font-bold' : 'text-gray-400'}`}>{s}</div>
+                  </div>
+                  {i < 2 && <div className={`h-0.5 flex-1 mb-3 ${step > i+1 ? 'bg-blue-600' : 'bg-gray-200'}`} />}
+                </React.Fragment>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-4 space-y-4">
+            {/* STEP 1 */}
+            {step === 1 && (
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">📦 ዋና ምድብ</label>
+                  <div className="flex gap-2">
+                    <Chip label="🚗 መኪና" active={category==='መኪና'} onClick={() => setCategory('መኪና')} />
+                    <Chip label="🏠 ቤት" active={category==='ቤት'} onClick={() => setCategory('ቤት')} />
+                  </div>
+                </div>
+
+                {category === 'መኪና' ? (
+                  <>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1.5 block">🚗 አይነት</label>
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {['የቤት መኪና','የሥራ መኪና','ከባድ ተሽከርካሪ'].map(t =>
+                          <Chip key={t} label={t} active={carType===t} onClick={() => setCarType(t)} />
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1.5 block">⛽ ነዳጅ</label>
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {['ቤንዚን','ናፍጣ','ኤሌክትሪክ','ሀይብሪድ'].map(t =>
+                          <Chip key={t} label={t} active={fuel===t} onClick={() => setFuel(t)} />
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1.5 block">⚙️ ማርሽ</label>
+                      <div className="flex gap-2">
+                        {['ማንዋል','ኦቶማቲክ'].map(t =>
+                          <Chip key={t} label={t} active={transmission===t} onClick={() => setTransmission(t)} />
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1.5 block">📊 ሁኔታ</label>
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {['አዲስ','ያገለገለ','ጥገና የሚፈልግ'].map(t =>
+                          <Chip key={t} label={t} active={condition===t} onClick={() => setCondition(t)} />
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1.5 block">🛣️ ኪሎሜትር (KM)</label>
+                      <input type="number" value={mileage} onChange={e => setMileage(e.target.value)}
+                        placeholder="ለምሳሌ 50000"
+                        className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm" />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1.5 block">🏠 አይነት</label>
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {['ቪላ','አፓርታማ','ኮንዶሚኒየም','ሪል እስቴት','መሬት'].map(t =>
+                          <Chip key={t} label={t} active={houseType===t} onClick={() => setHouseType(t)} />
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1.5 block">🛏️ መኝታ</label>
+                      <div className="flex gap-2">
+                        {['1','2','3','4','5+'].map(t =>
+                          <Chip key={t} label={t} active={bedrooms===t} onClick={() => setBedrooms(t)} />
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1.5 block">🛁 መታጠቢያ</label>
+                      <div className="flex gap-2">
+                        {['1','2','3','4+'].map(t =>
+                          <Chip key={t} label={t} active={bathrooms===t} onClick={() => setBathrooms(t)} />
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 mb-1.5 block">📊 ሁኔታ</label>
+                      <div className="flex gap-2 overflow-x-auto pb-1">
+                        {['አዲስ','ጥሩ','እድሳት የሚፈልግ'].map(t =>
+                          <Chip key={t} label={t} active={houseCondition===t} onClick={() => setHouseCondition(t)} />
+                        )}
+                      </div>
+                    </div>
+                    <ToggleCard active={parking} onToggle={() => setParking(!parking)} icon="🚗" label="ፓርኪንግ አለው" />
+                  </>
+                )}
+
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">📝 መግለጫ</label>
+                  <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
+                    placeholder="የንብረቱን ሙሉ ዝርዝር ያስገቡ..."
+                    className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm resize-none" />
+                </div>
+              </div>
+            )}
+
+            {/* STEP 2 */}
+            {step === 2 && (
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">💰 ዋጋ (ብር)</label>
+                  <div className="relative">
+                    <input type="text" inputMode="numeric" value={price}
+                      onChange={e => setPrice(formatPrice(e.target.value))}
+                      placeholder="2,500,000"
+                      className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm font-semibold" />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">ETB</span>
+                  </div>
+                </div>
+                <ToggleCard active={negotiable} onToggle={() => setNegotiable(!negotiable)} icon="💰" label="ዋጋው የሚደራደር ነው" />
+                <ToggleCard active={urgent} onToggle={() => setUrgent(!urgent)} icon="⚡" label="አስቸኳይ ሽያጭ" danger />
+
+                {/* Drag-drop photos */}
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">📸 ፎቶዎች (እስከ 5)</label>
+                  <div
+                    onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={e => { e.preventDefault(); setDragOver(false); addFiles(e.dataTransfer.files); }}
+                    onClick={() => fileRef.current?.click()}
+                    className={`border-2 border-dashed rounded-2xl p-5 text-center cursor-pointer transition-colors ${
+                      dragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-200 bg-gray-50/50'
+                    }`}>
+                    <div className="text-3xl mb-1">📷</div>
+                    <p className="text-xs text-gray-500">ፎቶዎችን እዚህ ይስቀሉ (እስከ 5)</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">ወይም ይጫኑ ለመምረጥ</p>
+                    <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
+                      onChange={e => { addFiles(e.target.files); e.target.value=''; }} />
+                  </div>
+                  {photos.length > 0 && (
+                    <div className="grid grid-cols-3 gap-2 mt-3">
+                      {photos.map((src, i) => (
+                        <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-gray-100">
+                          <img src={src} className="w-full h-full object-cover" alt="" />
+                          <button type="button" onClick={(e) => { e.stopPropagation(); removePhoto(i); }}
+                            className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-500 text-white text-xs flex items-center justify-center shadow">×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* STEP 3 */}
+            {step === 3 && (
+              <div className="space-y-4">
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">📞 ስልክ ቁጥር</label>
+                  <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+                    placeholder="0911223344"
+                    className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">📱 Telegram Username</label>
+                  <input type="text" value={telegramUser} onChange={e => setTelegramUser(e.target.value)}
+                    placeholder="@username"
+                    className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
+                </div>
+                {status && status !== 'ok' && (
+                  <p className="text-sm text-red-600 text-center">{status}</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Bottom actions */}
+          <div className="fixed bottom-0 left-0 right-0 p-3 bg-white/95 backdrop-blur border-t flex gap-2">
+            {step > 1 ? (
+              <button type="button" onClick={() => setStep(s => s-1)}
+                className="w-1/3 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm">ተመለስ</button>
+            ) : (
+              <button type="button" onClick={() => tg.close()}
+                className="w-1/3 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm">❌ ሰርዝ</button>
+            )}
+            {step < 3 ? (
+              <button type="button" onClick={() => setStep(s => s+1)}
+                disabled={step===1 ? !canNext1 : !canNext2}
+                className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold text-sm disabled:opacity-40">
+                ቀጣይ →
+              </button>
+            ) : (
+              <button type="button" onClick={submit} disabled={!canSubmit || submitting}
+                className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold text-sm disabled:opacity-40 flex items-center justify-center gap-1">
+                {submitting ? 'እየተላከ...' : '🚀 መዝግብ'}
+              </button>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<SellerForm />);
+  </script>
 </body>
 </html>
 """
 
-BUYER_FORM_HTML = """
+
+BUYER_FORM_HTML = r"""
 <!DOCTYPE html>
-<html>
+<html lang="am">
 <head>
-   <meta charset="UTF-8">
-   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-   <script src="https://cdn.tailwindcss.com"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ጥያቄ ያስገቡ</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { margin:0; background:#f8fafc; font-family:system-ui,-apple-system,sans-serif; -webkit-tap-highlight-color:transparent; }
+    .chip-active { background:#2563eb; color:#fff; font-weight:700; box-shadow:0 1px 3px rgba(37,99,235,.3); }
+    .chip-idle { background:#f3f4f6; color:#4b5563; border:1px solid #e5e7eb; }
+    input, textarea { font-size: 16px !important; }
+  </style>
 </head>
-<body class="bg-gray-100 p-4">
-   <div class="max-w-md mx-auto bg-white p-6 rounded-xl shadow-md">
-       <h2 class="text-xl font-bold mb-4 text-center">የሚፈልጉትን ንብረት ይግለጹ</h2>
-       <form id="buyerForm" class="space-y-4">
-           <div>
-               <label class="block text-sm font-medium text-gray-700 mb-1">📦 ምድብ</label>
-               <select id="category" class="w-full p-2 border rounded">
-                   <option value="መኪና">🚗 መኪና</option>
-                   <option value="ቤት">🏠 ቤት</option>
-               </select>
-           </div>
-           <div>
-               <label class="block text-sm font-medium text-gray-700 mb-1">💰 የበጀት ክልል (በብር)</label>
-               <div class="flex gap-2">
-                   <input type="number" id="budgetMin" placeholder="ከ" class="w-1/2 p-2 border rounded">
-                   <input type="number" id="budgetMax" placeholder="እስከ" class="w-1/2 p-2 border rounded">
-               </div>
-           </div>
-           <div class="flex items-center gap-2 bg-blue-50 p-3 rounded-lg border border-blue-200">
-               <input type="checkbox" id="createAlert" class="w-4 h-4 text-blue-600">
-               <label for="createAlert" class="text-sm font-medium text-blue-700">🔔 ተመሳሳይ ንብረት ሲለቀቅ ማሳወቂያ ይድረሰኝ</label>
-           </div>
-           <textarea id="details" placeholder="ዝርዝር ፍላጎትዎን ያስገቡ..." class="w-full p-2 border rounded h-24" required></textarea>
-           <input type="tel" id="phone" placeholder="ስልክ ቁጥር" class="w-full p-2 border rounded" required>
-           <input type="text" id="telegramUser" placeholder="Telegram Username (አማራጭ)" class="w-full p-2 border rounded">
-           <div class="flex gap-3 pt-4">
-               <button type="submit" id="submitBtn" class="flex-1 bg-green-600 text-white p-3 rounded font-bold hover:bg-green-700 transition">✅ ጥያቄውን ይላኩ</button>
-               <button type="button" id="cancelBtn" class="flex-1 bg-gray-400 text-white p-3 rounded font-bold hover:bg-gray-500 transition">❌ ሰርዝ</button>
-           </div>
-       </form>
-       <p id="statusMsg" class="text-center mt-4 text-sm hidden"></p>
-   </div>
-   <script>
-       let tg = window.Telegram.WebApp;
-       tg.expand();
-       tg.ready();
-       document.getElementById('cancelBtn').addEventListener('click', () => tg.close());
-       document.getElementById('buyerForm').onsubmit = async (e) => {
-           e.preventDefault();
-           const btn = document.getElementById('submitBtn');
-           const status = document.getElementById('statusMsg');
-           btn.disabled = true;
-           btn.innerText = "እየተላከ ነው...";
-           status.classList.add('hidden');
-           const data = {
-               user_id: tg.initDataUnsafe.user ? tg.initDataUnsafe.user.id : "unknown",
-               category: document.getElementById('category').value,
-               budget_min: document.getElementById('budgetMin').value,
-               budget_max: document.getElementById('budgetMax').value,
-               create_alert: document.getElementById('createAlert').checked,
-               details: document.getElementById('details').value,
-               phone: document.getElementById('phone').value,
-               telegram_user: document.getElementById('telegramUser').value || ''
-           };
-           try {
-               const res = await fetch('/api/submit-request', {
-                   method: 'POST',
-                   headers: {'Content-Type': 'application/json'},
-                   body: JSON.stringify(data)
-               });
-               const result = await res.json();
-               if (result.status === "success") {
-                   status.innerHTML = `<span class="text-green-600">✅ ጥያቄዎ ተመዝግቧል!</span><br>🆔 ቁጥር፦ <b>#ADK-${result.req_id}</b>`;
-                   status.classList.remove('hidden');
-                   setTimeout(() => tg.close(), 2000);
-               } else {
-                   status.innerText = "❌ " + (result.message || "ስህተት ተከስቷል");
-                   status.classList.remove('hidden');
-                   status.classList.add('text-red-600');
-                   btn.disabled = false;
-                   btn.innerText = "✅ ጥያቄውን ይላኩ";
-               }
-           } catch (err) {
-               status.innerText = "❌ የኔትወርክ ስህተት።";
-               status.classList.remove('hidden');
-               status.classList.add('text-red-600');
-               btn.disabled = false;
-               btn.innerText = "✅ ጥያቄውን ይላኩ";
-           }
-       };
-   </script>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState } = React;
+    const tg = window.Telegram.WebApp;
+    tg.expand(); tg.ready();
+    tg.setHeaderColor('#1e40af'); tg.setBackgroundColor('#f8fafc');
+
+    const user = tg.initDataUnsafe?.user || {};
+    const autoUsername = user.username ? '@' + user.username : '';
+    const autoPhone = user.phone_number || '';
+
+    function formatPrice(val) {
+      const digits = String(val).replace(/[^\d]/g, '');
+      if (!digits) return '';
+      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+    function parsePrice(val) {
+      return String(val).replace(/[^\d]/g, '');
+    }
+
+    function Chip({ label, active, onClick }) {
+      return (
+        <button type="button" onClick={onClick}
+          className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-all ${active ? 'chip-active' : 'chip-idle'}`}>
+          {label}
+        </button>
+      );
+    }
+
+    function BuyerForm() {
+      const [category, setCategory] = useState('መኪና');
+      const [budgetMin, setBudgetMin] = useState('');
+      const [budgetMax, setBudgetMax] = useState('');
+      const [createAlert, setCreateAlert] = useState(false);
+      const [details, setDetails] = useState('');
+      const [phone, setPhone] = useState(autoPhone);
+      const [telegramUser, setTelegramUser] = useState(autoUsername);
+      const [status, setStatus] = useState('');
+      const [submitting, setSubmitting] = useState(false);
+
+      const submit = async () => {
+        if (!phone || !details || submitting) return;
+        setSubmitting(true);
+        setStatus('');
+        const data = {
+          user_id: user.id || 'unknown',
+          category,
+          budget_min: parsePrice(budgetMin),
+          budget_max: parsePrice(budgetMax),
+          create_alert: createAlert,
+          details,
+          phone,
+          telegram_user: telegramUser
+        };
+        try {
+          const res = await fetch('/api/submit-request', {
+            method: 'POST', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify(data)
+          });
+          const result = await res.json();
+          if (result.status === 'success') {
+            setStatus('ok');
+            setTimeout(() => tg.close(), 2200);
+          } else {
+            setStatus(result.message || 'ስህተት');
+            setSubmitting(false);
+          }
+        } catch (e) {
+          setStatus('የኔትወርክ ስህተት');
+          setSubmitting(false);
+        }
+      };
+
+      if (status === 'ok') {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-6">
+            <div className="text-center space-y-3">
+              <div className="text-5xl">✅</div>
+              <p className="font-bold text-lg text-green-700">ጥያቄዎ ተመዝግቧል!</p>
+              <p className="text-sm text-gray-500">አቅራቢዎች መልስ ይሰጡዎታል…</p>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen pb-28">
+          <div className="sticky top-0 z-20 bg-white/90 backdrop-blur border-b px-4 py-3">
+            <h1 className="text-center font-bold text-sm text-gray-800">የሚፈልጉትን ንብረት ይግለጹ</h1>
+          </div>
+
+          <div className="p-4 space-y-4">
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">📦 ምድብ</label>
+              <div className="flex gap-2">
+                <Chip label="🚗 መኪና" active={category==='መኪና'} onClick={() => setCategory('መኪና')} />
+                <Chip label="🏠 ቤት" active={category==='ቤት'} onClick={() => setCategory('ቤት')} />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">💰 የበጀት ክልል (ብር)</label>
+              <div className="flex gap-2 items-center">
+                <div className="flex-1 relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">ከ</span>
+                  <input type="text" inputMode="numeric" value={budgetMin}
+                    onChange={e => setBudgetMin(formatPrice(e.target.value))}
+                    placeholder="500,000"
+                    className="w-full pl-8 pr-2 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
+                </div>
+                <span className="text-gray-300">—</span>
+                <div className="flex-1 relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[10px] text-gray-400">እስከ</span>
+                  <input type="text" inputMode="numeric" value={budgetMax}
+                    onChange={e => setBudgetMax(formatPrice(e.target.value))}
+                    placeholder="2,000,000"
+                    className="w-full pl-10 pr-2 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
+                </div>
+              </div>
+            </div>
+
+            {/* Notification preference card – correct Amharic */}
+            <button type="button" onClick={() => setCreateAlert(!createAlert)}
+              className={`w-full flex items-center gap-3 p-3.5 rounded-xl border transition-all text-left ${
+                createAlert ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-600'
+              }`}>
+              <div className={`w-10 h-6 rounded-full relative transition-colors shrink-0 ${createAlert ? 'bg-blue-600' : 'bg-gray-300'}`}>
+                <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${createAlert ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              </div>
+              <span className="text-sm font-medium leading-snug">🔔 ተመሳሳይ ንብረት ሲለቀቅ ማሳወቂያ ይድረሰኝ</span>
+            </button>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">📝 ዝርዝር ፍላጎት</label>
+              <textarea value={details} onChange={e => setDetails(e.target.value)} rows={4}
+                placeholder="ለምሳሌ፦ ቶዮታ ቪትዝ 2020፣ ነጭ፣ ኦቶማቲክ..."
+                className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm resize-none" />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">📞 ስልክ ቁጥር</label>
+              <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
+                placeholder="0911223344"
+                className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">📱 Telegram Username</label>
+              <input type="text" value={telegramUser} onChange={e => setTelegramUser(e.target.value)}
+                placeholder="@username"
+                className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
+            </div>
+
+            {status && status !== 'ok' && (
+              <p className="text-sm text-red-600 text-center">{status}</p>
+            )}
+          </div>
+
+          <div className="fixed bottom-0 left-0 right-0 p-3 bg-white/95 backdrop-blur border-t flex gap-2">
+            <button type="button" onClick={() => tg.close()}
+              className="w-1/3 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm">❌ ሰርዝ</button>
+            <button type="button" onClick={submit} disabled={!phone || !details || submitting}
+              className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold text-sm disabled:opacity-40 flex items-center justify-center gap-1">
+              {submitting ? 'እየተላከ...' : '📨 ጥያቄውን ላክ'}
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<BuyerForm />);
+  </script>
 </body>
 </html>
 """
+
+
 
 @web_app.route('/')
 def home():
@@ -745,9 +948,9 @@ EXPLORER_HTML = r"""
         <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center modal-enter" onClick={onClose}>
           <div className="bg-white w-full max-w-md max-h-[92vh] rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
             {/* Image carousel */}
-            <div className="relative aspect-4-3 bg-gray-100 shrink-0">
+            <div className="relative aspect-4-3 bg-gray-900/5 shrink-0 flex items-center justify-center overflow-hidden border-b border-black/[0.06]">
               {photos.length > 0 ? (
-                <img src={photos[photoIdx]} className="w-full h-full object-cover" alt=""
+                <img src={photos[photoIdx]} className="max-w-full max-h-full w-full h-full object-contain" alt=""
                   onError={e => e.target.style.display='none'} />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-5xl">
@@ -797,10 +1000,10 @@ EXPLORER_HTML = r"""
               {!isSold && (
                 <div className="flex gap-2 pt-1">
                   <a href={item.phone ? `tel:${String(item.phone).replace(/\s+/g,'')}` : '#'}
-                    className="flex-1 py-3 rounded-xl bg-emerald-600 text-white text-sm font-bold text-center">📞 ደውል</a>
+                    className="flex-1 py-3 rounded-xl bg-blue-500/15 text-blue-700 border border-blue-500/30 text-sm font-bold text-center">📞 ደውል</a>
                   {extra.telegram_user && (
                     <a href={`https://t.me/${String(extra.telegram_user).replace('@','')}`} target="_blank" rel="noreferrer"
-                      className="flex-1 py-3 rounded-xl bg-blue-500 text-white text-sm font-bold text-center">💬 ቻት</a>
+                      className="flex-1 py-3 rounded-xl bg-blue-500/15 text-blue-700 border border-blue-500/30 text-sm font-bold text-center">💬 ቻት</a>
                   )}
                 </div>
               )}
@@ -892,7 +1095,7 @@ EXPLORER_HTML = r"""
 
       return (
         <div ref={cardRef}
-          className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow overflow-hidden relative active:scale-[0.98]">
+          className="bg-white rounded-2xl border border-black/[0.08] shadow-sm hover:shadow-md transition-shadow overflow-hidden relative active:scale-[0.98]">
           {/* Photo – opens modal */}
           <div className="relative aspect-4-3 bg-gradient-to-br from-slate-50 to-blue-50 cursor-pointer" onClick={() => onOpen(item)}>
             {photos.length > 0 ? (
@@ -951,14 +1154,14 @@ EXPLORER_HTML = r"""
             <div className="flex gap-1.5 pt-0.5">
               <a href={!isSold && item.phone ? `tel:${String(item.phone).replace(/\s+/g,'')}` : undefined}
                 onClick={e => { if (isSold || !item.phone) e.preventDefault(); }}
-                className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-emerald-600 text-white'}`}>
+                className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-500/15 text-blue-700 border border-blue-500/30'}`}>
                 📞 ደውል
               </a>
               {extra.telegram_user ? (
                 <a href={!isSold ? `https://t.me/${String(extra.telegram_user).replace('@','')}` : undefined}
                   target="_blank" rel="noreferrer"
                   onClick={e => { if (isSold) e.preventDefault(); }}
-                  className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-500 text-white'}`}>
+                  className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-500/15 text-blue-700 border border-blue-500/30'}`}>
                   💬 ቻት
                 </a>
               ) : null}
