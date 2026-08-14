@@ -2346,13 +2346,16 @@ def get_matching_alerts(main_category: str, price: str) -> list:
 # 5. CONSTANTS & KEYBOARDS
 # ==============================================================================
 
-MAIN_KEYBOARD = [
-   ["🔍 መግዛት / መከራየት", "📢 መሸጥ / ማከራየት"],
-   ["🛍️ የገበያ ቦታ (Explorer)", "📋 የፈላጊዎች ዝርዝር"],
-   ["👥 የደላሎች/አቅራቢዎች ማውጫ", "📝 እንደ አቅራቢ/ደላላ መመዝገብ"],
-   ["📞 ድጋፍ", "⚙️ የማሳወቂያ ምርጫ"],
-   ["🏠 ዋና ገጽ"]
-]
+from telegram import ReplyKeyboardMarkup
+
+def get_main_keyboard():
+    return ReplyKeyboardMarkup([
+        ["🔍 ለመግዛት / ለመከራየት", "📢 ለመሸጥ / ለማከራየት"],
+        ["🛒 የገበያ ቦታ", "📋 የፈላጊዎች ጥያቄዎች"],
+        ["👥 የደላሎች መድረክ", "✍️ የደላላ/አቅራቢ መመዝገቢያ"],
+        ["⚙️ የማሳወቂያ ማስተካከያ", "📞 እገዛ / Support"],
+        ["🏠 ዋና ገጽ"]
+    ], resize_keyboard=True)
 SUB_CITIES = [
    "ቦሌ", "የካ", "አራዳ", "ልደታ",
    "ቂርቆስ", "አዲስ ከተማ", "ንፋስ ስልክ ላፍቶ",
