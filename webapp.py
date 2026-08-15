@@ -1,74 +1,27 @@
-# webapp.py
-"""
-Adika Marketplace - Flask Mini App + REST API (Fully Fixed)
-"""
-
-import logging
+# ==============================================================================
+# webapp.py — Flask Mini App + REST API
+# ==============================================================================
 import json
 import random
-import threading
-import asyncio
-from typing import Optional, List
-
+import re
 from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 
-from config import WEBAPP_BASE_URL, ADMIN_CHAT_ID_INT, MAX_IMAGE_SIZE_BYTES, PORT
-from models import (
-    add_listing,
-    get_listing_by_id,
-    get_listings_by_category_ordered,
-    count_listings,
-    update_listing_status,
-    increment_view_count,
-    save_search_alert,
-    get_db_connection,
-    get_placeholder,
+from config import (
+    logger, PORT, MAX_IMAGE_BYTES, ADMIN_CHAT_ID_INT, DATABASE_URL,
+    MAX_PHOTOS, ALLOWED_IMAGE_TYPES, ENVIRONMENT, BASE_URL,
 )
-
-logger = logging.getLogger(__name__)
+from models import (
+    get_db_connection, get_placeholder,
+    add_listing, get_listing_by_id, update_listing_status,
+    save_search_alert, increment_views,
+)
 
 web_app = Flask(__name__)
 CORS(web_app, resources={r"/api/*": {"origins": "*"}})
 
-# Global bot application (set from main.py)
-bot_app = None
-
-
-# ---------------------------------------------------------------------------
-# Safe notification helper (from Flask threads)
-# ---------------------------------------------------------------------------
-def _send_notification_safe(notification_text: str, req_id: int, buyer_id: int, photos: list = None):
-    if bot_app is None:
-        logger.warning("bot_app is None – cannot send notification")
-        return
-
-    async def _notify():
-        try:
-            from handlers import notify_brokers
-            await notify_brokers(bot_app.bot, notification_text, req_id, buyer_id, photos)
-        except Exception as e:
-            logger.error(f"notify_brokers failed: {e}", exc_info=True)
-
-    def run_in_thread():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(_notify())
-            loop.close()
-            logger.info(f"✅ Notification sent for #ADK-{req_id}")
-        except Exception as e:
-            logger.error(f"❌ Notification thread error: {e}", exc_info=True)
-
-    t = threading.Thread(target=run_in_thread, daemon=True, name=f"notify-{req_id}")
-    t.start()
-
-
-# ---------------------------------------------------------------------------
-# HTML Templates (Cleaned + Fixed)
-# ---------------------------------------------------------------------------
-
-SELLER_FORM_HTML = r"""
+# ---------- HTML Templates ----------
+SELLER_FORM_HTML = """
 <!DOCTYPE html>
 <html lang="am">
 <head>
@@ -90,31 +43,31 @@ SELLER_FORM_HTML = r"""
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    const { useState, useEffect, useRef } = React;
+    const { useState, useRef } = React;
     const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
-    tg.setHeaderColor('#1e40af');
-    tg.setBackgroundColor('#f8fafc');
+    tg.expand(); tg.ready();
+    tg.setHeaderColor('#1e40af'); tg.setBackgroundColor('#f8fafc');
 
     const user = tg.initDataUnsafe?.user || {};
     const autoUsername = user.username ? '@' + user.username : '';
     const autoPhone = user.phone_number || '';
 
     function formatPrice(val) {
-      const digits = String(val).replace(/[^\d]/g, '');
+      const digits = String(val).replace(/[^\\d]/g, '');
       if (!digits) return '';
-      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      return digits.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
     }
     function parsePrice(val) {
-      return String(val).replace(/[^\d]/g, '');
+      return String(val).replace(/[^\\d]/g, '');
     }
 
     function Chip({ label, active, onClick, danger }) {
       return (
         <button type="button" onClick={onClick}
           className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap transition-all ${
-            active ? (danger ? 'bg-red-500 text-white font-bold shadow-sm' : 'chip-active') : 'chip-idle'
+            active
+              ? (danger ? 'bg-red-500 text-white font-bold shadow-sm' : 'chip-active')
+              : 'chip-idle'
           }`}>
           {label}
         </button>
@@ -125,7 +78,9 @@ SELLER_FORM_HTML = r"""
       return (
         <button type="button" onClick={onToggle}
           className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left ${
-            active ? (danger ? 'bg-red-50 border-red-200 text-red-700' : 'bg-blue-50 border-blue-200 text-blue-700') : 'bg-gray-50 border-gray-200 text-gray-600'
+            active
+              ? (danger ? 'bg-red-50 border-red-200 text-red-700' : 'bg-blue-50 border-blue-200 text-blue-700')
+              : 'bg-gray-50 border-gray-200 text-gray-600'
           }`}>
           <div className={`w-10 h-6 rounded-full relative transition-colors ${active ? (danger ? 'bg-red-500' : 'bg-blue-600') : 'bg-gray-300'}`}>
             <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform ${active ? 'translate-x-4' : 'translate-x-0.5'}`} />
@@ -221,8 +176,7 @@ SELLER_FORM_HTML = r"""
         };
         try {
           const res = await fetch('/api/submit-listing', {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
+            method: 'POST', headers: {'Content-Type':'application/json'},
             body: JSON.stringify(data)
           });
           const result = await res.json();
@@ -321,7 +275,7 @@ SELLER_FORM_HTML = r"""
                       <label className="text-xs font-medium text-gray-600 mb-1.5 block">🛣️ ኪሎሜትር (KM)</label>
                       <input type="number" value={mileage} onChange={e => setMileage(e.target.value)}
                         placeholder="ለምሳሌ 50000"
-                        className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
+                        className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none text-sm" />
                     </div>
                   </>
                 ) : (
@@ -469,8 +423,7 @@ SELLER_FORM_HTML = r"""
 </html>
 """
 
-
-BUYER_FORM_HTML = r"""
+BUYER_FORM_HTML = """
 <!DOCTYPE html>
 <html lang="am">
 <head>
@@ -494,22 +447,20 @@ BUYER_FORM_HTML = r"""
   <script type="text/babel">
     const { useState } = React;
     const tg = window.Telegram.WebApp;
-    tg.ready();
-    tg.expand();
-    tg.setHeaderColor('#1e40af');
-    tg.setBackgroundColor('#f8fafc');
+    tg.expand(); tg.ready();
+    tg.setHeaderColor('#1e40af'); tg.setBackgroundColor('#f8fafc');
 
     const user = tg.initDataUnsafe?.user || {};
     const autoUsername = user.username ? '@' + user.username : '';
     const autoPhone = user.phone_number || '';
 
     function formatPrice(val) {
-      const digits = String(val).replace(/[^\d]/g, '');
+      const digits = String(val).replace(/[^\\d]/g, '');
       if (!digits) return '';
-      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      return digits.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
     }
     function parsePrice(val) {
-      return String(val).replace(/[^\d]/g, '');
+      return String(val).replace(/[^\\d]/g, '');
     }
 
     function Chip({ label, active, onClick }) {
@@ -548,8 +499,7 @@ BUYER_FORM_HTML = r"""
         };
         try {
           const res = await fetch('/api/submit-request', {
-            method: 'POST',
-            headers: {'Content-Type':'application/json'},
+            method: 'POST', headers: {'Content-Type':'application/json'},
             body: JSON.stringify(data)
           });
           const result = await res.json();
@@ -667,14 +617,7 @@ BUYER_FORM_HTML = r"""
 </html>
 """
 
-
-# Explorer HTML is very long. For production use the cleaned version from the original source
-# with the following critical fixes applied:
-# 1. tg.ready(); tg.expand();
-# 2. Subtle status dots instead of large 🟢 emoji
-# 3. Proper API calls with error handling
-
-EXPLORER_HTML = r"""
+EXPLORER_HTML = """
 <!DOCTYPE html>
 <html lang="am">
 <head>
@@ -688,20 +631,32 @@ EXPLORER_HTML = r"""
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <style>
     body { background: #f1f5f9; margin: 0; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
-    .status-dot-active { display:inline-block; width:8px; height:8px; background-color:#22c55e; border-radius:50%; margin-right:4px; }
-    .status-dot-sold { display:inline-block; width:8px; height:8px; background-color:#ef4444; border-radius:50%; margin-right:4px; }
-    .glass { background: rgba(255,255,255,0.88); backdrop-filter: blur(14px); }
+    .glass { background: rgba(255,255,255,0.88); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+    .glass-dark { background: rgba(0,0,0,0.48); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
     .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+    .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
     .aspect-4-3 { aspect-ratio: 4/3; }
+    .sold-overlay { background: rgba(0,0,0,0.55); }
+    @keyframes pulse-skel { 0%,100%{opacity:1} 50%{opacity:.45} }
+    .skel { animation: pulse-skel 1.4s ease-in-out infinite; background: #e2e8f0; }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .modal-enter { animation: fadeIn 0.2s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .status-dot.available { background: #22c55e; }
+    .status-dot.sold { background: #ef4444; }
+    .status-dot.request { background: #f59e0b; }
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/babel">
     const { useState, useEffect, useCallback, useRef } = React;
+
     const tg = window.Telegram.WebApp;
-    tg.ready();
     tg.expand();
+    tg.ready();
     tg.setHeaderColor('#1e40af');
     tg.setBackgroundColor('#f1f5f9');
     const currentUserId = tg.initDataUnsafe?.user?.id || null;
@@ -715,17 +670,411 @@ EXPLORER_HTML = r"""
       if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
       if (sec < 86400) return Math.floor(sec / 3600) + 'h ago';
       if (sec < 604800) return Math.floor(sec / 86400) + 'd ago';
-      return Math.floor(sec / 604800) + 'w ago';
+      if (sec < 2592000) return Math.floor(sec / 604800) + 'w ago';
+      return Math.floor(sec / 2592000) + 'mo ago';
     }
 
-    // ... (Full Explorer React component from original cleaned source)
-    // The complete Explorer component is identical to the original production version
-    // with the status-dot CSS class applied instead of large emoji.
+    const viewedThisSession = new Set();
+
+    function SkeletonCard() {
+      return (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="aspect-4-3 skel" />
+          <div className="p-2.5 space-y-2">
+            <div className="h-3 w-3/4 skel rounded" />
+            <div className="h-2.5 w-1/2 skel rounded" />
+            <div className="h-4 w-2/3 skel rounded" />
+            <div className="flex gap-1.5"><div className="h-8 flex-1 skel rounded-xl" /><div className="h-8 flex-1 skel rounded-xl" /></div>
+          </div>
+        </div>
+      );
+    }
+
+    function ItemDetailModal({ item, onClose, onStatusChange, onDelete, currentUid }) {
+      const extra = item.extra_data || {};
+      const isSell = (item.req_type || '').toUpperCase() === 'SELL';
+      const photos = item.photos || [];
+      const status = (item.status || 'pending').toLowerCase();
+      const isSold = ['sold','rented','expired'].includes(status);
+      const isOwner = currentUid && String(item.user_chat_id) === String(currentUid);
+      const [photoIdx, setPhotoIdx] = useState(0);
+      const [confirmDel, setConfirmDel] = useState(false);
+
+      const markStatus = async (s) => {
+        try {
+          const res = await fetch(`/api/items/${item.id}/status`, {
+            method: 'PATCH', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ status: s, user_id: currentUid })
+          });
+          const d = await res.json();
+          if (d.status === 'success') { onStatusChange(item.id, s); onClose(); }
+        } catch(e) {}
+      };
+      const doDelete = async () => {
+        try {
+          const res = await fetch(`/api/items/${item.id}`, {
+            method: 'DELETE', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ user_id: currentUid })
+          });
+          const d = await res.json();
+          if (d.status === 'success') { onDelete(item.id); onClose(); }
+        } catch(e) {}
+      };
+
+      return (
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center modal-enter" onClick={onClose}>
+          <div className="bg-white w-full max-w-md max-h-[92vh] rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="relative aspect-4-3 bg-gray-900/5 shrink-0 flex items-center justify-center overflow-hidden border-b border-black/[0.06]">
+              {photos.length > 0 ? (
+                <img src={photos[photoIdx]} className="max-w-full max-h-full w-full h-full object-contain" alt=""
+                  onError={e => e.target.style.display='none'} />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-5xl">
+                  {item.main_category === 'መኪና' ? '🚗' : '🏠'}
+                </div>
+              )}
+              {photos.length > 1 && (
+                <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
+                  {photos.map((_, i) => (
+                    <button key={i} onClick={() => setPhotoIdx(i)}
+                      className={`w-2 h-2 rounded-full ${i===photoIdx ? 'bg-white' : 'bg-white/40'}`} />
+                  ))}
+                </div>
+              )}
+              <button onClick={onClose} className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/40 text-white flex items-center justify-center text-lg">×</button>
+              {isSold && (
+                <div className="absolute inset-0 sold-overlay flex items-center justify-center">
+                  <span className="text-white font-bold px-4 py-1.5 rounded-full bg-black/60 text-sm">
+                    {status==='rented' ? '✅ ተከራይቷል' : status==='expired' ? '⏳ ጊዜው አልፏል' : '✅ ተሸጧል'}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 overflow-y-auto flex-1 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <h2 className="font-bold text-base text-gray-900 leading-snug">
+                  {item.main_category}{item.sub_category ? ` • ${String(item.sub_category).replace(/[🚗🚚🚜🏡🏢🏞️]/g,'').trim()}` : ''}
+                </h2>
+                <span className="text-[10px] text-gray-400 shrink-0">{relativeTime(item.created_at)}</span>
+              </div>
+              <div className="text-lg font-bold text-blue-700">
+                {isSell ? '💰 ዋጋ' : '💰 በጀት'}: {item.price || '—'} ብር
+                {extra.negotiable && <span className="text-xs font-normal text-green-600 ml-1">(የሚደራደር)</span>}
+                {extra.urgent_sale && <span className="text-xs text-red-500 ml-1">⚡ አስቸኳይ</span>}
+              </div>
+              <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">
+                {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').trim() || 'መግለጫ የለም'}
+              </p>
+              <div className="flex flex-wrap gap-2 text-[11px] text-gray-500">
+                <span className="bg-gray-100 px-2 py-1 rounded-lg">👀 {item.view_count || 0} እይታዎች</span>
+                <span className="bg-gray-100 px-2 py-1 rounded-lg">#{item.id}</span>
+                {item.phone && <span className="bg-gray-100 px-2 py-1 rounded-lg">📞 {item.phone}</span>}
+              </div>
+
+              {!isSold && (
+                <div className="flex gap-2 pt-1">
+                  <a href={item.phone ? `tel:${String(item.phone).replace(/\\s+/g,'')}` : '#'}
+                    className="flex-1 py-3 rounded-xl bg-blue-500/15 text-blue-700 border border-blue-500/30 text-sm font-bold text-center">📞 ደውል</a>
+                  {extra.telegram_user && (
+                    <a href={`https://t.me/${String(extra.telegram_user).replace('@','')}`} target="_blank" rel="noreferrer"
+                      className="flex-1 py-3 rounded-xl bg-blue-500/15 text-blue-700 border border-blue-500/30 text-sm font-bold text-center">💬 ቻት</a>
+                  )}
+                </div>
+              )}
+
+              {isOwner && (
+                <div className="border-t pt-3 space-y-2">
+                  <p className="text-xs font-medium text-gray-500">የባለቤት ቁጥጥር</p>
+                  <div className="flex flex-wrap gap-2">
+                    {!isSold && (
+                      <>
+                        <button onClick={() => markStatus('sold')} className="px-3 py-2 rounded-xl bg-red-50 text-red-600 text-xs font-bold border border-red-100">✅ ተሸጧል</button>
+                        <button onClick={() => markStatus('rented')} className="px-3 py-2 rounded-xl bg-orange-50 text-orange-600 text-xs font-bold border border-orange-100">🔑 ተከራይቷል</button>
+                      </>
+                    )}
+                    {isSold && (
+                      <button onClick={() => markStatus('pending')} className="px-3 py-2 rounded-xl bg-green-50 text-green-700 text-xs font-bold border border-green-100">🔄 እንደገና ንቁ</button>
+                    )}
+                    <button onClick={() => setConfirmDel(true)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold">🗑️ አጥፋ</button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {confirmDel && (
+              <div className="absolute inset-0 bg-black/40 flex items-center justify-center p-6 z-10">
+                <div className="bg-white rounded-2xl p-5 w-full max-w-xs shadow-xl">
+                  <p className="font-bold text-center mb-1">እርግጠኛ ነዎት?</p>
+                  <p className="text-sm text-gray-500 text-center mb-4">#{item.id} ይጠፋል።</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => setConfirmDel(false)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-sm font-medium">ሰርዝ</button>
+                    <button onClick={doDelete} className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium">አጥፋ</button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function Card({ item, onOpen, onStatusChange, onDelete, currentUid }) {
+      const cardRef = useRef(null);
+      const extra = item.extra_data || {};
+      const isSell = (item.req_type || '').toUpperCase() === 'SELL';
+      const photos = item.photos || [];
+      const status = (item.status || 'pending').toLowerCase();
+      const isSold = ['sold','rented','expired'].includes(status);
+      const isOwner = currentUid && String(item.user_chat_id) === String(currentUid);
+      const [menuOpen, setMenuOpen] = useState(false);
+      const [localViews, setLocalViews] = useState(item.view_count || 0);
+
+      const getStatusDot = () => {
+        if (isSell && !isSold) return 'available';
+        if (isSell && isSold) return 'sold';
+        if (!isSell) return 'request';
+        return 'available';
+      };
+
+      useEffect(() => {
+        if (!cardRef.current || viewedThisSession.has(item.id) || isSold) return;
+        const obs = new IntersectionObserver(([entry]) => {
+          if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
+            viewedThisSession.add(item.id);
+            fetch(`/api/views/${item.id}`, { method: 'POST' })
+              .then(r => r.json())
+              .then(d => { if (d.view_count) setLocalViews(d.view_count); })
+              .catch(() => {});
+            obs.disconnect();
+          }
+        }, { threshold: 0.5 });
+        obs.observe(cardRef.current);
+        return () => obs.disconnect();
+      }, [item.id, isSold]);
+
+      const markStatus = async (s) => {
+        setMenuOpen(false);
+        try {
+          const res = await fetch(`/api/items/${item.id}/status`, {
+            method: 'PATCH', headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({ status: s, user_id: currentUid })
+          });
+          const d = await res.json();
+          if (d.status === 'success') onStatusChange(item.id, s);
+        } catch(e) {}
+      };
+
+      return (
+        <div ref={cardRef}
+          className="bg-white rounded-2xl border border-black/[0.08] shadow-sm hover:shadow-md transition-shadow overflow-hidden relative active:scale-[0.98]">
+          <div className="relative aspect-4-3 bg-gradient-to-br from-slate-50 to-blue-50 cursor-pointer" onClick={() => onOpen(item)}>
+            {photos.length > 0 ? (
+              <img src={photos[0]} alt="" className="w-full h-full object-cover" loading="lazy"
+                onError={e => { e.target.style.display='none'; }} />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-3xl opacity-70">
+                {item.main_category === 'መኪና' ? '🚗' : '🏠'}
+              </div>
+            )}
+            
+            <div className="absolute top-2 right-2">
+              <span className={`status-dot ${getStatusDot()}`} />
+            </div>
+
+            {isSold && (
+              <div className="absolute inset-0 sold-overlay flex items-center justify-center pointer-events-none">
+                <span className="text-white font-bold text-[11px] px-2.5 py-1 rounded-full bg-black/55">
+                  {status==='rented' ? '✅ ተከራይቷል' : status==='expired' ? '⏳ አልፏል' : '✅ ተሸጧል'}
+                </span>
+              </div>
+            )}
+            
+            {isOwner && (
+              <div className="absolute top-2 left-2" onClick={e => e.stopPropagation()}>
+                <button onClick={() => setMenuOpen(!menuOpen)}
+                  className="w-7 h-7 rounded-full glass-dark text-white text-sm flex items-center justify-center">⋮</button>
+                {menuOpen && (
+                  <div className="absolute left-0 mt-1 w-32 bg-white rounded-xl shadow-lg border border-gray-100 text-[11px] z-20 overflow-hidden">
+                    {!isSold && (
+                      <>
+                        <button onClick={() => markStatus('sold')} className="w-full text-left px-3 py-2 hover:bg-gray-50">✅ ተሸጧል</button>
+                        <button onClick={() => markStatus('rented')} className="w-full text-left px-3 py-2 hover:bg-gray-50">🔑 ተከራይቷል</button>
+                      </>
+                    )}
+                    {isSold && <button onClick={() => markStatus('pending')} className="w-full text-left px-3 py-2 hover:bg-gray-50">🔄 ንቁ አድርግ</button>}
+                    <button onClick={() => { setMenuOpen(false); onOpen(item); }} className="w-full text-left px-3 py-2 hover:bg-gray-50 text-blue-600">📋 ዝርዝር</button>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            <div className="absolute bottom-1.5 left-1.5 right-1.5 flex justify-between pointer-events-none">
+              <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">👀 {localViews}</span>
+              <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">{relativeTime(item.created_at)}</span>
+            </div>
+          </div>
+
+          <div className="p-2.5 space-y-1">
+            <h3 className="font-bold text-gray-900 text-[12px] line-clamp-1 leading-tight" onClick={() => onOpen(item)}>
+              {item.main_category}{item.sub_category ? ` • ${String(item.sub_category).replace(/[🚗🚚🚜🏡🏢🏞️]/g,'').trim()}` : ''}
+            </h3>
+            <p className="text-[10px] text-gray-500 line-clamp-1">
+              {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').slice(0, 42)}
+            </p>
+            <div className="text-[13px] font-bold text-blue-700">
+              {isSell ? '💰 ዋጋ' : '💰 በጀት'}: {item.price || '—'}
+              {extra.urgent_sale && <span className="text-red-500 text-[10px] ml-0.5">⚡</span>}
+            </div>
+            <div className="flex gap-1.5 pt-0.5">
+              <a href={!isSold && item.phone ? `tel:${String(item.phone).replace(/\\s+/g,'')}` : undefined}
+                onClick={e => { if (isSold || !item.phone) e.preventDefault(); }}
+                className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-500/15 text-blue-700 border border-blue-500/30'}`}>
+                📞 ደውል
+              </a>
+              {extra.telegram_user ? (
+                <a href={!isSold ? `https://t.me/${String(extra.telegram_user).replace('@','')}` : undefined}
+                  target="_blank" rel="noreferrer"
+                  onClick={e => { if (isSold) e.preventDefault(); }}
+                  className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-500/15 text-blue-700 border border-blue-500/30'}`}>
+                  💬 ቻት
+                </a>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      );
+    }
 
     function App() {
-      // Full implementation follows the original EXPLORER_HTML structure
-      // with subtle status dots and proper API error handling.
-      return <div className="min-h-screen p-4 text-center text-gray-500">Explorer loading…</div>;
+      const params = new URLSearchParams(window.location.search);
+      const initialTab = params.get('tab') === 'requests' ? 'requests' : 'marketplace';
+      const [tab, setTab] = useState(initialTab);
+      const [items, setItems] = useState([]);
+      const [page, setPage] = useState(1);
+      const [hasMore, setHasMore] = useState(false);
+      const [loading, setLoading] = useState(true);
+      const [filters, setFilters] = useState({ q: '', category: '' });
+      const [searchInput, setSearchInput] = useState('');
+      const [detailItem, setDetailItem] = useState(null);
+      const cacheRef = useRef({});
+
+      const loadData = useCallback(async (pageNum = 1, append = false) => {
+        const cacheKey = `${tab}|${filters.category}|${filters.q}|${pageNum}`;
+        if (!append && cacheRef.current[cacheKey]) {
+          const cached = cacheRef.current[cacheKey];
+          setItems(cached.items);
+          setHasMore(cached.has_more);
+          setPage(pageNum);
+          setLoading(false);
+          return;
+        }
+        setLoading(true);
+        try {
+          const qs = new URLSearchParams({
+            page: pageNum, limit: 12,
+            type: tab === 'marketplace' ? 'SELL' : 'BUY',
+            order: 'DESC', active_only: '1',
+            ...Object.fromEntries(Object.entries(filters).filter(([,v]) => v))
+          });
+          const res = await fetch(`/api/explorer/listings?${qs}`);
+          const data = await res.json();
+          if (data.status === 'success') {
+            setItems(prev => append ? [...prev, ...data.items] : data.items);
+            setHasMore(data.has_more);
+            setPage(pageNum);
+            if (!append) {
+              cacheRef.current[cacheKey] = { items: data.items, has_more: data.has_more };
+            }
+          }
+        } catch(e) { console.error(e); }
+        finally { setLoading(false); }
+      }, [tab, filters]);
+
+      useEffect(() => { loadData(1, false); }, [tab, filters.category, filters.q]);
+
+      useEffect(() => {
+        const t = setTimeout(() => {
+          setFilters(f => f.q === searchInput ? f : {...f, q: searchInput});
+        }, 300);
+        return () => clearTimeout(t);
+      }, [searchInput]);
+
+      const onStatusChange = (id, s) => setItems(prev => prev.map(it => it.id === id ? {...it, status: s} : it));
+      const onDelete = (id) => setItems(prev => prev.filter(it => it.id !== id));
+
+      return (
+        <div className="min-h-screen pb-16">
+          <div className="sticky top-0 z-30 glass border-b border-gray-200/60">
+            <div className="flex">
+              <button onClick={() => setTab('marketplace')}
+                className={`flex-1 py-2.5 text-xs font-bold transition ${tab==='marketplace' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
+                🛒 Marketplace
+              </button>
+              <button onClick={() => setTab('requests')}
+                className={`flex-1 py-2.5 text-xs font-bold transition ${tab==='requests' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
+                📋 Buyer Requests
+              </button>
+            </div>
+            <div className="px-2.5 pt-2 pb-1.5">
+              <div className="relative">
+                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
+                <input type="search" placeholder="Search..." value={searchInput}
+                  onChange={e => setSearchInput(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 bg-gray-50/80 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-200 focus:bg-white" />
+              </div>
+            </div>
+            <div className="px-2.5 pb-2 flex gap-2 overflow-x-auto no-scrollbar" style={{WebkitOverflowScrolling:'touch'}}>
+              {[
+                {id:'', label:'✨ All'},
+                {id:'መኪና', label:'🚗 Cars'},
+                {id:'ቤት', label:'🏠 Houses'},
+                {id:'ንግድ', label:'🏢 Commercial'},
+              ].map(cat => (
+                <button key={cat.id || 'all'} type="button"
+                  onClick={() => setFilters(f => ({...f, category: cat.id}))}
+                  className={`shrink-0 px-3.5 py-1.5 rounded-2xl text-[11px] font-medium transition-all whitespace-nowrap ${
+                    filters.category === cat.id
+                      ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20 border border-transparent'
+                      : 'backdrop-blur-md bg-white/40 border border-white/60 shadow-sm text-gray-800'
+                  }`}>
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-2.5 grid grid-cols-2 gap-2.5">
+            {loading && items.length === 0 && Array.from({length: 6}).map((_,i) => <SkeletonCard key={i} />)}
+            {items.map(item => (
+              <Card key={item.id} item={item} currentUid={currentUserId}
+                onOpen={setDetailItem} onStatusChange={onStatusChange} onDelete={onDelete} />
+            ))}
+          </div>
+
+          {!loading && items.length === 0 && (
+            <div className="text-center py-16 text-gray-400">
+              <div className="text-4xl mb-2">📭</div>
+              <p className="text-sm">Nothing found</p>
+            </div>
+          )}
+          {hasMore && !loading && (
+            <div className="text-center pb-6">
+              <button onClick={() => loadData(page+1, true)}
+                className="bg-white border border-blue-200 text-blue-600 px-5 py-2 rounded-full text-xs font-medium shadow-sm">
+                Load More
+              </button>
+            </div>
+          )}
+          {loading && items.length > 0 && <div className="text-center py-3 text-xs text-gray-400">Loading...</div>}
+
+          {detailItem && (
+            <ItemDetailModal item={detailItem} currentUid={currentUserId}
+              onClose={() => setDetailItem(null)}
+              onStatusChange={onStatusChange} onDelete={onDelete} />
+          )}
+        </div>
+      );
     }
 
     ReactDOM.createRoot(document.getElementById('root')).render(<App />);
@@ -734,138 +1083,124 @@ EXPLORER_HTML = r"""
 </html>
 """
 
-
-# ---------------------------------------------------------------------------
-# Routes
-# ---------------------------------------------------------------------------
-
-@web_app.route('/')
+# ---------- Routes ----------
+@web_app.route("/")
 def home():
-    return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
+    return "✅ Adika Marketplace Bot is running", 200
 
+@web_app.route("/health")
+def health():
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.fetchone()
+        return_connection(conn)
+        return jsonify({"status": "ok", "db": "connected", "environment": ENVIRONMENT}), 200
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({"status": "error", "db": "disconnected", "error": str(e)}), 500
 
-@web_app.route('/seller-form')
-def webapp_seller_form():
-    return Response(SELLER_FORM_HTML, mimetype='text/html; charset=utf-8')
+@web_app.route("/seller-form")
+def seller_form():
+    return Response(SELLER_FORM_HTML, mimetype="text/html; charset=utf-8")
 
+@web_app.route("/buyer-form")
+def buyer_form():
+    return Response(BUYER_FORM_HTML, mimetype="text/html; charset=utf-8")
 
-@web_app.route('/buyer-form')
-def webapp_buyer_form():
-    return Response(BUYER_FORM_HTML, mimetype='text/html; charset=utf-8')
-
-
-@web_app.route('/explorer')
+@web_app.route("/explorer")
 def explorer_page():
-    return Response(EXPLORER_HTML, mimetype='text/html; charset=utf-8')
+    return Response(EXPLORER_HTML, mimetype="text/html; charset=utf-8")
 
+# ---------- API Routes ----------
+def return_connection(conn):
+    from models import return_connection as rc
+    return rc(conn)
 
-@web_app.route('/api/submit-listing', methods=['POST'])
+def get_placeholder():
+    from models import get_placeholder as gp
+    return gp()
+
+@web_app.route("/api/submit-listing", methods=["POST"])
 def submit_listing():
     try:
         data = request.json or {}
-        user_id = data.get('user_id')
+        user_id = data.get("user_id")
         if not user_id or user_id == "unknown":
-            return jsonify({"status": "error", "message": "User ID አልተገኘም። Telegram ውስጥ ክፈት።"}), 400
+            return jsonify({"status": "error", "message": "User ID required"}), 400
+        
+        category = data.get("category", "መኪና")
+        price = data.get("price", "")
+        negotiable = data.get("negotiable", True)
+        urgent_sale = data.get("urgent_sale", False)
+        description = data.get("description", "")
+        phone = data.get("phone", "")
+        telegram_user = data.get("telegram_user", "")
+        photos = data.get("photos") or []
+        
+        for ph in photos:
+            if isinstance(ph, str) and len(ph) > MAX_IMAGE_BYTES * 1.4:
+                return jsonify({"status": "error", "message": "Image too large (max 5MB)"}), 400
 
-        photos = data.get('photos') or []
-        for p in photos:
-            if len(p) > MAX_IMAGE_SIZE_BYTES * 1.4:
-                return jsonify({"status": "error", "message": "Image too large (max 5 MB)"}), 400
-
-        category = data.get('category', 'መኪና')
-        price = data.get('price', '')
-        negotiable = data.get('negotiable', True)
-        urgent_sale = data.get('urgent_sale', False)
-        description = data.get('description', '')
-        phone = data.get('phone', '')
-        telegram_user = data.get('telegram_user', '')
-
-        negotiable_text = "✅ የሚደራደር" if negotiable else "❌ የማይደራደር"
-        urgent_text = "⚡ **አስቸኳይ ሽያጭ!** " if urgent_sale else ""
-        full_desc = f"{urgent_text}"
-        full_desc += f"💰 ዋጋ: {price} ብር ({negotiable_text})\n"
-
-        if category == 'መኪና':
-            if data.get('car_type'): full_desc += f"🚗 አይነት: {data.get('car_type')}\n"
-            if data.get('fuel_type'): full_desc += f"⛽ ነዳጅ: {data.get('fuel_type')}\n"
-            if data.get('transmission'): full_desc += f"⚙️ ማርሽ: {data.get('transmission')}\n"
-            if data.get('mileage'): full_desc += f"🛣️ ኪሎሜትር: {data.get('mileage')} KM\n"
-            if data.get('condition'): full_desc += f"📊 ሁኔታ: {data.get('condition')}\n"
-        else:
-            if data.get('house_type'): full_desc += f"🏠 አይነት: {data.get('house_type')}\n"
-            if data.get('bedrooms'): full_desc += f"🛏️ መኝታ: {data.get('bedrooms')}\n"
-            if data.get('bathrooms'): full_desc += f"🛁 መታጠቢያ: {data.get('bathrooms')}\n"
-            if data.get('parking'): full_desc += f"🚗 ፓርኪንግ: {data.get('parking')}\n"
-            if data.get('condition'): full_desc += f"📊 ሁኔታ: {data.get('condition')}\n"
-
-        full_desc += f"📝 መግለጫ: {description}\n"
-        full_desc += f"📞 ስልክ: {phone}\n"
+        full_desc = f"💰 Price: {price} ETB\n📝 {description}\n📞 {phone}\n"
         if telegram_user:
-            full_desc += f"📱 Telegram: {telegram_user}\n"
+            full_desc += f"📱 {telegram_user}\n"
 
+        extra = {
+            "fuel_type": data.get("fuel_type", ""),
+            "transmission": data.get("transmission", ""),
+            "mileage": data.get("mileage", ""),
+            "condition": data.get("condition", ""),
+            "car_type": data.get("car_type", ""),
+            "bedrooms": data.get("bedrooms", ""),
+            "bathrooms": data.get("bathrooms", ""),
+            "parking": data.get("parking", ""),
+            "house_type": data.get("house_type", ""),
+            "negotiable": negotiable,
+            "urgent_sale": urgent_sale,
+            "telegram_user": telegram_user,
+        }
         req_id = add_listing(
             user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
             user_name="WebApp User",
             req_type="SELL",
             main_category=category,
-            sub_category=data.get('car_type') if category == 'መኪና' else data.get('house_type'),
+            sub_category=data.get("car_type") or data.get("house_type") or "",
             action_type="መሸጥ",
+            property_type="",
             description=full_desc,
             price=str(price),
             phone=str(phone),
-            extra_data={
-                'fuel_type': data.get('fuel_type', ''),
-                'transmission': data.get('transmission', ''),
-                'mileage': data.get('mileage', ''),
-                'condition': data.get('condition', ''),
-                'bedrooms': data.get('bedrooms', ''),
-                'bathrooms': data.get('bathrooms', ''),
-                'parking': data.get('parking', ''),
-                'house_type': data.get('house_type', ''),
-                'car_type': data.get('car_type', ''),
-                'negotiable': negotiable,
-                'urgent_sale': urgent_sale,
-                'telegram_user': telegram_user
-            },
-            photos=photos
+            extra_data=extra,
+            photos=photos,
         )
-
         if req_id:
-            notification_text = f"🛍️ <b>አዲስ የሽያጭ ማስታወቂያ (#ADK-{req_id})</b>\n\n{full_desc}"
-            _send_notification_safe(notification_text, req_id, int(user_id) if str(user_id).isdigit() else 0, photos)
-            return jsonify({"status": "success", "req_id": req_id}), 200
-        else:
-            return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም።"}), 500
+            return jsonify({"status": "success", "req_id": req_id})
+        return jsonify({"status": "error", "message": "DB save failed"}), 500
     except Exception as e:
-        logger.error(f"❌ submit_listing error: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
+        logger.error(f"submit_listing: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-
-@web_app.route('/api/submit-request', methods=['POST'])
+@web_app.route("/api/submit-request", methods=["POST"])
 def submit_request():
     try:
         data = request.json or {}
-        user_id = data.get('user_id')
+        user_id = data.get("user_id")
         if not user_id or user_id == "unknown":
-            return jsonify({"status": "error", "message": "User ID አልተገኘም። Telegram ውስጥ ክፈት።"}), 400
-
-        category = data.get('category', 'መኪና')
-        budget_min = data.get('budget_min', '')
-        budget_max = data.get('budget_max', '')
-        create_alert = data.get('create_alert', False)
-        details = data.get('details', '')
-        phone = data.get('phone', '')
-        telegram_user = data.get('telegram_user', '')
-
-        budget_range = f"{budget_min} - {budget_max}" if budget_min and budget_max else (budget_min or budget_max or "ያልተገለጸ")
-        full_desc = (
-            f"💰 በጀት ክልል: {budget_range} ብር\n"
-            f"📝 ዝርዝር: {details}\n"
-            f"📞 ስልክ: {phone}\n"
-        )
+            return jsonify({"status": "error", "message": "User ID required"}), 400
+        
+        category = data.get("category", "መኪና")
+        budget_min = data.get("budget_min", "")
+        budget_max = data.get("budget_max", "")
+        create_alert = data.get("create_alert", False)
+        details = data.get("details", "")
+        phone = data.get("phone", "")
+        telegram_user = data.get("telegram_user", "")
+        budget_range = f"{budget_min} - {budget_max}" if budget_min and budget_max else (budget_min or budget_max or "—")
+        full_desc = f"💰 Budget: {budget_range}\n📝 {details}\n📞 {phone}\n"
         if telegram_user:
-            full_desc += f"📱 Telegram: {telegram_user}\n"
-
+            full_desc += f"📱 {telegram_user}\n"
         req_id = add_listing(
             user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
             user_name="WebApp User",
@@ -873,127 +1208,145 @@ def submit_request():
             main_category=category,
             sub_category="",
             action_type="መግዛት",
+            property_type="",
             description=full_desc,
             price=budget_range,
             phone=str(phone),
             extra_data={
-                'budget_min': budget_min,
-                'budget_max': budget_max,
-                'create_alert': create_alert,
-                'telegram_user': telegram_user
-            }
+                "budget_min": budget_min, "budget_max": budget_max,
+                "create_alert": create_alert, "telegram_user": telegram_user,
+                "budget_range": budget_range,
+            },
         )
-
         if req_id:
-            notification_text = f"🔔 <b>አዲስ የ{category} ጥያቄ (#ADK-{req_id})</b>\n\n{full_desc}"
-            _send_notification_safe(notification_text, req_id, int(user_id) if str(user_id).isdigit() else 0)
             if create_alert and str(user_id).isdigit():
                 save_search_alert(int(user_id), category, budget_min, budget_max)
-            return jsonify({"status": "success", "req_id": req_id}), 200
-        else:
-            return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም።"}), 500
+            return jsonify({"status": "success", "req_id": req_id})
+        return jsonify({"status": "error", "message": "DB save failed"}), 500
     except Exception as e:
-        logger.error(f"❌ submit_request error: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
-
-
-@web_app.route('/api/explorer/listings', methods=['GET'])
-def api_explorer_listings():
-    try:
-        page = max(1, int(request.args.get('page', 1)))
-        limit = min(50, max(1, int(request.args.get('limit', 12))))
-        offset = (page - 1) * limit
-        req_type = request.args.get('type', '').upper()
-        category = request.args.get('category', '')
-        search = request.args.get('q', '').strip()
-        active_only = request.args.get('active_only', '1') == '1'
-
-        items = get_listings_by_category_ordered(
-            limit=limit,
-            offset=offset,
-            req_type=req_type or None,
-            category=category or None,
-            order="DESC",
-            active_only=active_only,
-        )
-        total = count_listings(req_type=req_type or None, active_only=active_only)
-
-        for it in items:
-            if it.get('created_at') and not isinstance(it['created_at'], str):
-                try:
-                    it['created_at'] = it['created_at'].isoformat()
-                except Exception:
-                    it['created_at'] = str(it['created_at'])
-
-        return jsonify({
-            "status": "success",
-            "page": page,
-            "limit": limit,
-            "total": total,
-            "has_more": offset + limit < total,
-            "items": items
-        }), 200
-    except Exception as e:
-        logger.error(f"api_explorer_listings error: {e}", exc_info=True)
+        logger.error(f"submit_request: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@web_app.route("/api/explorer/listings", methods=["GET"])
+def api_explorer_listings():
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        limit = min(50, max(1, int(request.args.get("limit", 12))))
+        offset = (page - 1) * limit
+        req_type = request.args.get("type", "").upper()
+        category = request.args.get("category", "")
+        search = request.args.get("q", "").strip()
+        order = request.args.get("order", "DESC").upper()
+        if order not in ("ASC", "DESC"):
+            order = "DESC"
+        active_only = request.args.get("active_only", "1") == "1"
 
-@web_app.route('/api/views/<int:listing_id>', methods=['POST'])
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        where = ["status != 'deleted'"]
+        params = []
+        if active_only:
+            where.append("status NOT IN ('sold','rented','expired')")
+        if req_type in ("SELL", "BUY"):
+            where.append(f"UPPER(req_type)=UPPER({p})")
+            params.append(req_type)
+        if category:
+            where.append(f"main_category={p}")
+            params.append(category)
+        if search:
+            if DATABASE_URL:
+                where.append(f"(description ILIKE {p} OR price ILIKE {p} OR phone ILIKE {p})")
+            else:
+                where.append(f"(description LIKE {p} OR price LIKE {p} OR phone LIKE {p})")
+            params.extend([f"%{search}%"] * 3)
+        where_sql = " AND ".join(where)
+        cur.execute(f"SELECT COUNT(*) as cnt FROM listings WHERE {where_sql}", params)
+        total_row = cur.fetchone()
+        total = total_row["cnt"] if isinstance(total_row, dict) else (total_row[0] if total_row else 0)
+        cur.execute(
+            f"SELECT * FROM listings WHERE {where_sql} ORDER BY id {order} LIMIT {p} OFFSET {p}",
+            params + [limit, offset],
+        )
+        rows = cur.fetchall()
+        items = []
+        for row in rows:
+            item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cur.description], row))
+            if isinstance(item.get("extra_data"), str):
+                try:
+                    item["extra_data"] = json.loads(item["extra_data"])
+                except Exception:
+                    item["extra_data"] = {}
+            cur.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id={p}", (item["id"],))
+            photos = [r["photo_id"] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
+            if not photos and item.get("photo_id"):
+                photos = [item["photo_id"]]
+            item["photos"] = photos
+            if item.get("created_at") and not isinstance(item["created_at"], str):
+                try:
+                    item["created_at"] = item["created_at"].isoformat()
+                except Exception:
+                    item["created_at"] = str(item["created_at"])
+            items.append(item)
+        conn.close()
+        return jsonify({
+            "status": "success", "page": page, "limit": limit,
+            "total": total, "has_more": offset + limit < total, "items": items,
+        })
+    except Exception as e:
+        logger.error(f"api_explorer_listings: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@web_app.route("/api/views/<int:listing_id>", methods=["POST"])
 def api_view_booster(listing_id):
     try:
         boost = random.randint(3, 7)
-        new_count = increment_view_count(listing_id, amount=boost)
-        return jsonify({"status": "success", "view_count": new_count}), 200
+        counts = increment_views([listing_id], amount=boost)
+        if listing_id not in counts:
+            counts = increment_views([listing_id], amount=random.randint(35, 90) + boost)
+        return jsonify({"status": "success", "view_count": counts.get(listing_id, 0)})
     except Exception as e:
-        logger.error(f"view booster error: {e}")
+        logger.error(f"view booster: {e}")
         return jsonify({"status": "error"}), 500
 
-
-@web_app.route('/api/items/<int:listing_id>/status', methods=['PATCH'])
-def api_update_item_status(listing_id):
+@web_app.route("/api/items/<int:listing_id>/status", methods=["PATCH"])
+def api_update_status(listing_id):
     try:
         data = request.json or {}
-        new_status = str(data.get('status', '')).lower().strip()
-        user_id = data.get('user_id')
-        if new_status not in ('sold', 'rented', 'pending', 'expired'):
+        new_status = str(data.get("status", "")).lower()
+        user_id = data.get("user_id")
+        if new_status not in ("sold", "rented", "pending", "expired"):
             return jsonify({"status": "error", "message": "Invalid status"}), 400
-
         listing = get_listing_by_id(listing_id)
         if not listing:
             return jsonify({"status": "error", "message": "Not found"}), 404
-
-        owner = listing.get('user_chat_id')
+        owner = listing.get("user_chat_id")
         is_admin = str(user_id) == str(ADMIN_CHAT_ID_INT) and ADMIN_CHAT_ID_INT != 0
-        is_owner = str(user_id) == str(owner)
-        if not (is_owner or is_admin):
+        if str(user_id) != str(owner) and not is_admin:
             return jsonify({"status": "error", "message": "Forbidden"}), 403
-
         update_listing_status(listing_id, new_status)
-        return jsonify({"status": "success", "new_status": new_status}), 200
+        return jsonify({"status": "success", "new_status": new_status})
     except Exception as e:
-        logger.error(f"status update error: {e}", exc_info=True)
+        logger.error(f"status: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
 
-
-@web_app.route('/api/items/<int:listing_id>', methods=['DELETE'])
+@web_app.route("/api/items/<int:listing_id>", methods=["DELETE"])
 def api_delete_item(listing_id):
     try:
         data = request.json or {}
-        user_id = data.get('user_id')
+        user_id = data.get("user_id")
         listing = get_listing_by_id(listing_id)
         if not listing:
             return jsonify({"status": "error", "message": "Not found"}), 404
-        owner = listing.get('user_chat_id')
+        owner = listing.get("user_chat_id")
         is_admin = str(user_id) == str(ADMIN_CHAT_ID_INT) and ADMIN_CHAT_ID_INT != 0
-        is_owner = str(user_id) == str(owner)
-        if not (is_owner or is_admin):
+        if str(user_id) != str(owner) and not is_admin:
             return jsonify({"status": "error", "message": "Forbidden"}), 403
         update_listing_status(listing_id, "deleted")
-        return jsonify({"status": "success"}), 200
+        return jsonify({"status": "success"})
     except Exception as e:
-        logger.error(f"delete item error: {e}")
+        logger.error(f"delete: {e}")
         return jsonify({"status": "error"}), 500
-
 
 def run_flask():
     web_app.run(host="0.0.0.0", port=PORT, use_reloader=False)
