@@ -1578,11 +1578,8 @@ def _build_single_card_keyboard(
     rows = []
 
     row1 = []
-    tel = _format_tel_url(phone)
-    if tel:
-        # Primary: native dialer via tel: (works on mobile Telegram)
-        row1.append(InlineKeyboardButton("📞 Call", url=tel))
-    elif phone:
+    # Telegram rejects tel: URLs (BadRequest: wrong port number) — callback only
+    if phone:
         row1.append(InlineKeyboardButton("📞 Call", callback_data=f"tm_call_{item_id}"))
     else:
         row1.append(InlineKeyboardButton("📞 N/A", callback_data=f"tm_call_{item_id}"))
@@ -1941,11 +1938,8 @@ def _broker_card_keyboard(b: dict, viewer_id: int) -> InlineKeyboardMarkup:
 
     rows = []
     row1 = []
-    # Prefer tel: for mobile dialer; callback fallback for Desktop/Web
-    tel = _format_tel_url(phone)
-    if tel:
-        row1.append(InlineKeyboardButton("📞 Call", url=tel))
-    elif phone_digits:
+    # Callback only — Telegram rejects tel: inline URLs
+    if phone_digits:
         row1.append(InlineKeyboardButton("📞 Call", callback_data=f"broker_call_{chat_id_b}"))
     else:
         row1.append(InlineKeyboardButton("📞 N/A", callback_data="broker_call_na"))
@@ -1988,16 +1982,21 @@ async def filter_brokers_by_subcity_callback(update: Update, context: ContextTyp
         await q.edit_message_text("❌ ደላሎችን ማምጣት አልተቻለም። ቆይተው ይሞክሩ።")
         return
 
+    if not brokers and sub is not None:
+        # Fallback: show all brokers if sub-city has none
+        brokers = get_active_brokers(sub_city=None, status="ONLINE", limit=30, offset=0)
+        label = f"{label} (ሁሉም — በዚህ አካባቢ አልተገኘም)"
     if not brokers:
         try:
             await q.edit_message_text(
-                f"📭 በ«{label}» የተረጋገጡ ደላሎች አልተገኙም።",
+                "📭 በአሁኑ ሰዓት የተመዘገቡ ደላሎች አልተገኙም።\n"
+                "✍️ የደላላ መመዝገቢያ በመጠቀም ይመዝገቡ።",
                 parse_mode="HTML",
             )
         except Exception:
             await context.bot.send_message(
                 chat_id=q.from_user.id,
-                text=f"📭 በ«{label}» የተረጋገጡ ደላሎች አልተገኙም።",
+                text="📭 የተመዘገቡ ደላሎች አልተገኙም።",
             )
         return
 
