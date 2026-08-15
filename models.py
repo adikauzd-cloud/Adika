@@ -1,20 +1,18 @@
 # models.py
 """
-Adika Marketplace - Database Layer (Production Ready)
-PostgreSQL preferred + SQLite fallback.
+Adika Marketplace - Database Layer (Fully Fixed)
 """
 
 import json
 import logging
 import random
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import sqlite3
 
-from config import DATABASE_URL, DB_FILE, ADMIN_CHAT_ID_INT
+from config import DATABASE_URL, DB_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +196,6 @@ def init_db() -> None:
             """)
             conn.commit()
 
-        # Safe migrations
         try:
             if DATABASE_URL:
                 cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS extra_data JSONB DEFAULT '{}';")
@@ -503,10 +500,6 @@ def expire_old_listings(days: int = 30) -> int:
             conn.close()
 
 
-# ---------------------------------------------------------------------------
-# Brokers
-# ---------------------------------------------------------------------------
-
 def add_broker(
     chat_id: int,
     full_name: str,
@@ -583,7 +576,7 @@ def get_broker(chat_id: int) -> Optional[Dict]:
 
 
 def get_all_brokers(status: Optional[str] = None) -> List[Dict]:
-    """Return all brokers, optionally filtered by status."""
+    """Return all brokers (optionally filtered by status). Used for notifications."""
     conn = None
     try:
         conn = get_db_connection()
