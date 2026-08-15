@@ -16,7 +16,7 @@ import sqlite3
 from config import (
     DATABASE_URL, DB_FILE, logger,
     VIEW_BASELINE_MIN, VIEW_BASELINE_MAX,
-    MAX_PHOTOS
+    MAX_PHOTOS, AUTO_EXPIRE_DAYS
 )
 
 # ---------- Connection Pooling ----------
@@ -545,7 +545,8 @@ def increment_views(listing_ids: List[int], amount: int = 1) -> Dict[int, int]:
     
     return result
 
-def expire_old_listings(days: int = 30) -> int:
+def expire_old_listings(days: int = AUTO_EXPIRE_DAYS) -> int:
+    """Expire listings older than specified days."""
     conn = None
     try:
         conn = get_db_connection()
