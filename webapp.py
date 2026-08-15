@@ -867,11 +867,12 @@ EXPLORER_HTML = r"""
       };
 
       const statusBadge = () => {
-        if (status === 'sold') return <span className="text-[9px] font-bold text-white bg-red-500/90 px-1.5 py-0.5 rounded-full">✅ ተሸጧል</span>;
-        if (status === 'rented') return <span className="text-[9px] font-bold text-white bg-orange-500/90 px-1.5 py-0.5 rounded-full">✅ ተከራይቷል</span>;
-        if (status === 'expired') return <span className="text-[9px] font-bold text-white bg-gray-500/90 px-1.5 py-0.5 rounded-full">⏳ አልፏል</span>;
-        const cat = item.main_category === 'መኪና' ? '🚗' : '🏠';
-        return <span className="text-[9px] font-bold text-white bg-emerald-500/90 px-1.5 py-0.5 rounded-full">{cat} ንቁ</span>;
+        // Subtle status dot only (no Amharic text)
+        if (status === 'sold' || status === 'rented')
+          return <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 shadow" title="Sold" />;
+        if (status === 'expired')
+          return <span className="inline-block w-2.5 h-2.5 rounded-full bg-gray-400 shadow" title="Expired" />;
+        return <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 shadow" title="Available" />;
       };
 
       return (
