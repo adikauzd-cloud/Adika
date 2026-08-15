@@ -503,33 +503,38 @@ async def broker_del_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------- Zero-friction broker registration ----------
 
 async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Step 1: auto-fill name from Telegram, ask for phone."""
     user = update.effective_user
     context.user_data.clear()
-    context.user_data["broker_name"] = user.first_name or user.full_name or "User"
+    context.user_data["broker_name"] = (user.full_name or user.first_name or "User")[:200]
     context.user_data["broker_username"] = f"@{user.username}" if user.username else f"tg://user?id={user.id}"
-    context.user_data["broker_role"] = "ደላላ"
-    kb = [[KeyboardButton("📱 ስልክ ቁጥሬን አጋራ", request_contact=True)], ["🏠 ዋና ገጽ"]]
+    kb = [
+        [KeyboardButton("📱 ስልክ ቁጥሬን አጋራ", request_contact=True)],
+        ["🏠 ዋና ገጽ"],
+    ]
     await update.message.reply_text(
         f"✍️ <b>የደላላ መመዝገቢያ</b>\n\n"
-        f"👤 ስም: <b>{context.user_data['broker_name']}</b> (ከTelegram)\n"
-        f"📱 {context.user_data['broker_username']}\n\n"
+        f"👤 ስም: <b>{context.user_data['broker_name']}</b>\n"
+        f"🔗 {context.user_data['broker_username']}\n\n"
         f"እባክዎ ስልክ ቁጥርዎን ያጋሩ፦",
-        reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True),
+        reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True, one_time_keyboard=True),
         parse_mode="HTML",
     )
     return BROKER_PHONE
 
 
 async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Accept contact share OR typed phone, then move to sub-city chips."""
+    """Step 2: collect phone → show Sub-City chips (NO DB write)."""
     msg = update.message
-    if msg and msg.text == "🏠 ዋና ገጽ":
+    if not msg:
+        return BROKER_PHONE
+    if msg.text == "🏠 ዋና ገጽ":
         return await go_home(update, context)
 
     phone = None
-    if msg and msg.contact and msg.contact.phone_number:
+    if msg.contact and msg.contact.phone_number:
         phone = msg.contact.phone_number
-    elif msg and msg.text:
+    elif msg.text:
         phone = msg.text.strip()
 
     if not phone:
@@ -542,16 +547,17 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return BROKER_PHONE
 
-    # Normalize: keep digits only for storage validation
     digits = re.sub(r"\D", "", phone)
     if digits.startswith("251") and len(digits) >= 12:
         phone_norm = "0" + digits[3:12]
     elif len(digits) == 9 and digits[0] in ("9", "7"):
         phone_norm = "0" + digits
+    elif digits.startswith("0") and len(digits) == 10:
+        phone_norm = digits
     else:
-        phone_norm = digits if digits.startswith("0") else phone
+        phone_norm = digits
 
-    if not validate_phone(phone_norm) and not validate_phone(phone):
+    if not validate_phone(phone_norm):
         await msg.reply_text(
             "❌ ትክክለኛ የኢትዮጵያ ስልክ ያስገቡ (ምሳሌ 0911223344)።",
             reply_markup=ReplyKeyboardMarkup(
@@ -561,9 +567,10 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return BROKER_PHONE
 
-    context.user_data["broker_phone"] = phone_norm if validate_phone(phone_norm) else phone
+    context.user_data["broker_phone"] = phone_norm
+    logger.info(f"broker phone ok user={update.effective_user.id} phone={phone_norm}")
 
-    # Index-based callback_data (avoids emoji/slash issues in Telegram)
+    # Sub-city chips — index callback only
     kb = []
     row = []
     for i, sc in enumerate(SUB_CITIES):
@@ -574,13 +581,10 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if row:
         kb.append(row)
     kb.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+
+    await msg.reply_text("✅ ስልክ ተቀብሏል።", reply_markup=ReplyKeyboardRemove())
     await msg.reply_text(
-        "✅ ስልክ ተቀብሏል።\n\n📍 <b>ክፍለ ከተማ ይምረጡ፦</b>",
-        reply_markup=ReplyKeyboardRemove(),
-        parse_mode="HTML",
-    )
-    await msg.reply_text(
-        "📍 ክፍለ ከተማ:",
+        "📍 <b>ክፍለ ከተማ ይምረጡ፦</b>",
         reply_markup=InlineKeyboardMarkup(kb),
         parse_mode="HTML",
     )
@@ -588,25 +592,38 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Step 3: store sub-city → show Specialty chips (NO DB write)."""
     q = update.callback_query
     await q.answer()
-    if q.data == "flow_home":
+    data = q.data or ""
+    if data == "flow_home":
         return await go_home(update, context)
+
+    if not data.startswith("bsc_"):
+        logger.warning(f"broker_reg_subcity unexpected data={data!r}")
+        return BROKER_SUBCITY
+
     try:
-        idx = int(q.data.replace("bsc_", ""))
-        context.user_data["broker_subcity"] = SUB_CITIES[idx]
+        idx = int(data.replace("bsc_", "", 1))
+        sub_city = SUB_CITIES[idx]
     except (ValueError, IndexError):
-        context.user_data["broker_subcity"] = q.data.replace("bsc_", "")
+        logger.error(f"invalid subcity index: {data}")
+        await q.edit_message_text("❌ የተሳሳተ ምርጫ። እባክዎ እንደገና ይጀምሩ /start")
+        return ConversationHandler.END
+
+    context.user_data["broker_subcity"] = sub_city
+    logger.info(f"broker subcity={sub_city} user={q.from_user.id}")
+
     kb = [
         [InlineKeyboardButton(s, callback_data=f"bsp_{i}")]
         for i, s in enumerate(SPECIALTIES)
     ]
     kb.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
-    sub = context.user_data.get("broker_subcity", "")
-    text = f"✅ {sub}\n\n🎯 <b>የሙያ ዘርፍ ይምረጡ፦</b>"
+    text = f"✅ {sub_city}\n\n🎯 <b>የሙያ ዘርፍ ይምረጡ፦</b>"
     try:
         await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
-    except Exception:
+    except Exception as e:
+        logger.warning(f"edit subcity msg: {e}")
         await context.bot.send_message(
             chat_id=q.from_user.id,
             text=text,
@@ -617,26 +634,50 @@ async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def broker_reg_specialty(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Final step: resolve specialty index and INSERT into brokers."""
+    """Step 4: specialty selected → SAVE TO DB (only here)."""
     q = update.callback_query
     await q.answer()
-    if q.data == "flow_home":
+    data = q.data or ""
+    if data == "flow_home":
         return await go_home(update, context)
 
+    if not data.startswith("bsp_"):
+        # Wrong callback in this state — ignore, stay here
+        logger.warning(f"broker_reg_specialty unexpected data={data!r}")
+        return BROKER_SPECIALTY
+
     try:
-        idx = int(q.data.replace("bsp_", ""))
+        idx = int(data.replace("bsp_", "", 1))
         specialty = SPECIALTIES[idx]
     except (ValueError, IndexError):
-        specialty = q.data.replace("bsp_", "") or "🔄 ሁለቱም"
+        specialty = SPECIALTIES[-1]
 
     user = update.effective_user
     full_name = context.user_data.get("broker_name") or user.first_name or "User"
     phone = context.user_data.get("broker_phone") or ""
     sub_city = context.user_data.get("broker_subcity") or ""
 
+    if not phone or not sub_city:
+        logger.error(
+            f"broker save missing fields phone={phone!r} sub_city={sub_city!r} "
+            f"user_data={context.user_data}"
+        )
+        await q.edit_message_text(
+            "❌ መረጃ ጎድሏል። እባክዎ ከ /start እንደገና ይመዝገቡ።",
+            parse_mode="HTML",
+        )
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    logger.info(
+        f"broker SAVE chat_id={user.id} name={full_name!r} phone={phone!r} "
+        f"sub_city={sub_city!r} specialty={specialty!r}"
+    )
+
+    bid = None
     try:
         bid = add_broker(
-            chat_id=user.id,
+            chat_id=int(user.id),
             full_name=full_name,
             phone=phone,
             role_type="ደላላ",
@@ -645,27 +686,29 @@ async def broker_reg_specialty(update: Update, context: ContextTypes.DEFAULT_TYP
             specialty=specialty,
         )
     except Exception as e:
-        logger.error(f"broker_reg_specialty add_broker: {e}", exc_info=True)
+        logger.error(f"broker_reg_specialty exception: {e}", exc_info=True)
         bid = None
 
     if bid:
-        ok_msg = "✅ <b>ምዝገባዎ ተጠናቋል!</b>\n⏳ አድሚን ካረጋገጠ በኋላ ማሳወቂያ ይደርስዎታል።"
+        ok_msg = (
+            "✅ <b>ምዝገባዎ ተጠናቋል!</b>\n"
+            "⏳ አድሚን ካረጋገጠ በኋላ ማሳወቂያ ይደርስዎታል።"
+        )
         try:
             await q.edit_message_text(ok_msg, parse_mode="HTML")
         except Exception:
             await context.bot.send_message(chat_id=user.id, text=ok_msg, parse_mode="HTML")
         if ADMIN_CHAT_ID_INT:
             try:
-                admin_text = (
-                    f"🚨 አዲስ ደላላ\n"
-                    f"👤 {full_name}\n"
-                    f"📞 {phone}\n"
-                    f"📍 {sub_city} | {specialty}\n"
-                    f"ID: `{user.id}`"
-                )
                 await context.bot.send_message(
                     chat_id=ADMIN_CHAT_ID_INT,
-                    text=admin_text,
+                    text=(
+                        f"🚨 አዲስ ደላላ\n"
+                        f"👤 {full_name}\n"
+                        f"📞 {phone}\n"
+                        f"📍 {sub_city} | {specialty}\n"
+                        f"ID: `{user.id}`"
+                    ),
                     parse_mode="Markdown",
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("✅ አጽድቅ", callback_data=f"admin_appr_{user.id}"),
@@ -1011,16 +1054,20 @@ def register_handlers(app):
                 MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone),
                 cancel,
             ],
+            # Sub-city ONLY — never saves to DB
             BROKER_SUBCITY: [
-                CallbackQueryHandler(broker_reg_subcity, pattern=r"^(bsc_|flow_home)"),
+                CallbackQueryHandler(broker_reg_subcity, pattern=r"^(bsc_\d+|flow_home)$"),
             ],
+            # Specialty — ONLY place that calls add_broker()
             BROKER_SPECIALTY: [
-                CallbackQueryHandler(broker_reg_specialty, pattern=r"^(bsp_|flow_home)"),
+                CallbackQueryHandler(broker_reg_specialty, pattern=r"^(bsp_\d+|flow_home)$"),
             ],
         },
-        fallbacks=[CommandHandler("start", start), cancel],
+        fallbacks=[CommandHandler("start", start), cancel, CallbackQueryHandler(go_home, pattern="^flow_home$")],
         allow_reentry=True,
         per_message=False,
+        per_chat=True,
+        per_user=True,
     )
 
     buy_conv = ConversationHandler(
