@@ -1,5 +1,5 @@
 # ==============================================================================
-# main.py — Entry point
+# main.py — Entry point (Fixed)
 # ==============================================================================
 import sys
 import os
@@ -15,7 +15,7 @@ from telegram.ext import (
     ConversationHandler, ContextTypes, filters,
 )
 
-from config import BOT_TOKEN, logger, MAIN_KEYBOARD
+from config import BOT_TOKEN, logger, MAIN_KEYBOARD, validate_config
 from models import init_db, expire_old_listings
 import webapp as webapp_module
 from webapp import run_flask
@@ -46,27 +46,37 @@ from handlers import (
     SELLER_BEDROOMS, SELLER_PARKING, SELLER_PHONE, SELLER_PHOTO, SELLER_HOUSE_CONDITION,
     BROKER_NAME, BROKER_PHONE, BROKER_CATEGORY, BROKER_SUBCITY, BROKER_FAYDA,
     BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO,
+    _increment_views_batch, _build_single_card_keyboard,  # Import missing functions
 )
 
 
 def start_cleanup_scheduler():
+    """Start background cleanup scheduler."""
     def _loop():
-        time.sleep(90)
+        time.sleep(90)  # Initial delay
         while True:
             try:
-                expire_old_listings(30)
+                expired = expire_old_listings(30)
+                if expired:
+                    logger.info(f"🧹 Cleanup: {expired} listings expired")
             except Exception as e:
-                logger.error(f"cleanup: {e}")
-            time.sleep(24 * 3600)
+                logger.error(f"Cleanup error: {e}")
+            time.sleep(24 * 3600)  # Run once per day
+    
     threading.Thread(target=_loop, daemon=True, name="adika-cleanup").start()
     logger.info("🧹 Cleanup scheduler started")
 
 
 def main():
-    if not BOT_TOKEN:
-        raise RuntimeError("❌ BOT_TOKEN environment variable is required")
-
-    # Python 3.10+ / 3.12: ensure a MainThread event loop exists for PTB
+    """Main entry point."""
+    # Validate configuration
+    try:
+        validate_config()
+    except ValueError as e:
+        logger.error(f"Configuration error: {e}")
+        sys.exit(1)
+    
+    # Ensure event loop exists
     try:
         loop = asyncio.get_event_loop()
         if loop.is_closed():
@@ -74,16 +84,22 @@ def main():
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-
+    
+    # Initialize database
     init_db()
+    
+    # Start Flask server
     threading.Thread(target=run_flask, daemon=True, name="flask").start()
+    
+    # Start cleanup scheduler
     start_cleanup_scheduler()
-
+    
+    # Post-init function
     async def _post_init(application: Application):
-        # Store running loop so Flask threads can schedule coroutines safely
         webapp_module.bot_loop = asyncio.get_running_loop()
-        logger.info("Event loop captured for cross-thread notifications")
-
+        logger.info("✅ Event loop captured for notifications")
+    
+    # Build application
     app = (
         Application.builder()
         .token(BOT_TOKEN)
@@ -92,11 +108,12 @@ def main():
         .build()
     )
     webapp_module.bot_app = app
-    webapp_module.bot_loop = None
-
+    
+    # Cancel filter
     cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
     cancel_handler = MessageHandler(cancel_filter, go_home)
-
+    
+    # Buyer conversation
     buyer_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^🔍 ለመግዛት / ለመከራየት$"), buyer_start)],
         states={
@@ -113,7 +130,8 @@ def main():
         fallbacks=[CommandHandler("start", start), cancel_handler],
         allow_reentry=True,
     )
-
+    
+    # Seller conversation
     seller_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📢 ለመሸጥ / ለማከራየት$"), seller_start)],
         states={
@@ -143,7 +161,8 @@ def main():
         fallbacks=[CommandHandler("start", start), cancel_handler],
         allow_reentry=True,
     )
-
+    
+    # Broker registration conversation
     broker_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^✍️ የደላላ/አቅራቢ መመዝገቢያ$"), broker_reg_start)],
         states={
@@ -160,7 +179,8 @@ def main():
         fallbacks=[CommandHandler("start", start), cancel_handler],
         allow_reentry=True,
     )
-
+    
+    # Broker response conversation
     broker_response_conv = ConversationHandler(
         entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
         states={
@@ -174,20 +194,23 @@ def main():
         fallbacks=[CommandHandler("start", start), cancel_handler],
         allow_reentry=True,
     )
-
+    
+    # Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(buyer_conv)
     app.add_handler(seller_conv)
     app.add_handler(broker_conv)
     app.add_handler(broker_response_conv)
-
+    
+    # Menu handlers
     app.add_handler(MessageHandler(filters.Regex("^🛒 የገበያ ቦታ$"), marketplace_choice))
     app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ጥያቄዎች$"), requests_choice))
     app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች መድረክ$"), view_brokers_directory))
     app.add_handler(MessageHandler(filters.Regex("^📞 እገዛ / Support$"), help_command))
     app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ማስተካከያ$"), notification_prefs_start))
     app.add_handler(cancel_handler)
-
+    
+    # Callback handlers
     app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
     app.add_handler(CallbackQueryHandler(text_mode_callback, pattern=r"^(text_mode_|tm_sold_|tm_call_)"))
     app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
@@ -203,9 +226,11 @@ def main():
     app.add_handler(CallbackQueryHandler(broker_rate_cb, pattern="^broker_rate_"))
     app.add_handler(CallbackQueryHandler(broker_star_cb, pattern="^broker_star_"))
     app.add_handler(CallbackQueryHandler(broker_del_cb, pattern="^broker_del_"))
-
+    
+    # Error handler
     app.add_error_handler(error_handler)
-
+    
+    # Start bot
     logger.info("🚀 Adika Marketplace Bot started")
     app.run_polling(drop_pending_updates=True)
 
