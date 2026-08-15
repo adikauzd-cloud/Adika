@@ -31,7 +31,7 @@ from handlers import (
     seller_price, seller_negotiable_chosen, seller_urgent_chosen, seller_phone, seller_photo,
     broker_reg_start, broker_reg_name, broker_reg_phone,
     broker_reg_category, broker_reg_subcity,
-    broker_rate_cb, broker_star_cb, broker_del_cb,
+    broker_rate_cb, broker_star_cb, broker_del_cb, broker_call_cb,
     broker_have_item_click, broker_offer_text, broker_offer_photo,
     marketplace_choice, requests_choice, text_mode_callback,
     view_brokers_directory, filter_brokers_by_subcity_callback,
@@ -194,6 +194,7 @@ def main():
     app.add_handler(CallbackQueryHandler(have_buyer_callback, pattern="^have_buyer_"))
     app.add_handler(CallbackQueryHandler(want_myself_callback, pattern="^want_myself_"))
     app.add_handler(CallbackQueryHandler(notification_prefs_callback, pattern="^notif_pref_"))
+    app.add_handler(CallbackQueryHandler(broker_call_cb, pattern="^broker_call_"))
     app.add_handler(CallbackQueryHandler(broker_rate_cb, pattern="^broker_rate_"))
     app.add_handler(CallbackQueryHandler(broker_star_cb, pattern="^broker_star_"))
     app.add_handler(CallbackQueryHandler(broker_del_cb, pattern="^broker_del_"))
