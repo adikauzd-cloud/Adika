@@ -97,44 +97,51 @@ def clean_description(desc: str, max_len: int = 60) -> str:
     return clean.strip()
 
 def relative_time_am(created_at) -> str:
-    """Human-readable relative time in Amharic."""
+    """Relative time in clean English (Just now, 5m ago, 2 hrs ago, Yesterday…)."""
     if not created_at:
         return ""
     try:
         if isinstance(created_at, str):
-            # Handle ISO / SQLite formats
-            for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"):
-                try:
-                    created_at = datetime.strptime(created_at[:26].replace("T", " "), fmt if "T" not in created_at else fmt)
-                    break
-                except ValueError:
-                    continue
-            if isinstance(created_at, str):
-                try:
-                    created_at = datetime.fromisoformat(str(created_at).replace("Z", ""))
-                except Exception:
-                    return str(created_at)[:16]
+            ts = created_at.replace("Z", "+00:00")
+            try:
+                from datetime import datetime as _dt
+                dt = _dt.fromisoformat(ts)
+            except Exception:
+                for fmt in ("%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+                    try:
+                        dt = datetime.strptime(created_at[:26], fmt)
+                        break
+                    except Exception:
+                        dt = None
+                if dt is None:
+                    return ""
+        else:
+            dt = created_at
+        if getattr(dt, "tzinfo", None) is not None:
+            dt = dt.replace(tzinfo=None)
         now = datetime.utcnow()
-        # If timezone-aware, compare naively
-        if hasattr(created_at, "tzinfo") and created_at.tzinfo:
-            created_at = created_at.replace(tzinfo=None)
-        delta = now - created_at
-        secs = int(delta.total_seconds())
-        if secs < 0:
-            secs = 0
+        secs = max(0, int((now - dt).total_seconds()))
         if secs < 60:
-            return "አሁን"
+            return "Just now"
         if secs < 3600:
-            return f"ከ {secs // 60} ደቂቃ በፊት"
+            m = secs // 60
+            return f"{m}m ago"
         if secs < 86400:
-            return f"ከ {secs // 3600} ሰዓት በፊት"
+            h = secs // 3600
+            return f"{h} hr{'s' if h != 1 else ''} ago"
         if secs < 172800:
-            return f"ትላንት {created_at.strftime('%H:%M')}"
-        if secs < 604800:
-            return f"ከ {secs // 86400} ቀን በፊት"
-        return created_at.strftime("%Y-%m-%d %H:%M")
+            return "Yesterday"
+        days = secs // 86400
+        if days < 30:
+            return f"{days}d ago"
+        months = days // 30
+        if months < 12:
+            return f"{months} mo ago"
+        years = days // 365
+        return f"{years}y ago"
     except Exception:
         return ""
+
 
 
 def format_marketplace_card_professional(item: dict) -> str:
@@ -158,14 +165,14 @@ def format_marketplace_card_professional(item: dict) -> str:
 
     # --- Header badge ---
     if req_type == "BUY":
-        header = f"[🎯 ፈላጊ]  <code>#ADK-{item_id}</code>"
+        header = f"🎯 Buyer Request  ·  <code>#ADK-{item_id}</code>"
         price_label = "በጀት"
         price_display = f"💰 <b>{price_label}:</b> {extra.get('budget_range') or price or '—'} ብር"
     else:
         if status in ('sold', 'rented'):
-            header = f"[🔴 ተሸጧል]  <code>#ADK-{item_id}</code>"
+            header = f"🔴 Sold Out  ·  <code>#ADK-{item_id}</code>"
         else:
-            header = f"[🟢 ይገኛል]  <code>#ADK-{item_id}</code>"
+            header = f"🟢 Active  ·  <code>#ADK-{item_id}</code>"
         negotiable = "የሚደራደር" if extra.get('negotiable', True) else "የማይደራደር"
         urgent = " ⚡ አስቸኳይ" if extra.get('urgent_sale') else ""
         price_display = f"💰 <b>ዋጋ:</b> {price} ብር <i>({negotiable})</i>{urgent}"
@@ -212,7 +219,7 @@ def format_marketplace_card_professional(item: dict) -> str:
         lines.append(f"📝 {desc}")
 
     lines.append("━━━━━━━━━━━━━━━━━━━━━")
-    lines.append(f"👁️ <b>{views}</b> እይታዎች" + (f"  •  🕐 {rel}" if rel else ""))
+    lines.append(f"👁️ {views} views" + (f"  ·  {rel}" if rel else ""))
     lines.append(f"📞 <code>{phone}</code>")
     return "\n".join(lines)
 
@@ -224,18 +231,37 @@ def format_buyer_card(req: dict) -> str:
     return format_marketplace_card_professional(req)
 
 def format_broker_profile_professional(b: dict) -> str:
-    """Compact broker directory card."""
-    rating = float(b.get("rating") or 5.0)
+    """Compact broker directory card — 🟢 pulse-style status, English labels."""
+    if not isinstance(b, dict):
+        return "👤 —"
+    try:
+        rating = float(b.get("rating") or 5.0)
+    except (TypeError, ValueError):
+        rating = 5.0
     online = b.get("is_online", True)
-    verified = str(b.get("status", "")).lower() == "approved" or b.get("is_verified")
-    status_line = ("● Online" if online else "○ Offline") + (" • ✓ Verified" if verified else " • Pending")
+    if online in (0, "0", False, "false", "False"):
+        online = False
+    verified = str(b.get("status", "")).lower() in ("approved", "online") or bool(b.get("is_verified"))
+    # Compact green/gray dot
+    status_dot = "🟢" if online else "⚪"
+    badge = f"{status_dot} {'Online' if online else 'Offline'}"
+    if verified:
+        badge += "  ·  ✓ Verified"
+
+    def _esc(v):
+        s = str(v if v is not None else "—")
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    name = _esc(b.get("full_name") or "—")
+    area = _esc(b.get("sub_city") or "—")
+    role = _esc(b.get("specialty") or b.get("role_type") or "—")
     return (
-        f"{status_line}\n"
+        f"{badge}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"👤 ስም: <b>{b.get('full_name') or '—'}</b>\n"
-        f"📍 አካባቢ: {b.get('sub_city') or '—'}\n"
-        f"💼 ዘርፍ: {b.get('specialty') or b.get('role_type') or '—'}\n"
-        f"⭐ ደረጃ: {rating:.1f} / 5.0"
+        f"👤 {name}\n"
+        f"📍 {area}\n"
+        f"💼 {role}\n"
+        f"⭐ {rating:.1f} / 5.0"
     )
 
 
@@ -264,7 +290,7 @@ def build_seller_card_keyboard(item_id: int, owner_id: int, current_user_id: int
     ]
     if current_user_id == owner_id or current_user_id == ADMIN_CHAT_ID_INT:
         keyboard.append([
-            InlineKeyboardButton("✅ ተሸጧል", callback_data=f"mark_sold_{item_id}")
+            InlineKeyboardButton("✅ Sold Out", callback_data=f"mark_sold_{item_id}")
         ])
     return InlineKeyboardMarkup(keyboard)
 
@@ -2275,7 +2301,7 @@ async def mark_sold_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if success:
         try:
             await query.edit_message_caption(
-                caption=f"{query.message.caption}\n\n✅ **ይህ ንብረት ተሸጧል/ተከራይቷል!**",
+                caption=f"{query.message.caption}\n\n✅ **ይህ ንብረት Sold Out/ተከራይቷል!**",
                 parse_mode="Markdown"
             )
         except Exception:
