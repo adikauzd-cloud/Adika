@@ -835,4 +835,211 @@ def update_broker_notification_prefs(chat_id: int, prefs: dict) -> bool:
     
     except Exception as e:
         logger.error(f"update_broker_notification_prefs: {e}")
-       
+        return False
+    finally:
+        if conn:
+            return_connection(conn)
+
+def get_approved_brokers() -> List[dict]:
+    """Get all approved brokers."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("SELECT * FROM brokers WHERE status = 'approved' ORDER BY created_at DESC")
+        rows = cur.fetchall()
+        
+        results = []
+        for row in rows:
+            b = _row_to_dict(row, cur)
+            if b and isinstance(b.get("notification_prefs"), str):
+                try:
+                    b["notification_prefs"] = json.loads(b["notification_prefs"])
+                except Exception:
+                    b["notification_prefs"] = {"car": True, "house": True, "enabled": True}
+            results.append(b)
+        
+        return results
+    
+    except Exception as e:
+        logger.error(f"get_approved_brokers: {e}")
+        return []
+    finally:
+        if conn:
+            return_connection(conn)
+
+def get_approved_brokers_directory(sub_city=None) -> List[dict]:
+    """Get approved brokers filtered by sub-city."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        
+        if sub_city and sub_city != "ሁሉም":
+            cur.execute(
+                f"""SELECT * FROM brokers WHERE status='approved' AND sub_city={p}
+                    ORDER BY created_at DESC""",
+                (sub_city,),
+            )
+        else:
+            cur.execute(
+                "SELECT * FROM brokers WHERE status='approved' ORDER BY created_at DESC"
+            )
+        
+        rows = cur.fetchall()
+        results = []
+        for row in rows:
+            b = _row_to_dict(row, cur)
+            if b and isinstance(b.get("notification_prefs"), str):
+                try:
+                    b["notification_prefs"] = json.loads(b["notification_prefs"])
+                except Exception:
+                    b["notification_prefs"] = {"car": True, "house": True, "enabled": True}
+            results.append(b)
+        
+        return results
+    
+    except Exception as e:
+        logger.error(f"get_approved_brokers_directory: {e}")
+        return []
+    finally:
+        if conn:
+            return_connection(conn)
+
+def delete_broker(chat_id: int) -> bool:
+    """Delete a broker."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        
+        cur.execute(f"DELETE FROM brokers WHERE chat_id = {p}", (chat_id,))
+        if not DATABASE_URL:
+            conn.commit()
+        
+        logger.info(f"🗑️ Broker {chat_id} deleted")
+        return True
+    
+    except Exception as e:
+        logger.error(f"delete_broker: {e}")
+        return False
+    finally:
+        if conn:
+            return_connection(conn)
+
+def add_broker_rating(broker_chat_id, user_chat_id, stars) -> bool:
+    """Add a rating for a broker."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        
+        # Check if user already rated this broker
+        cur.execute(
+            f"SELECT id FROM ratings WHERE broker_chat_id={p} AND user_chat_id={p}",
+            (broker_chat_id, user_chat_id),
+        )
+        existing = cur.fetchone()
+        
+        if existing:
+            # Update existing rating
+            cur.execute(
+                f"UPDATE ratings SET stars={p} WHERE broker_chat_id={p} AND user_chat_id={p}",
+                (stars, broker_chat_id, user_chat_id),
+            )
+        else:
+            cur.execute(
+                f"INSERT INTO ratings (broker_chat_id, user_chat_id, stars) VALUES ({p},{p},{p})",
+                (broker_chat_id, user_chat_id, stars),
+            )
+        
+        # Update broker average rating
+        cur.execute(
+            f"SELECT AVG(stars) as avg_stars, COUNT(*) as total_count FROM ratings WHERE broker_chat_id={p}",
+            (broker_chat_id,),
+        )
+        result = cur.fetchone()
+        
+        if isinstance(result, dict):
+            avg_stars = result.get("avg_stars") or 5.0
+            total_count = result.get("total_count") or 0
+        else:
+            avg_stars = result[0] if result and result[0] else 5.0
+            total_count = result[1] if result and result[1] else 0
+        
+        cur.execute(
+            f"UPDATE brokers SET rating={p}, total_ratings={p} WHERE chat_id={p}",
+            (round(float(avg_stars), 1), total_count, broker_chat_id),
+        )
+        
+        if not DATABASE_URL:
+            conn.commit()
+        
+        logger.info(f"⭐ Broker {broker_chat_id} rated {stars} by user {user_chat_id}")
+        return True
+    
+    except Exception as e:
+        logger.error(f"add_broker_rating: {e}")
+        return False
+    finally:
+        if conn:
+            return_connection(conn)
+
+def save_broker_offer(request_id, broker_id, description, photo_id=None) -> bool:
+    """Save a broker's offer for a request."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        
+        cur.execute(
+            f"INSERT INTO broker_offers (request_id, broker_id, description, photo_id) VALUES ({p},{p},{p},{p})",
+            (request_id, broker_id, description, photo_id),
+        )
+        if not DATABASE_URL:
+            conn.commit()
+        
+        return True
+    
+    except Exception as e:
+        logger.error(f"save_broker_offer: {e}")
+        return False
+    finally:
+        if conn:
+            return_connection(conn)
+
+def save_search_alert(user_chat_id, main_category, budget_min, budget_max) -> int:
+    """Save a search alert for a user."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        
+        cur.execute(
+            f"""INSERT INTO search_alerts (user_chat_id, main_category, budget_min, budget_max)
+                VALUES ({p},{p},{p},{p})""",
+            (user_chat_id, main_category, budget_min or "", budget_max or ""),
+        )
+        
+        if DATABASE_URL:
+            cur.execute("SELECT lastval()")
+            row = cur.fetchone()
+            alert_id = (list(row.values())[0] if isinstance(row, dict) else row[0]) or 0
+        else:
+            alert_id = cur.lastrowid
+            conn.commit()
+        
+        return alert_id or 0
+    
+    except Exception as e:
+        logger.error(f"save_search_alert: {e}")
+        return 0
+    finally:
+        if conn:
+            return_connection(conn)
