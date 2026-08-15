@@ -73,6 +73,7 @@ MAX_PHOTOS = 5
 MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
 MAX_DESCRIPTION_LENGTH = 2000
 CACHE_TTL = 300  # 5 minutes
+AUTO_EXPIRE_DAYS = 30  # Auto-expire listings after 30 days
 
 MAIN_KEYBOARD = [
     ["🔍 ለመግዛት / ለመከራየት", "📢 ለመሸጥ / ለማከራየት"],
