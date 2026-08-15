@@ -680,7 +680,7 @@ def get_approved_brokers_directory(sub_city=None):
 
 
 def get_active_brokers(sub_city=None, status="approved", limit=50, offset=0):
-    """Brokers for directory; newest first. Default: approved only."""
+    """Brokers for directory; newest first. Always returns list of dicts with chat_id."""
     conn = None
     try:
         conn = get_db_connection()
@@ -700,16 +700,36 @@ def get_active_brokers(sub_city=None, status="approved", limit=50, offset=0):
             f"SELECT * FROM brokers{where_sql} {order} LIMIT {p} OFFSET {p}",
             params,
         )
-        rows = cur.fetchall()
+        rows = cur.fetchall() or []
         out = []
+        cols = [col[0] for col in cur.description] if cur.description else []
         for row in rows:
-            b = dict(row) if isinstance(row, dict) else dict(zip([col[0] for col in cur.description], row))
-            if isinstance(b.get("notification_prefs"), str):
+            try:
+                if isinstance(row, dict):
+                    b = dict(row)
+                else:
+                    b = dict(zip(cols, row))
+                # Normalize keys
+                if b.get("chat_id") is None:
+                    continue
                 try:
-                    b["notification_prefs"] = json.loads(b["notification_prefs"])
-                except Exception:
-                    b["notification_prefs"] = {}
-            out.append(b)
+                    b["chat_id"] = int(b["chat_id"])
+                except (TypeError, ValueError):
+                    continue
+                b["phone"] = (b.get("phone") or "") or ""
+                b["username"] = (b.get("username") or "") or ""
+                b["full_name"] = (b.get("full_name") or "User") or "User"
+                b["sub_city"] = (b.get("sub_city") or "") or ""
+                b["specialty"] = (b.get("specialty") or b.get("role_type") or "") or ""
+                if isinstance(b.get("notification_prefs"), str):
+                    try:
+                        b["notification_prefs"] = json.loads(b["notification_prefs"])
+                    except Exception:
+                        b["notification_prefs"] = {}
+                out.append(b)
+            except Exception as row_err:
+                logger.warning(f"skip bad broker row: {row_err}")
+                continue
         return out
     except Exception as e:
         logger.error(f"get_active_brokers: {e}", exc_info=True)
@@ -720,6 +740,7 @@ def get_active_brokers(sub_city=None, status="approved", limit=50, offset=0):
                 conn.close()
             except Exception:
                 pass
+
 
 
 def count_brokers(status="approved") -> int:
