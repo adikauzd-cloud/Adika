@@ -17,6 +17,7 @@ from models import (
 
 # bot_app set from main for notifications
 bot_app = None
+bot_loop = None  # set from main post_init
 
 web_app = Flask(__name__)
 
@@ -640,28 +641,47 @@ def webapp_seller_form():
 @web_app.route('/buyer-form')
 def webapp_buyer_form():
    return Response(BUYER_FORM_HTML, mimetype='text/html; charset=utf-8')
-
 def _send_notification_safe(notification_text: str, req_id: int, buyer_id: int):
-   if not bot_app:
-       logger.warning("bot_app is None – cannot send notification")
-       return
-   try:
-       async def _notify():
-           from handlers import notify_brokers
-           await notify_brokers(bot_app.bot, notification_text, req_id, buyer_id)
-       def run_in_thread():
-           try:
-               loop = asyncio.new_event_loop()
-               asyncio.set_event_loop(loop)
-               loop.run_until_complete(_notify())
-               loop.close()
-               logger.info(f"✅ Notification sent for req_id={req_id}")
-           except Exception as e:
-               logger.error(f"❌ Notification thread error: {e}", exc_info=True)
-       t = threading.Thread(target=run_in_thread, daemon=True)
-       t.start()
-   except Exception as e:
-       logger.error(f"❌ Failed to start notification thread: {e}", exc_info=True)
+    """Fire broker notifications from Flask thread without blocking or breaking loops."""
+    if not bot_app:
+        logger.warning("bot_app is None – cannot send notification")
+        return
+
+    def run_in_thread():
+        try:
+            from handlers import notify_brokers
+
+            async def _notify():
+                await notify_brokers(bot_app.bot, notification_text, req_id, buyer_id)
+
+            # Prefer loop captured in Application post_init
+            loop = bot_loop
+            if loop is None:
+                loop = getattr(bot_app, "loop", None)
+            if loop is not None and getattr(loop, "is_running", lambda: False)():
+                fut = asyncio.run_coroutine_threadsafe(_notify(), loop)
+                try:
+                    fut.result(timeout=120)
+                except Exception as e:
+                    logger.error(f"notify future error: {e}")
+                return
+
+            # Fallback: dedicated loop in this worker thread
+            new_loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(new_loop)
+                new_loop.run_until_complete(_notify())
+            finally:
+                try:
+                    new_loop.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"_send_notification_safe error: {e}", exc_info=True)
+
+    threading.Thread(target=run_in_thread, daemon=True, name="notify-brokers").start()
+
+
 
 @web_app.route('/api/submit-listing', methods=['POST'])
 def submit_listing():
