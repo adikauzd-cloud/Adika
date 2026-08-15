@@ -29,8 +29,9 @@ from handlers import (
     seller_house_condition_chosen, seller_fuel_chosen, seller_transmission_chosen,
     seller_mileage, seller_bedrooms_chosen, seller_parking_chosen, seller_details,
     seller_price, seller_negotiable_chosen, seller_urgent_chosen, seller_phone, seller_photo,
-    broker_reg_start, broker_role_chosen, broker_reg_name, broker_reg_phone,
-    broker_reg_subcity, broker_reg_nid_photo,
+    broker_reg_start, broker_reg_name, broker_reg_phone,
+    broker_reg_category, broker_reg_subcity,
+    broker_rate_cb, broker_star_cb, broker_del_cb,
     broker_have_item_click, broker_offer_text, broker_offer_photo,
     marketplace_choice, requests_choice, text_mode_callback,
     view_brokers_directory, filter_brokers_by_subcity_callback,
@@ -43,7 +44,7 @@ from handlers import (
     SELLER_DETAILS, SELLER_PRICE, SELLER_NEGOTIABLE, SELLER_URGENT,
     SELLER_CONDITION, SELLER_FUEL, SELLER_TRANSMISSION, SELLER_MILEAGE,
     SELLER_BEDROOMS, SELLER_PARKING, SELLER_PHONE, SELLER_PHOTO, SELLER_HOUSE_CONDITION,
-    BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_SUBCITY, BROKER_NID_PHOTO,
+    BROKER_NAME, BROKER_PHONE, BROKER_CATEGORY, BROKER_SUBCITY,
     BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO,
 )
 
@@ -146,11 +147,10 @@ def main():
     broker_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^✍️ የደላላ/አቅራቢ መመዝገቢያ$"), broker_reg_start)],
         states={
-            BROKER_ROLE: [CallbackQueryHandler(broker_role_chosen, pattern="^role_"), cancel_handler],
             BROKER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name), cancel_handler],
             BROKER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone), cancel_handler],
-            BROKER_SUBCITY: [CallbackQueryHandler(broker_reg_subcity, pattern="^broker_sc_"), cancel_handler],
-            BROKER_NID_PHOTO: [MessageHandler(filters.PHOTO, broker_reg_nid_photo), cancel_handler],
+            BROKER_CATEGORY: [CallbackQueryHandler(broker_reg_category, pattern=r"^(bcat_\d+|flow_home)$")],
+            BROKER_SUBCITY: [CallbackQueryHandler(broker_reg_subcity, pattern=r"^(bsc_\d+|flow_home)$")],
         },
         fallbacks=[CommandHandler("start", start), cancel_handler],
         allow_reentry=True,
@@ -194,6 +194,9 @@ def main():
     app.add_handler(CallbackQueryHandler(have_buyer_callback, pattern="^have_buyer_"))
     app.add_handler(CallbackQueryHandler(want_myself_callback, pattern="^want_myself_"))
     app.add_handler(CallbackQueryHandler(notification_prefs_callback, pattern="^notif_pref_"))
+    app.add_handler(CallbackQueryHandler(broker_rate_cb, pattern="^broker_rate_"))
+    app.add_handler(CallbackQueryHandler(broker_star_cb, pattern="^broker_star_"))
+    app.add_handler(CallbackQueryHandler(broker_del_cb, pattern="^broker_del_"))
 
     app.add_error_handler(error_handler)
 
