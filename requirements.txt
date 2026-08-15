@@ -1,8 +1,11 @@
 
-psycopg2-binary
 requests
 Flask
 flask-cors
 gunicorn
-python-telegram-bot>=20.0
+
 python-dotenv>=1.0.0
+python-telegram-bot>=20.0,<22
+flask>=2.3
+flask-cors>=4.0
+psycopg2-binary>=2.9
