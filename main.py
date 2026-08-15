@@ -30,7 +30,7 @@ from handlers import (
     seller_mileage, seller_bedrooms_chosen, seller_parking_chosen, seller_details,
     seller_price, seller_negotiable_chosen, seller_urgent_chosen, seller_phone, seller_photo,
     broker_reg_start, broker_reg_name, broker_reg_phone,
-    broker_reg_category, broker_reg_subcity,
+    broker_reg_category, broker_reg_subcity, broker_reg_fayda,
     broker_rate_cb, broker_star_cb, broker_del_cb, broker_call_cb,
     broker_have_item_click, broker_offer_text, broker_offer_photo,
     marketplace_choice, requests_choice, text_mode_callback,
@@ -44,7 +44,7 @@ from handlers import (
     SELLER_DETAILS, SELLER_PRICE, SELLER_NEGOTIABLE, SELLER_URGENT,
     SELLER_CONDITION, SELLER_FUEL, SELLER_TRANSMISSION, SELLER_MILEAGE,
     SELLER_BEDROOMS, SELLER_PARKING, SELLER_PHONE, SELLER_PHOTO, SELLER_HOUSE_CONDITION,
-    BROKER_NAME, BROKER_PHONE, BROKER_CATEGORY, BROKER_SUBCITY,
+    BROKER_NAME, BROKER_PHONE, BROKER_CATEGORY, BROKER_SUBCITY, BROKER_FAYDA,
     BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO,
 )
 
@@ -151,6 +151,11 @@ def main():
             BROKER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone), cancel_handler],
             BROKER_CATEGORY: [CallbackQueryHandler(broker_reg_category, pattern=r"^(bcat_\d+|flow_home)$")],
             BROKER_SUBCITY: [CallbackQueryHandler(broker_reg_subcity, pattern=r"^(bsc_\d+|flow_home)$")],
+            BROKER_FAYDA: [
+                MessageHandler(filters.PHOTO, broker_reg_fayda),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_fayda),
+                cancel_handler,
+            ],
         },
         fallbacks=[CommandHandler("start", start), cancel_handler],
         allow_reentry=True,
