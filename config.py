@@ -5,17 +5,23 @@ import os
 import logging
 import sys
 from logging.handlers import RotatingFileHandler
-from typing import Set, Dict, Any
+from typing import Set, Dict, Any, Optional
 
 # ---------- Environment ----------
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "0")
-RENDER_EXTERNAL_HOSTNAME = os.getenv("RENDER_EXTERNAL_HOSTNAME", "adika-vrkk.onrender.com")
+RENDER_EXTERNAL_HOSTNAME = os.getenv("RENDER_EXTERNAL_HOSTNAME", "")
 PORT = int(os.getenv("PORT", "8080"))
 DB_FILE = os.getenv("DB_FILE", "adika_marketplace.db")
 USE_WEBHOOK = os.getenv("USE_WEBHOOK", "false").lower() == "true"
-ENVIRONMENT = os.getenv("ENVIRONMENT", "development")  # production, staging, development
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+# ---------- Build Base URL dynamically ----------
+if RENDER_EXTERNAL_HOSTNAME:
+    BASE_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}"
+else:
+    BASE_URL = f"http://localhost:{PORT}"
 
 # Fix PostgreSQL URL
 if DATABASE_URL.startswith("postgres://"):
@@ -121,12 +127,13 @@ def validate_environment() -> None:
         raise RuntimeError("❌ BOT_TOKEN environment variable is required")
     
     if DATABASE_URL:
-        logger.info("✅ Using PostgreSQL database")
+        logger.info(f"✅ Using PostgreSQL database")
     else:
         logger.info(f"✅ Using SQLite database: {DB_FILE}")
     
     logger.info(f"✅ Environment: {ENVIRONMENT}")
     logger.info(f"✅ Admin ID: {ADMIN_CHAT_ID_INT}")
+    logger.info(f"✅ Base URL: {BASE_URL}")
 
 # Validate on import if not in test mode
 if not os.getenv("TESTING"):
