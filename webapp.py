@@ -1,5 +1,5 @@
 # ==============================================================================
-# webapp.py — Flask Mini App + REST API
+# webapp.py — Flask Mini App + REST API (FULLY FIXED)
 # ==============================================================================
 import json
 import random
@@ -9,10 +9,10 @@ from flask_cors import CORS
 
 from config import (
     logger, PORT, MAX_IMAGE_BYTES, ADMIN_CHAT_ID_INT, DATABASE_URL,
-    MAX_PHOTOS, ALLOWED_IMAGE_TYPES, ENVIRONMENT, BASE_URL,
+    MAX_PHOTOS, ALLOWED_IMAGE_TYPES, ENVIRONMENT, BASE_URL, AUTO_EXPIRE_DAYS,
 )
 from models import (
-    get_db_connection, get_placeholder,
+    get_db_connection, get_placeholder, return_connection,
     add_listing, get_listing_by_id, update_listing_status,
     save_search_alert, increment_views,
 )
@@ -38,6 +38,10 @@ SELLER_FORM_HTML = """
     .chip-active { background:#2563eb; color:#fff; font-weight:700; box-shadow:0 1px 3px rgba(37,99,235,.3); }
     .chip-idle { background:#f3f4f6; color:#4b5563; border:1px solid #e5e7eb; }
     input, textarea, select { font-size: 16px !important; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .status-dot.available { background: #22c55e; }
+    .status-dot.sold { background: #ef4444; }
+    .status-dot.request { background: #f59e0b; }
   </style>
 </head>
 <body>
@@ -1114,14 +1118,6 @@ def explorer_page():
     return Response(EXPLORER_HTML, mimetype="text/html; charset=utf-8")
 
 # ---------- API Routes ----------
-def return_connection(conn):
-    from models import return_connection as rc
-    return rc(conn)
-
-def get_placeholder():
-    from models import get_placeholder as gp
-    return gp()
-
 @web_app.route("/api/submit-listing", methods=["POST"])
 def submit_listing():
     try:
@@ -1288,7 +1284,7 @@ def api_explorer_listings():
                 except Exception:
                     item["created_at"] = str(item["created_at"])
             items.append(item)
-        conn.close()
+        return_connection(conn)
         return jsonify({
             "status": "success", "page": page, "limit": limit,
             "total": total, "has_more": offset + limit < total, "items": items,
