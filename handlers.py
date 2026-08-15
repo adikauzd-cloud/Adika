@@ -84,7 +84,47 @@ SUB_CITIES = [
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+# Safe way to send Telegram messages from Flask (sync) threads
 
+import asyncio
+import threading
+import logging
+
+logger = logging.getLogger(__name__)
+
+# This will be set from main.py
+bot_app = None
+
+
+def _send_notification_safe(notification_text: str, req_id: int, buyer_id: int, photos: list = None):
+    """
+    Thread-safe notification sender.
+    Creates a fresh event loop in a daemon thread so Flask never touches the main loop.
+    """
+    if bot_app is None:
+        logger.warning("bot_app is None – cannot send notification")
+        return
+
+    async def _notify():
+        try:
+            from handlers import notify_brokers   # or wherever your notify function lives
+            await notify_brokers(bot_app.bot, notification_text, req_id, buyer_id, photos)
+        except Exception as e:
+            logger.error(f"notify_brokers failed: {e}", exc_info=True)
+
+    def run_in_thread():
+        try:
+            # Always create a brand-new loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(_notify())
+            loop.close()
+            logger.info(f"✅ Notification sent for #ADK-{req_id}")
+        except Exception as e:
+            logger.error(f"❌ Notification thread error: {e}", exc_info=True)
+
+    t = threading.Thread(target=run_in_thread, daemon=True, name=f"notify-{req_id}")
+    t.start()
 def validate_phone(phone: str) -> bool:
     cleaned = re.sub(r"[\s\-+]", "", phone or "")
     return bool(re.match(r"^0?9\d{8}$", cleaned)) or bool(re.match(r"^09\d{8}$", cleaned))
