@@ -1,829 +1,205 @@
 # ==============================================================================
-# models.py — Database connection, schema, CRUD
+# main.py — Entry point
 # ==============================================================================
-import json
-import random
-from typing import Optional, List, Dict, Any
+import sys
+import os
+import threading
+import time
+import asyncio
 
-import psycopg2
-from psycopg2.extras import RealDictCursor, Json
-import sqlite3
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from config import DATABASE_URL, DB_FILE, logger, VIEW_BASELINE_MIN, VIEW_BASELINE_MAX
+from telegram import Update
+from telegram.ext import (
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
+    ConversationHandler, ContextTypes, filters,
+)
 
-def get_db_connection():
-    if DATABASE_URL:
-        cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
-        if cleaned_url.startswith("postgres://"):
-            cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
-        conn = psycopg2.connect(cleaned_url, cursor_factory=RealDictCursor)
-        conn.autocommit = True
-        return conn
-    else:
-        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
+from config import BOT_TOKEN, logger, MAIN_KEYBOARD
+from models import init_db, expire_old_listings
+import webapp as webapp_module
+from webapp import run_flask
+from handlers import (
+    start, go_home, error_handler,
+    buyer_start, buyer_category_chosen, buyer_action_chosen, buyer_sub_chosen,
+    buyer_property_chosen, buyer_htype_chosen, buyer_budget_range, buyer_alert_choice,
+    buyer_details, buyer_phone,
+    seller_start, seller_category_chosen, seller_action_chosen, seller_sub_chosen,
+    seller_property_chosen, seller_htype_chosen, seller_condition_chosen,
+    seller_house_condition_chosen, seller_fuel_chosen, seller_transmission_chosen,
+    seller_mileage, seller_bedrooms_chosen, seller_parking_chosen, seller_details,
+    seller_price, seller_negotiable_chosen, seller_urgent_chosen, seller_phone, seller_photo,
+    broker_reg_start, broker_role_chosen, broker_reg_name, broker_reg_phone,
+    broker_reg_subcity, broker_reg_nid_photo,
+    broker_have_item_click, broker_offer_text, broker_offer_photo,
+    marketplace_choice, requests_choice, text_mode_callback,
+    view_brokers_directory, filter_brokers_by_subcity_callback,
+    help_command, notification_prefs_start, notification_prefs_callback,
+    admin_approval_callback, delete_request_callback, nohave_item_callback,
+    mark_sold_callback, have_buyer_callback, want_myself_callback,
+    BUYER_MAIN, BUYER_ACTION, BUYER_SUB, BUYER_PROPERTY, BUYER_HTYPE,
+    BUYER_DETAILS, BUYER_PHONE, BUYER_BUDGET_RANGE, BUYER_ALERT,
+    SELLER_MAIN, SELLER_ACTION, SELLER_SUB, SELLER_PROPERTY, SELLER_HTYPE,
+    SELLER_DETAILS, SELLER_PRICE, SELLER_NEGOTIABLE, SELLER_URGENT,
+    SELLER_CONDITION, SELLER_FUEL, SELLER_TRANSMISSION, SELLER_MILEAGE,
+    SELLER_BEDROOMS, SELLER_PARKING, SELLER_PHONE, SELLER_PHOTO, SELLER_HOUSE_CONDITION,
+    BROKER_ROLE, BROKER_NAME, BROKER_PHONE, BROKER_SUBCITY, BROKER_NID_PHOTO,
+    BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO,
+)
 
-def get_placeholder():
-    return "%s" if DATABASE_URL else "?"
 
-def init_db():
-    conn = None
+def start_cleanup_scheduler():
+    def _loop():
+        time.sleep(90)
+        while True:
+            try:
+                expire_old_listings(30)
+            except Exception as e:
+                logger.error(f"cleanup: {e}")
+            time.sleep(24 * 3600)
+    threading.Thread(target=_loop, daemon=True, name="adika-cleanup").start()
+    logger.info("🧹 Cleanup scheduler started")
+
+
+def main():
+    if not BOT_TOKEN:
+        raise RuntimeError("❌ BOT_TOKEN environment variable is required")
+
+    # Python 3.10+ / 3.12: ensure a MainThread event loop exists for PTB
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        if DATABASE_URL:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS listings (
-                    id SERIAL PRIMARY KEY,
-                    user_chat_id BIGINT NOT NULL,
-                    user_name TEXT,
-                    req_type TEXT NOT NULL,
-                    main_category TEXT NOT NULL,
-                    sub_category TEXT,
-                    action_type TEXT,
-                    property_type TEXT,
-                    description TEXT NOT NULL,
-                    price TEXT,
-                    phone TEXT,
-                    photo_id TEXT,
-                    extra_data JSONB DEFAULT '{}',
-                    status TEXT DEFAULT 'pending',
-                    view_count INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS brokers (
-                    id SERIAL PRIMARY KEY,
-                    chat_id BIGINT NOT NULL UNIQUE,
-                    full_name TEXT NOT NULL,
-                    phone TEXT NOT NULL,
-                    role_type TEXT NOT NULL,
-                    national_id_photo TEXT,
-                    sub_city TEXT NOT NULL,
-                    rating REAL DEFAULT 5.0,
-                    total_ratings INT DEFAULT 0,
-                    notification_prefs JSONB DEFAULT '{"car": true, "house": true, "price_min": 0, "price_max": 999999999, "enabled": true}',
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS ratings (
-                    id SERIAL PRIMARY KEY,
-                    broker_chat_id BIGINT NOT NULL,
-                    user_chat_id BIGINT NOT NULL,
-                    stars INT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS broker_offers (
-                    id SERIAL PRIMARY KEY,
-                    request_id INTEGER NOT NULL,
-                    broker_id BIGINT NOT NULL,
-                    description TEXT,
-                    photo_id TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS search_alerts (
-                    id SERIAL PRIMARY KEY,
-                    user_chat_id BIGINT NOT NULL,
-                    main_category TEXT NOT NULL,
-                    budget_min TEXT,
-                    budget_max TEXT,
-                    is_active BOOLEAN DEFAULT TRUE,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-                CREATE TABLE IF NOT EXISTS listing_photos (
-                    id SERIAL PRIMARY KEY,
-                    listing_id INTEGER NOT NULL REFERENCES listings(id) ON DELETE CASCADE,
-                    photo_id TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-        else:
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS listings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_chat_id INTEGER NOT NULL,
-                    user_name TEXT,
-                    req_type TEXT NOT NULL,
-                    main_category TEXT NOT NULL,
-                    sub_category TEXT,
-                    action_type TEXT,
-                    property_type TEXT,
-                    description TEXT NOT NULL,
-                    price TEXT,
-                    phone TEXT,
-                    photo_id TEXT,
-                    extra_data TEXT DEFAULT '{}',
-                    status TEXT DEFAULT 'pending',
-                    view_count INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS brokers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    chat_id INTEGER NOT NULL UNIQUE,
-                    full_name TEXT NOT NULL,
-                    phone TEXT NOT NULL,
-                    role_type TEXT NOT NULL,
-                    national_id_photo TEXT,
-                    sub_city TEXT NOT NULL,
-                    rating REAL DEFAULT 5.0,
-                    total_ratings INTEGER DEFAULT 0,
-                    notification_prefs TEXT DEFAULT '{"car": true, "house": true, "price_min": 0, "price_max": 999999999, "enabled": true}',
-                    status TEXT DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS ratings (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    broker_chat_id INTEGER NOT NULL,
-                    user_chat_id INTEGER NOT NULL,
-                    stars INTEGER NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS broker_offers (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    request_id INTEGER NOT NULL,
-                    broker_id INTEGER NOT NULL,
-                    description TEXT,
-                    photo_id TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS search_alerts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_chat_id INTEGER NOT NULL,
-                    main_category TEXT NOT NULL,
-                    budget_min TEXT,
-                    budget_max TEXT,
-                    is_active BOOLEAN DEFAULT 1,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS listing_photos (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    listing_id INTEGER NOT NULL,
-                    photo_id TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            conn.commit()
-        try:
-            if DATABASE_URL:
-                cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS extra_data JSONB DEFAULT '{}';")
-                cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0;")
-            else:
-                try:
-                    cursor.execute("ALTER TABLE listings ADD COLUMN extra_data TEXT DEFAULT '{}';")
-                except:
-                    pass
-                try:
-                    cursor.execute("ALTER TABLE listings ADD COLUMN view_count INTEGER DEFAULT 0;")
-                except:
-                    pass
-            if not DATABASE_URL:
-                conn.commit()
-        except Exception as alter_err:
-            logger.warning(f"ALTER TABLE warning: {alter_err}")
-        logger.info("✅ Adika Database initialized successfully")
-    except Exception as e:
-        logger.error(f"❌ Database initialization error: {e}")
-        if conn and not DATABASE_URL:
-            conn.rollback()
-    finally:
-        if conn:
-            conn.close()
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("closed")
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+    init_db()
+    threading.Thread(target=run_flask, daemon=True, name="flask").start()
+    start_cleanup_scheduler()
+
+    async def _post_init(application: Application):
+        # Store running loop so Flask threads can schedule coroutines safely
+        webapp_module.bot_loop = asyncio.get_running_loop()
+        logger.info("Event loop captured for cross-thread notifications")
+
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .concurrent_updates(True)
+        .post_init(_post_init)
+        .build()
+    )
+    webapp_module.bot_app = app
+    webapp_module.bot_loop = None
+
+    cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
+    cancel_handler = MessageHandler(cancel_filter, go_home)
+
+    buyer_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^🔍 ለመግዛት / ለመከራየት$"), buyer_start)],
+        states={
+            BUYER_MAIN: [CallbackQueryHandler(buyer_category_chosen, pattern="^flow_buy_cat_"), cancel_handler],
+            BUYER_ACTION: [CallbackQueryHandler(buyer_action_chosen, pattern="^flow_buy_action_"), cancel_handler],
+            BUYER_SUB: [CallbackQueryHandler(buyer_sub_chosen, pattern="^flow_buy_sub_"), cancel_handler],
+            BUYER_PROPERTY: [CallbackQueryHandler(buyer_property_chosen, pattern="^flow_buy_prop_"), cancel_handler],
+            BUYER_HTYPE: [CallbackQueryHandler(buyer_htype_chosen, pattern="^flow_buy_htype_"), cancel_handler],
+            BUYER_BUDGET_RANGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_budget_range), cancel_handler],
+            BUYER_ALERT: [CallbackQueryHandler(buyer_alert_choice, pattern="^alert_"), cancel_handler],
+            BUYER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_details), cancel_handler],
+            BUYER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_phone), cancel_handler],
+        },
+        fallbacks=[CommandHandler("start", start), cancel_handler],
+        allow_reentry=True,
+    )
+
+    seller_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^📢 ለመሸጥ / ለማከራየት$"), seller_start)],
+        states={
+            SELLER_MAIN: [CallbackQueryHandler(seller_category_chosen, pattern="^flow_sell_cat_"), cancel_handler],
+            SELLER_ACTION: [CallbackQueryHandler(seller_action_chosen, pattern="^flow_sell_action_"), cancel_handler],
+            SELLER_SUB: [CallbackQueryHandler(seller_sub_chosen, pattern="^flow_sell_sub_"), cancel_handler],
+            SELLER_PROPERTY: [CallbackQueryHandler(seller_property_chosen, pattern="^flow_sell_prop_"), cancel_handler],
+            SELLER_HTYPE: [CallbackQueryHandler(seller_htype_chosen, pattern="^flow_sell_htype_"), cancel_handler],
+            SELLER_CONDITION: [CallbackQueryHandler(seller_condition_chosen, pattern="^flow_sell_cond_"), cancel_handler],
+            SELLER_HOUSE_CONDITION: [CallbackQueryHandler(seller_house_condition_chosen, pattern="^flow_sell_hcond_"), cancel_handler],
+            SELLER_FUEL: [CallbackQueryHandler(seller_fuel_chosen, pattern="^flow_sell_fuel_"), cancel_handler],
+            SELLER_TRANSMISSION: [CallbackQueryHandler(seller_transmission_chosen, pattern="^flow_sell_trans_"), cancel_handler],
+            SELLER_MILEAGE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_mileage), cancel_handler],
+            SELLER_BEDROOMS: [CallbackQueryHandler(seller_bedrooms_chosen, pattern="^bed_"), cancel_handler],
+            SELLER_PARKING: [CallbackQueryHandler(seller_parking_chosen, pattern="^park_"), cancel_handler],
+            SELLER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_details), cancel_handler],
+            SELLER_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_price), cancel_handler],
+            SELLER_NEGOTIABLE: [CallbackQueryHandler(seller_negotiable_chosen, pattern="^negotiable_"), cancel_handler],
+            SELLER_URGENT: [CallbackQueryHandler(seller_urgent_chosen, pattern="^urgent_"), cancel_handler],
+            SELLER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, seller_phone), cancel_handler],
+            SELLER_PHOTO: [
+                MessageHandler(filters.PHOTO, seller_photo),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, seller_photo),
+                cancel_handler,
+            ],
+        },
+        fallbacks=[CommandHandler("start", start), cancel_handler],
+        allow_reentry=True,
+    )
+
+    broker_conv = ConversationHandler(
+        entry_points=[MessageHandler(filters.Regex("^✍️ የደላላ/አቅራቢ መመዝገቢያ$"), broker_reg_start)],
+        states={
+            BROKER_ROLE: [CallbackQueryHandler(broker_role_chosen, pattern="^role_"), cancel_handler],
+            BROKER_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_name), cancel_handler],
+            BROKER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_reg_phone), cancel_handler],
+            BROKER_SUBCITY: [CallbackQueryHandler(broker_reg_subcity, pattern="^broker_sc_"), cancel_handler],
+            BROKER_NID_PHOTO: [MessageHandler(filters.PHOTO, broker_reg_nid_photo), cancel_handler],
+        },
+        fallbacks=[CommandHandler("start", start), cancel_handler],
+        allow_reentry=True,
+    )
+
+    broker_response_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(broker_have_item_click, pattern="^have_item_")],
+        states={
+            BROKER_OFFER_TEXT: [MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_text), cancel_handler],
+            BROKER_OFFER_PHOTO: [
+                MessageHandler(filters.PHOTO, broker_offer_photo),
+                MessageHandler(filters.TEXT & ~filters.COMMAND, broker_offer_photo),
+                cancel_handler,
+            ],
+        },
+        fallbacks=[CommandHandler("start", start), cancel_handler],
+        allow_reentry=True,
+    )
+
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(buyer_conv)
+    app.add_handler(seller_conv)
+    app.add_handler(broker_conv)
+    app.add_handler(broker_response_conv)
+
+    app.add_handler(MessageHandler(filters.Regex("^🛒 የገበያ ቦታ$"), marketplace_choice))
+    app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ጥያቄዎች$"), requests_choice))
+    app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች መድረክ$"), view_brokers_directory))
+    app.add_handler(MessageHandler(filters.Regex("^📞 እገዛ / Support$"), help_command))
+    app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ማስተካከያ$"), notification_prefs_start))
+    app.add_handler(cancel_handler)
+
+    app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
+    app.add_handler(CallbackQueryHandler(text_mode_callback, pattern=r"^(text_mode_|tm_sold_|tm_call_)"))
+    app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
+    app.add_handler(CallbackQueryHandler(admin_approval_callback, pattern="^admin_"))
+    app.add_handler(CallbackQueryHandler(delete_request_callback, pattern=r"^delete_req_"))
+    app.add_handler(CallbackQueryHandler(nohave_item_callback, pattern="^nohave_item_"))
+    app.add_handler(CallbackQueryHandler(filter_brokers_by_subcity_callback, pattern="^dir_sc_"))
+    app.add_handler(CallbackQueryHandler(mark_sold_callback, pattern="^mark_sold_"))
+    app.add_handler(CallbackQueryHandler(have_buyer_callback, pattern="^have_buyer_"))
+    app.add_handler(CallbackQueryHandler(want_myself_callback, pattern="^want_myself_"))
+    app.add_handler(CallbackQueryHandler(notification_prefs_callback, pattern="^notif_pref_"))
+
+    app.add_error_handler(error_handler)
+
+    logger.info("🚀 Adika Marketplace Bot started")
+    app.run_polling(drop_pending_updates=True)
 
 
-# ==============================================================================
-# 4. DATABASE OPERATIONS
-# ==============================================================================
-
-def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
-                action_type, property_type, description, price=None, phone=None, 
-                photo_id=None, extra_data=None, photos=None):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        if extra_data is None:
-            extra_data = {}
-        extra_json = json.dumps(extra_data, ensure_ascii=False) if not isinstance(extra_data, str) else extra_data
-        user_chat_id = int(user_chat_id) if user_chat_id else 0
-        user_name = str(user_name or "User")
-        req_type = str(req_type or "BUY").upper()
-        main_category = str(main_category or "መኪና")
-        sub_category = str(sub_category or "")
-        action_type = str(action_type or "")
-        property_type = str(property_type or "")
-        description = str(description or "")
-        price = str(price or "")
-        phone = str(phone or "")
-        photo_id = str(photo_id) if photo_id else None
-        import random as _rnd
-        baseline_views = _rnd.randint(35, 90)  # social-proof baseline
-        query = f"""
-            INSERT INTO listings 
-            (user_chat_id, user_name, req_type, main_category, sub_category, 
-             action_type, property_type, description, price, phone, photo_id, extra_data, status, view_count)
-            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending', {p})
-        """
-        params = (
-            user_chat_id, user_name, req_type, main_category, 
-            sub_category, action_type, property_type, 
-            description, price, phone, photo_id,
-            extra_json, baseline_views
-        )
-        logger.info(f"📝 Inserting listing: user={user_chat_id}, type={req_type}, cat={main_category}")
-        if DATABASE_URL:
-            cursor.execute(query + " RETURNING id", params)
-            row = cursor.fetchone()
-            if row is None:
-                logger.error("RETURNING id returned None")
-                return None
-            req_id = row["id"] if isinstance(row, dict) else row[0]
-        else:
-            cursor.execute(query, params)
-            req_id = cursor.lastrowid
-            conn.commit()
-        logger.info(f"✅ Listing inserted with ID: {req_id}")
-        if photos and req_id:
-            logger.info(f"📸 Saving {len(photos)} photos for listing {req_id}")
-            for photo in photos:
-                try:
-                    photo_str = str(photo)
-                    cursor.execute(
-                        f"INSERT INTO listing_photos (listing_id, photo_id) VALUES ({p}, {p})",
-                        (req_id, photo_str)
-                    )
-                except Exception as pe:
-                    logger.error(f"Failed to save photo for listing {req_id}: {pe}")
-            if not DATABASE_URL:
-                conn.commit()
-        logger.info(f"✅ Listing added successfully → #ADK-{req_id}")
-        return req_id
-    except Exception as e:
-        logger.error(f"❌ Add listing error: {e}", exc_info=True)
-        if conn and not DATABASE_URL:
-            try:
-                conn.rollback()
-            except:
-                pass
-        return None
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def get_listing_by_id(listing_id: int):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"SELECT * FROM listings WHERE id = {p}", (listing_id,))
-        row = cursor.fetchone()
-        if not row:
-            return None
-        result = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-        if 'extra_data' in result and isinstance(result['extra_data'], str):
-            try:
-                result['extra_data'] = json.loads(result['extra_data'])
-            except:
-                result['extra_data'] = {}
-        try:
-            cursor.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (listing_id,))
-            photo_rows = cursor.fetchall()
-            result['photos'] = [dict(r)['photo_id'] if isinstance(r, dict) else r[0] for r in photo_rows]
-        except Exception as e:
-            logger.warning(f"Could not load photos for listing {listing_id}: {e}")
-            result['photos'] = []
-        return result
-    except Exception as e:
-        logger.error(f"Get listing by id error: {e}")
-        return None
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def get_listings_by_category(limit=10, offset=0, req_type=None):
-    return get_listings_by_category_ordered(limit=limit, offset=offset, req_type=req_type, order="DESC")
-
-def get_listings_by_category_ordered(limit=20, offset=0, req_type=None, order="DESC"):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        order_sql = "ASC" if str(order).upper() == "ASC" else "DESC"
-        if req_type:
-            query = f"""
-                SELECT * FROM listings 
-                WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})
-                ORDER BY created_at {order_sql}
-                LIMIT {p} OFFSET {p}
-            """
-            cursor.execute(query, (req_type, limit, offset))
-        else:
-            query = f"""
-                SELECT * FROM listings 
-                WHERE status = 'pending' 
-                ORDER BY created_at {order_sql}
-                LIMIT {p} OFFSET {p}
-            """
-            cursor.execute(query, (limit, offset))
-        rows = cursor.fetchall()
-        results = []
-        for row in rows:
-            item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-            if 'extra_data' in item and isinstance(item['extra_data'], str):
-                try:
-                    item['extra_data'] = json.loads(item['extra_data'])
-                except:
-                    item['extra_data'] = {}
-            results.append(item)
-        return results
-    except Exception as e:
-        logger.error(f"get_listings_by_category_ordered error: {e}")
-        return []
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def count_listings(req_type=None):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        if req_type:
-            p = get_placeholder()
-            cursor.execute(
-                f"SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})",
-                (req_type,)
-            )
-        else:
-            cursor.execute("SELECT COUNT(*) as cnt FROM listings WHERE status = 'pending'")
-        row = cursor.fetchone()
-        if isinstance(row, dict):
-            return row.get('cnt', 0)
-        else:
-            return row[0] if row else 0
-    except Exception as e:
-        logger.error(f"Count listings error: {e}")
-        return 0
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def update_listing_status(req_id: int, status: str) -> bool:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
-        if not DATABASE_URL:
-            conn.commit()
-        logger.info(f"✅ Listing {req_id} status updated to {status}")
-        return True
-    except Exception as e:
-        logger.error(f"Update listing error: {e}")
-        return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def get_public_marketplace_items(limit: int = 20, offset: int = 0):
-    conn = None
-    try:
-        conn = get_db_connection()
-        if not conn:
-            return []
-        cur = conn.cursor()
-        p = get_placeholder()
-        if DATABASE_URL:
-            cur.execute("""
-                SELECT * FROM listings 
-                WHERE UPPER(req_type) = 'SELL'
-                  AND status != 'deleted'
-                ORDER BY created_at DESC NULLS LAST
-                LIMIT %s OFFSET %s
-            """, (limit, offset))
-            rows = cur.fetchall()
-            result = [dict(row) for row in rows]
-        else:
-            cur.execute("""
-                SELECT * FROM listings 
-                WHERE UPPER(req_type) = 'SELL'
-                  AND status != 'deleted'
-                ORDER BY created_at DESC
-                LIMIT ? OFFSET ?
-            """, (limit, offset))
-            rows = cur.fetchall()
-            columns = [desc[0] for desc in cur.description]
-            result = [dict(zip(columns, row)) for row in rows]
-        for item in result:
-            if 'extra_data' in item and isinstance(item['extra_data'], str):
-                try:
-                    item['extra_data'] = json.loads(item['extra_data'])
-                except:
-                    item['extra_data'] = {}
-        return result
-    except Exception as e:
-        logger.error(f"get_public_marketplace_items error: {e}", exc_info=True)
-        return []
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-
-# ========== BROKER OPERATIONS ==========
-
-def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
-        existing = cursor.fetchone()
-        default_prefs = json.dumps({"car": True, "house": True, "price_min": 0, "price_max": 999999999, "enabled": True}, ensure_ascii=False)
-        if existing:
-            if DATABASE_URL:
-                query = f"""
-                    UPDATE brokers 
-                    SET full_name = {p}, phone = {p}, role_type = {p},
-                        national_id_photo = {p}, sub_city = {p}, status = 'pending'
-                    WHERE chat_id = {p} RETURNING id
-                """
-                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
-                row = cursor.fetchone()
-                broker_id = row["id"] if isinstance(row, dict) else row[0]
-            else:
-                query = """
-                    UPDATE brokers 
-                    SET full_name = ?, phone = ?, role_type = ?,
-                        national_id_photo = ?, sub_city = ?, status = 'pending'
-                    WHERE chat_id = ?
-                """
-                cursor.execute(query, (full_name, phone, role_type, national_id_photo, sub_city, chat_id))
-                broker_id = existing[0] if not isinstance(existing, dict) else existing["id"]
-                conn.commit()
-        else:
-            if DATABASE_URL:
-                query = f"""
-                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, notification_prefs, status)
-                    VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, 'pending') RETURNING id
-                """
-                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city, default_prefs))
-                row = cursor.fetchone()
-                broker_id = row["id"] if isinstance(row, dict) else row[0]
-            else:
-                query = """
-                    INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city, notification_prefs, status)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-                """
-                cursor.execute(query, (chat_id, full_name, phone, role_type, national_id_photo, sub_city, default_prefs))
-                broker_id = cursor.lastrowid
-                conn.commit()
-        logger.info(f"✅ Broker registered: {broker_id}")
-        return broker_id
-    except Exception as e:
-        logger.error(f"Add broker error: {e}")
-        return None
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def get_broker(chat_id: int):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"SELECT * FROM brokers WHERE chat_id = {p}", (chat_id,))
-        row = cursor.fetchone()
-        if row:
-            return dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-        return None
-    except Exception as e:
-        logger.error(f"Get broker error: {e}")
-        return None
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def update_broker_status(chat_id: int, status: str) -> bool:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"UPDATE brokers SET status = {p} WHERE chat_id = {p}", (status.lower(), chat_id))
-        if not DATABASE_URL:
-            conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"Update broker status error: {e}")
-        return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def update_broker_notification_prefs(chat_id: int, prefs: dict) -> bool:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        prefs_json = json.dumps(prefs, ensure_ascii=False)
-        cursor.execute(f"UPDATE brokers SET notification_prefs = {p} WHERE chat_id = {p}", (prefs_json, chat_id))
-        if not DATABASE_URL:
-            conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"Update broker notification prefs error: {e}")
-        return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def get_approved_brokers():
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM brokers WHERE status = 'approved'")
-        rows = cursor.fetchall()
-        results = []
-        for row in rows:
-            broker = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-            if 'notification_prefs' in broker and isinstance(broker['notification_prefs'], str):
-                try:
-                    broker['notification_prefs'] = json.loads(broker['notification_prefs'])
-                except:
-                    broker['notification_prefs'] = {"car": True, "house": True, "enabled": True}
-            results.append(broker)
-        return results
-    except Exception as e:
-        logger.error(f"Get approved brokers error: {e}")
-        return []
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def get_approved_brokers_directory(sub_city=None):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        if sub_city and sub_city != "ሁሉም":
-            query = f"""
-                SELECT full_name, phone, role_type, sub_city, rating, total_ratings 
-                FROM brokers WHERE status = 'approved' AND sub_city = {p}
-                ORDER BY rating DESC
-            """
-            cursor.execute(query, (sub_city,))
-        else:
-            query = """
-                SELECT full_name, phone, role_type, sub_city, rating, total_ratings 
-                FROM brokers WHERE status = 'approved' ORDER BY rating DESC
-            """
-            cursor.execute(query)
-        rows = cursor.fetchall()
-        return [dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row)) for row in rows]
-    except Exception as e:
-        logger.error(f"Get approved brokers directory error: {e}")
-        return []
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-
-# ========== BROKER OFFERS ==========
-
-def save_broker_offer(request_id: int, broker_id: int, description: str, photo_id: str = None) -> bool:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"""
-            INSERT INTO broker_offers (request_id, broker_id, description, photo_id)
-            VALUES ({p}, {p}, {p}, {p})
-        """, (request_id, broker_id, description, photo_id))
-        if not DATABASE_URL:
-            conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"Save broker offer error: {e}")
-        return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-
-# ========== RATINGS ==========
-
-def add_broker_rating(broker_chat_id, user_chat_id, stars):
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        cursor.execute(
-            f"INSERT INTO ratings (broker_chat_id, user_chat_id, stars) VALUES ({p}, {p}, {p})",
-            (broker_chat_id, user_chat_id, stars)
-        )
-        cursor.execute(
-            f"SELECT AVG(stars) as avg_stars, COUNT(*) as total_count FROM ratings WHERE broker_chat_id = {p}",
-            (broker_chat_id,)
-        )
-        result = cursor.fetchone()
-        if isinstance(result, dict):
-            avg_stars = result.get('avg_stars', 5.0)
-            total_count = result.get('total_count', 0)
-        else:
-            avg_stars = result[0] if result[0] else 5.0
-            total_count = result[1] if result[1] else 0
-        cursor.execute(
-            f"UPDATE brokers SET rating = {p}, total_ratings = {p} WHERE chat_id = {p}",
-            (round(float(avg_stars), 1), total_count, broker_chat_id)
-        )
-        if not DATABASE_URL:
-            conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"Add broker rating error: {e}")
-        return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-
-# ========== SEARCH ALERTS ==========
-
-def save_search_alert(user_chat_id: int, main_category: str, budget_min: str, budget_max: str) -> int:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        cursor.execute(f"""
-            INSERT INTO search_alerts (user_chat_id, main_category, budget_min, budget_max)
-            VALUES ({p}, {p}, {p}, {p})
-        """, (user_chat_id, main_category, budget_min or "", budget_max or ""))
-        if DATABASE_URL:
-            cursor.execute("SELECT lastval()")
-            row = cursor.fetchone()
-            alert_id = row[0] if not isinstance(row, dict) else list(row.values())[0]
-        else:
-            alert_id = cursor.lastrowid
-            conn.commit()
-        return alert_id or 0
-    except Exception as e:
-        logger.error(f"Save search alert error: {e}")
-        return 0
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-def get_matching_alerts(main_category: str, price: str) -> list:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        p = get_placeholder()
-        query = f"""
-            SELECT * FROM search_alerts 
-            WHERE is_active = TRUE AND main_category = {p}
-            ORDER BY created_at DESC
-        """
-        cursor.execute(query, (main_category,))
-        rows = cursor.fetchall()
-        matching = []
-        try:
-            price_num = float(price) if price else 0
-        except (ValueError, TypeError):
-            price_num = 0
-        for row in rows:
-            alert = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-            try:
-                alert_min = float(alert.get('budget_min', 0) or 0)
-                alert_max = float(alert.get('budget_max', 999999999) or 999999999)
-                if alert_min <= price_num <= alert_max:
-                    matching.append(alert)
-            except (ValueError, TypeError):
-                matching.append(alert)
-        return matching
-    except Exception as e:
-        logger.error(f"Get matching alerts error: {e}")
-        return []
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except:
-                pass
-
-
-# ==============================================================================
-# 5. CONSTANTS & KEYBOARDS
-# ==============================================================================
-
-
-def expire_old_listings(days: int = 30) -> int:
-    """
-    Mark listings older than `days` as 'expired' if they are still active (pending).
-    Safe: only touches status, never deletes rows.
-    Returns number of rows updated.
-    """
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        if DATABASE_URL:
-            # PostgreSQL
-            cur.execute("""
-                UPDATE listings
-                SET status = 'expired'
-                WHERE status = 'pending'
-                  AND created_at < (NOW() - INTERVAL '%s days')
-            """ % int(days))
-            # rowcount available on cursor
-            count = cur.rowcount
-        else:
-            # SQLite
-            cur.execute("""
-                UPDATE listings
-                SET status = 'expired'
-                WHERE status = 'pending'
-                  AND created_at < datetime('now', ?)
-            """, (f'-{int(days)} days',))
-            count = cur.rowcount
-            conn.commit()
-        logger.info(f"🧹 Auto-expiry: {count} listings marked expired (>{days} days)")
-        return count or 0
-    except Exception as e:
-        logger.error(f"expire_old_listings error: {e}", exc_info=True)
-        return 0
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-
-
+if __name__ == "__main__":
+    main()
