@@ -8,12 +8,18 @@ import logging
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'")
 ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "0")
-RENDER_EXTERNAL_HOSTNAME = os.getenv("RENDER_EXTERNAL_HOSTNAME", "adika-vrkk.onrender.com")
+RENDER_EXTERNAL_HOSTNAME = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
 PORT = int(os.getenv("PORT", "8080"))
 DB_FILE = os.getenv("DB_FILE", "adika_marketplace.db")
 
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+# Dynamic Web App base URL (Render) with local fallback
+if RENDER_EXTERNAL_HOSTNAME:
+    WEBAPP_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}"
+else:
+    WEBAPP_URL = os.getenv("WEBAPP_URL", "http://127.0.0.1:8080")
 
 try:
     ADMIN_CHAT_ID_INT = int(ADMIN_CHAT_ID) if ADMIN_CHAT_ID else 0
@@ -31,7 +37,7 @@ logger = logging.getLogger("adika")
 
 # ---------- UI constants ----------
 TEXT_PAGE_SIZE = 4
-VIEW_INCREMENT = 1  # +1 per render as requested
+VIEW_INCREMENT = 1
 VIEW_BASELINE_MIN = 35
 VIEW_BASELINE_MAX = 90
 
