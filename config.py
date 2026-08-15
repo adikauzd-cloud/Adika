@@ -1,70 +1,36 @@
-# ==============================================================================
-# config.py — Environment & constants for Adika Marketplace
-# ==============================================================================
+# config.py
+"""
+Adika Marketplace - Configuration
+Safely loads environment variables with sensible defaults.
+"""
+
 import os
-import logging
+from typing import Optional
 
-# ---------- Environment ----------
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'")
-ADMIN_CHAT_ID = os.getenv("ADMIN_CHAT_ID", "0")
-RENDER_EXTERNAL_HOSTNAME = os.getenv("RENDER_EXTERNAL_HOSTNAME", "").strip()
-PORT = int(os.getenv("PORT", "8080"))
-DB_FILE = os.getenv("DB_FILE", "adika_marketplace.db")
+# Required
+BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
+if not BOT_TOKEN:
+    raise RuntimeError("❌ BOT_TOKEN environment variable is missing.")
 
+# Optional / with defaults
+ADMIN_CHAT_ID: str = os.getenv("ADMIN_CHAT_ID", "0")
+ADMIN_CHAT_ID_INT: int = int(ADMIN_CHAT_ID) if ADMIN_CHAT_ID.isdigit() else 0
+
+DATABASE_URL: str = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Dynamic Web App base URL (Render) with local fallback
-if RENDER_EXTERNAL_HOSTNAME:
-    WEBAPP_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}"
-else:
-    WEBAPP_URL = os.getenv("WEBAPP_URL", "http://127.0.0.1:8080")
-
-try:
-    ADMIN_CHAT_ID_INT = int(ADMIN_CHAT_ID) if ADMIN_CHAT_ID else 0
-except ValueError:
-    ADMIN_CHAT_ID_INT = 0
-
-ADMIN_IDS = {ADMIN_CHAT_ID_INT} if ADMIN_CHAT_ID_INT else set()
-
-# ---------- Logging ----------
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
+RENDER_EXTERNAL_HOSTNAME: str = os.getenv(
+    "RENDER_EXTERNAL_HOSTNAME", "adika-vrkk.onrender.com"
 )
-logger = logging.getLogger("adika")
 
-# ---------- UI constants ----------
-TEXT_PAGE_SIZE = 4
-VIEW_INCREMENT = 1
-VIEW_BASELINE_MIN = 35
-VIEW_BASELINE_MAX = 90
+# Derived
+WEBAPP_BASE_URL: str = f"https://{RENDER_EXTERNAL_HOSTNAME}"
+DB_FILE: str = "adika_marketplace.db"
+PORT: int = int(os.getenv("PORT", "8080"))
 
-MAIN_KEYBOARD = [
-    ["🔍 ለመግዛት / ለመከራየት", "📢 ለመሸጥ / ለማከራየት"],
-    ["🛒 የገበያ ቦታ", "📋 የፈላጊዎች ጥያቄዎች"],
-    ["👥 የደላሎች መድረክ", "✍️ የደላላ/አቅራቢ መመዝገቢያ"],
-    ["⚙️ የማሳወቂያ ማስተካከያ", "📞 እገዛ / Support"],
-    ["🏠 ዋና ገጽ"],
-]
-
-SUB_CITIES = [
-    "ቦሌ", "CMC", "አራዳ", "22/ካዛንችስ", "ጀሞ",
-    "የካ", "ልደታ", "ቂርቆስ", "አዲስ ከተማ", "ንፋስ ስልክ ላፍቶ",
-    "ኮልፌ ቀራኒዮ", "አቃቂ ቃሊቲ", "ጉሌሌ",
-]
-
-SPECIALTIES = ["🚗 መኪና", "🏠 ቤት/ቦታ", "🔄 ሁለቱም"]
-
-CAR_SUB_CATEGORIES = ["🚗 የቤት መኪና", "🚚 የሥራ መኪና", "🚜 ከባድ ተሽከርካሪ/ማሽን"]
-HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየም", "🏢 ሪል እስቴት", "🏞️ መሬት/ቦታ"]
-PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
-FUEL_TYPES = ["⛽ ቤንዚን", "🛢️ ናፍጣ", "⚡ ኤሌክትሪክ", "🔋 ሀይብሪድ"]
-TRANSMISSION_TYPES = ["🕹️ ማንዋል", "🤖 ኦቶማቲክ"]
-CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈልግ"]
-
-SUPPORT_ADMIN_URL = "https://t.me/AdikaSupport"
-SUPPORT_ADMIN_HANDLE = "@AdikaSupport"
-
-MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
+# Feature flags / limits
+MAX_PHOTOS_PER_LISTING: int = 5
+MAX_IMAGE_SIZE_BYTES: int = 5 * 1024 * 1024  # 5 MB
+TEXT_PAGE_SIZE: int = 4
+AUTO_EXPIRE_DAYS: int = 30
