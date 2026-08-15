@@ -399,8 +399,7 @@ def update_listing_status(req_id: int, status: str) -> bool:
         cursor = conn.cursor()
         p = get_placeholder()
         cursor.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
-        if not DATABASE_URL:
-            conn.commit()
+        conn.commit()
         logger.info(f"✅ Listing {req_id} status updated to {status}")
         return True
     except Exception as e:
@@ -846,84 +845,161 @@ def save_broker_offer(request_id: int, broker_id: int, description: str, photo_i
 # ========== RATINGS ==========
 
 def add_broker_rating(broker_chat_id, user_chat_id, stars) -> bool:
-    """Upsert rating and refresh average on brokers table."""
+    """Save 1-5 star rating and refresh broker average. Always commits."""
     conn = None
     try:
         broker_chat_id = int(broker_chat_id)
         user_chat_id = int(user_chat_id)
-        stars = int(stars)
-        if stars < 1 or stars > 5:
-            return False
+        stars = max(1, min(5, int(stars)))
 
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
 
-        # Ensure ratings table exists
-        try:
-            if DATABASE_URL:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS ratings (
-                        id SERIAL PRIMARY KEY,
-                        broker_chat_id BIGINT NOT NULL,
-                        user_chat_id BIGINT NOT NULL,
-                        stars INT NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(broker_chat_id, user_chat_id)
-                    )
-                """)
+        if DATABASE_URL:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ratings (
+                    id SERIAL PRIMARY KEY,
+                    broker_chat_id BIGINT NOT NULL,
+                    user_chat_id BIGINT NOT NULL,
+                    stars INT NOT NULL CHECK (stars BETWEEN 1 AND 5),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (broker_chat_id, user_chat_id)
+                )
+            """)
+            try:
+                cur.execute("ALTER TABLE brokers ADD COLUMN IF NOT EXISTS rating REAL DEFAULT 5.0")
+                cur.execute("ALTER TABLE brokers ADD COLUMN IF NOT EXISTS total_ratings INT DEFAULT 0")
+            except Exception:
+                pass
+            # Upsert
+            cur.execute(
+                f"""
+                INSERT INTO ratings (broker_chat_id, user_chat_id, stars)
+                VALUES ({p}, {p}, {p})
+                ON CONFLICT (broker_chat_id, user_chat_id)
+                DO UPDATE SET stars = EXCLUDED.stars, created_at = CURRENT_TIMESTAMP
+                """,
+                (broker_chat_id, user_chat_id, stars),
+            )
+            cur.execute(
+                f"""
+                SELECT COALESCE(AVG(stars), 5.0) AS avg_stars,
+                       COUNT(*) AS total_count
+                FROM ratings WHERE broker_chat_id = {p}
+                """,
+                (broker_chat_id,),
+            )
+            result = cur.fetchone()
+            if isinstance(result, dict):
+                avg_stars = float(result.get("avg_stars") or 5.0)
+                total_count = int(result.get("total_count") or 0)
             else:
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS ratings (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        broker_chat_id INTEGER NOT NULL,
-                        user_chat_id INTEGER NOT NULL,
-                        stars INTEGER NOT NULL,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(broker_chat_id, user_chat_id)
-                    )
-                """)
-                conn.commit()
-        except Exception as te:
-            logger.warning(f"ratings table: {te}")
-
-        # Upsert: delete old then insert (works on both PG and SQLite)
-        cur.execute(
-            f"DELETE FROM ratings WHERE broker_chat_id = {p} AND user_chat_id = {p}",
-            (broker_chat_id, user_chat_id),
-        )
-        cur.execute(
-            f"INSERT INTO ratings (broker_chat_id, user_chat_id, stars) VALUES ({p}, {p}, {p})",
-            (broker_chat_id, user_chat_id, stars),
-        )
-        cur.execute(
-            f"SELECT AVG(stars) AS avg_stars, COUNT(*) AS total_count FROM ratings WHERE broker_chat_id = {p}",
-            (broker_chat_id,),
-        )
-        result = cur.fetchone()
-        if isinstance(result, dict):
-            avg_stars = float(result.get("avg_stars") or 5.0)
-            total_count = int(result.get("total_count") or 0)
-        else:
-            avg_stars = float(result[0] or 5.0)
-            total_count = int(result[1] or 0)
-
-        cur.execute(
-            f"UPDATE brokers SET rating = {p}, total_ratings = {p} WHERE chat_id = {p}",
-            (round(avg_stars, 1), total_count, broker_chat_id),
-        )
-        if not DATABASE_URL:
+                avg_stars = float(result[0] or 5.0)
+                total_count = int(result[1] or 0)
+            cur.execute(
+                f"UPDATE brokers SET rating = {p}, total_ratings = {p} WHERE chat_id = {p}",
+                (round(avg_stars, 1), total_count, broker_chat_id),
+            )
             conn.commit()
-        logger.info(f"rating ok broker={broker_chat_id} stars={stars} avg={avg_stars}")
+        else:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ratings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    broker_chat_id INTEGER NOT NULL,
+                    user_chat_id INTEGER NOT NULL,
+                    stars INTEGER NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE (broker_chat_id, user_chat_id)
+                )
+            """)
+            try:
+                cur.execute("ALTER TABLE brokers ADD COLUMN rating REAL DEFAULT 5.0")
+            except Exception:
+                pass
+            try:
+                cur.execute("ALTER TABLE brokers ADD COLUMN total_ratings INTEGER DEFAULT 0")
+            except Exception:
+                pass
+            cur.execute(
+                "DELETE FROM ratings WHERE broker_chat_id = ? AND user_chat_id = ?",
+                (broker_chat_id, user_chat_id),
+            )
+            cur.execute(
+                "INSERT INTO ratings (broker_chat_id, user_chat_id, stars) VALUES (?, ?, ?)",
+                (broker_chat_id, user_chat_id, stars),
+            )
+            cur.execute(
+                "SELECT AVG(stars) AS avg_stars, COUNT(*) AS total_count FROM ratings WHERE broker_chat_id = ?",
+                (broker_chat_id,),
+            )
+            result = cur.fetchone()
+            if isinstance(result, dict):
+                avg_stars = float(result.get("avg_stars") or 5.0)
+                total_count = int(result.get("total_count") or 0)
+            else:
+                avg_stars = float(result[0] or 5.0)
+                total_count = int(result[1] or 0)
+            cur.execute(
+                "UPDATE brokers SET rating = ?, total_ratings = ? WHERE chat_id = ?",
+                (round(avg_stars, 1), total_count, broker_chat_id),
+            )
+            conn.commit()
+
+        logger.info(
+            f"✅ rating broker={broker_chat_id} by={user_chat_id} "
+            f"stars={stars} avg={avg_stars} n={total_count}"
+        )
         return True
     except Exception as e:
         logger.error(f"add_broker_rating error: {e}", exc_info=True)
-        if conn and not DATABASE_URL:
+        if conn:
             try:
                 conn.rollback()
             except Exception:
                 pass
         return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def increment_listing_views(listing_id: int, amount: int = 1) -> int:
+    """Increment view_count and return new value."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        listing_id = int(listing_id)
+        amount = int(amount)
+        if DATABASE_URL:
+            cur.execute(
+                f"UPDATE listings SET view_count = COALESCE(view_count, 0) + {p} WHERE id = {p} RETURNING view_count",
+                (amount, listing_id),
+            )
+            row = cur.fetchone()
+            conn.commit()
+            if not row:
+                return 0
+            return int(row["view_count"] if isinstance(row, dict) else row[0])
+        else:
+            cur.execute(
+                "UPDATE listings SET view_count = COALESCE(view_count, 0) + ? WHERE id = ?",
+                (amount, listing_id),
+            )
+            conn.commit()
+            cur.execute("SELECT view_count FROM listings WHERE id = ?", (listing_id,))
+            row = cur.fetchone()
+            if not row:
+                return 0
+            return int(row["view_count"] if isinstance(row, dict) else row[0])
+    except Exception as e:
+        logger.error(f"increment_listing_views: {e}")
+        return 0
     finally:
         if conn:
             try:
