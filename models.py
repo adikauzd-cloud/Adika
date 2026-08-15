@@ -6,7 +6,7 @@ import random
 from typing import Optional, List, Dict, Any
 
 import psycopg2
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, Json
 import sqlite3
 
 from config import (
@@ -546,42 +546,76 @@ def add_broker(
     specialty="",
 ) -> Optional[int]:
     """
-    Insert or update a broker row.
-    Columns: chat_id, full_name, phone, role_type, national_id_photo,
-              sub_city, specialty, notification_prefs, status, created_at
-    Returns broker id or None on failure.
+    Insert or update broker. Schema uses chat_id (BIGINT), not telegram_id.
+    Returns broker primary key id, or None on failure.
     """
     conn = None
     try:
+        chat_id = int(chat_id)
+        full_name = (str(full_name).strip() if full_name else "User")[:200]
+        phone = (str(phone).strip() if phone else "")[:40]
+        role_type = (str(role_type).strip() if role_type else "ደላላ")[:80]
+        sub_city = (str(sub_city).strip() if sub_city else "")[:80]
+        specialty = (str(specialty).strip() if specialty else "")[:120]
+        photo = str(national_id_photo) if national_id_photo else None
+        prefs_dict = {"car": True, "house": True, "enabled": True}
+
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
-        chat_id = int(chat_id)
-        full_name = str(full_name or "User")[:200]
-        phone = str(phone or "")[:40]
-        role_type = str(role_type or "ደላላ")[:80]
-        sub_city = str(sub_city or "")[:80]
-        specialty = str(specialty or "")[:120]
-        photo = str(national_id_photo) if national_id_photo else None
-        prefs = json.dumps({"car": True, "house": True, "enabled": True})
+
+        # Ensure specialty column exists (migration safety)
+        try:
+            if DATABASE_URL:
+                cur.execute("ALTER TABLE brokers ADD COLUMN IF NOT EXISTS specialty TEXT DEFAULT ''")
+            else:
+                try:
+                    cur.execute("ALTER TABLE brokers ADD COLUMN specialty TEXT DEFAULT ''")
+                    conn.commit()
+                except Exception:
+                    pass
+        except Exception as mig_e:
+            logger.warning(f"specialty migration: {mig_e}")
 
         cur.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
         existing = cur.fetchone()
-
+        existing_id = None
         if existing:
             existing_id = existing["id"] if isinstance(existing, dict) else existing[0]
-            if DATABASE_URL:
+
+        if DATABASE_URL:
+            prefs_val = Json(prefs_dict)
+            if existing_id is not None:
                 cur.execute(
                     f"""UPDATE brokers SET
-                        full_name={p}, phone={p}, role_type={p},
-                        national_id_photo={p}, sub_city={p}, specialty={p},
-                        status='pending'
-                        WHERE chat_id={p} RETURNING id""",
+                            full_name = {p},
+                            phone = {p},
+                            role_type = {p},
+                            national_id_photo = {p},
+                            sub_city = {p},
+                            specialty = {p},
+                            status = 'pending'
+                        WHERE chat_id = {p}
+                        RETURNING id""",
                     (full_name, phone, role_type, photo, sub_city, specialty, chat_id),
                 )
-                row = cur.fetchone()
-                broker_id = (row["id"] if isinstance(row, dict) else row[0]) if row else existing_id
             else:
+                cur.execute(
+                    f"""INSERT INTO brokers
+                        (chat_id, full_name, phone, role_type, national_id_photo,
+                         sub_city, specialty, notification_prefs, status)
+                        VALUES ({p},{p},{p},{p},{p},{p},{p},{p},'pending')
+                        RETURNING id""",
+                    (chat_id, full_name, phone, role_type, photo, sub_city, specialty, prefs_val),
+                )
+            row = cur.fetchone()
+            if not row:
+                logger.error("add_broker: no RETURNING row")
+                return existing_id
+            broker_id = row["id"] if isinstance(row, dict) else row[0]
+        else:
+            prefs_json = json.dumps(prefs_dict, ensure_ascii=False)
+            if existing_id is not None:
                 cur.execute(
                     """UPDATE brokers SET
                         full_name=?, phone=?, role_type=?,
@@ -591,34 +625,21 @@ def add_broker(
                     (full_name, phone, role_type, photo, sub_city, specialty, chat_id),
                 )
                 broker_id = existing_id
-                conn.commit()
-        else:
-            if DATABASE_URL:
-                cur.execute(
-                    f"""INSERT INTO brokers
-                        (chat_id, full_name, phone, role_type, national_id_photo,
-                         sub_city, specialty, notification_prefs, status)
-                        VALUES ({p},{p},{p},{p},{p},{p},{p},{p},'pending')
-                        RETURNING id""",
-                    (chat_id, full_name, phone, role_type, photo, sub_city, specialty, prefs),
-                )
-                row = cur.fetchone()
-                if not row:
-                    logger.error("add_broker INSERT returned no row")
-                    return None
-                broker_id = row["id"] if isinstance(row, dict) else row[0]
             else:
                 cur.execute(
                     """INSERT INTO brokers
                        (chat_id, full_name, phone, role_type, national_id_photo,
                         sub_city, specialty, notification_prefs, status)
                        VALUES (?,?,?,?,?,?,?,?, 'pending')""",
-                    (chat_id, full_name, phone, role_type, photo, sub_city, specialty, prefs),
+                    (chat_id, full_name, phone, role_type, photo, sub_city, specialty, prefs_json),
                 )
                 broker_id = cur.lastrowid
-                conn.commit()
+            conn.commit()
 
-        logger.info(f"✅ Broker saved id={broker_id} chat_id={chat_id}")
+        logger.info(
+            f"✅ Broker saved id={broker_id} chat_id={chat_id} "
+            f"sub_city={sub_city!r} specialty={specialty!r}"
+        )
         return int(broker_id) if broker_id is not None else None
     except Exception as e:
         logger.error(f"add_broker FAILED: {e}", exc_info=True)
