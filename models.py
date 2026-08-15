@@ -1,21 +1,31 @@
-# ==============================================================================
-# models.py — Database schema, connection, CRUD
-# ==============================================================================
+# models.py
+"""
+Adika Marketplace - Database Layer
+PostgreSQL (preferred) + SQLite fallback.
+Connection helpers + all CRUD operations.
+"""
+
 import json
+import logging
 import random
-from typing import Optional, List, Dict, Any
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 import psycopg2
-from psycopg2.extras import RealDictCursor, Json
+from psycopg2.extras import RealDictCursor
 import sqlite3
 
-from config import (
-    DATABASE_URL, DB_FILE, logger,
-    VIEW_BASELINE_MIN, VIEW_BASELINE_MAX,
-)
+from config import DATABASE_URL, DB_FILE, ADMIN_CHAT_ID_INT
 
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Connection helpers
+# ---------------------------------------------------------------------------
 
 def get_db_connection():
+    """Return a live connection (PostgreSQL or SQLite)."""
     if DATABASE_URL:
         conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
         conn.autocommit = True
@@ -29,24 +39,26 @@ def get_placeholder() -> str:
     return "%s" if DATABASE_URL else "?"
 
 
-def _row_to_dict(row, cursor=None) -> Optional[dict]:
+def _row_to_dict(row, cursor=None) -> Dict[str, Any]:
     if row is None:
-        return None
+        return {}
     if isinstance(row, dict):
         return dict(row)
-    if cursor is not None:
+    if cursor and hasattr(cursor, "description"):
         return dict(zip([c[0] for c in cursor.description], row))
-    try:
-        return dict(row)
-    except Exception:
-        return None
+    return dict(row)
 
 
-def init_db():
+# ---------------------------------------------------------------------------
+# Schema initialisation
+# ---------------------------------------------------------------------------
+
+def init_db() -> None:
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
+
         if DATABASE_URL:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS listings (
@@ -71,18 +83,16 @@ def init_db():
                     id SERIAL PRIMARY KEY,
                     chat_id BIGINT NOT NULL UNIQUE,
                     full_name TEXT NOT NULL,
-                    phone TEXT DEFAULT '',
-                    username TEXT DEFAULT '',
+                    phone TEXT NOT NULL,
                     role_type TEXT NOT NULL,
                     national_id_photo TEXT,
                     sub_city TEXT NOT NULL,
-                    specialty TEXT DEFAULT '',
                     rating REAL DEFAULT 5.0,
                     total_ratings INT DEFAULT 0,
                     completed_deals INT DEFAULT 0,
-                    is_online BOOLEAN DEFAULT TRUE,
-                    notification_prefs JSONB DEFAULT '{"car": true, "house": true, "enabled": true}',
+                    notification_prefs JSONB DEFAULT '{"car": true, "house": true, "price_min": 0, "price_max": 999999999, "enabled": true}',
                     status TEXT DEFAULT 'pending',
+                    is_online BOOLEAN DEFAULT TRUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
                 CREATE TABLE IF NOT EXISTS ratings (
@@ -116,22 +126,8 @@ def init_db():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            for stmt in (
-                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0;",
-                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS specialty TEXT DEFAULT '';",
-                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS completed_deals INT DEFAULT 0;",
-                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT TRUE;",
-                "CREATE INDEX IF NOT EXISTS idx_listings_status_type ON listings(status, req_type);",
-                "CREATE INDEX IF NOT EXISTS idx_listings_created ON listings(created_at DESC);",
-                "CREATE INDEX IF NOT EXISTS idx_brokers_status ON brokers(status);",
-                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS username TEXT DEFAULT '';",
-                "ALTER TABLE brokers ALTER COLUMN phone DROP NOT NULL;",
-            ):
-                try:
-                    cur.execute(stmt)
-                except Exception as e:
-                    logger.warning(f"migration: {e}")
         else:
+            # SQLite schema
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS listings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,38 +153,40 @@ def init_db():
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     chat_id INTEGER NOT NULL UNIQUE,
                     full_name TEXT NOT NULL,
-                    phone TEXT DEFAULT '',
-                    username TEXT DEFAULT '',
+                    phone TEXT NOT NULL,
                     role_type TEXT NOT NULL,
                     national_id_photo TEXT,
                     sub_city TEXT NOT NULL,
-                    specialty TEXT DEFAULT '',
                     rating REAL DEFAULT 5.0,
                     total_ratings INTEGER DEFAULT 0,
                     completed_deals INTEGER DEFAULT 0,
-                    is_online INTEGER DEFAULT 1,
-                    notification_prefs TEXT DEFAULT '{"car": true, "house": true, "enabled": true}',
+                    notification_prefs TEXT DEFAULT '{"car": true, "house": true, "price_min": 0, "price_max": 999999999, "enabled": true}',
                     status TEXT DEFAULT 'pending',
+                    is_online INTEGER DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
-            for tbl in (
-                """CREATE TABLE IF NOT EXISTS ratings (
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS ratings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     broker_chat_id INTEGER NOT NULL,
                     user_chat_id INTEGER NOT NULL,
                     stars INTEGER NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );""",
-                """CREATE TABLE IF NOT EXISTS broker_offers (
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS broker_offers (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     request_id INTEGER NOT NULL,
                     broker_id INTEGER NOT NULL,
                     description TEXT,
                     photo_id TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );""",
-                """CREATE TABLE IF NOT EXISTS search_alerts (
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS search_alerts (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_chat_id INTEGER NOT NULL,
                     main_category TEXT NOT NULL,
@@ -196,118 +194,147 @@ def init_db():
                     budget_max TEXT,
                     is_active INTEGER DEFAULT 1,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );""",
-                """CREATE TABLE IF NOT EXISTS listing_photos (
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS listing_photos (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     listing_id INTEGER NOT NULL,
                     photo_id TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );""",
-            ):
-                cur.execute(tbl)
-            for col_sql in (
-                "ALTER TABLE listings ADD COLUMN view_count INTEGER DEFAULT 0;",
-                "ALTER TABLE brokers ADD COLUMN specialty TEXT DEFAULT '';",
-                "ALTER TABLE brokers ADD COLUMN completed_deals INTEGER DEFAULT 0;",
-                "ALTER TABLE brokers ADD COLUMN is_online INTEGER DEFAULT 1;",
-                "ALTER TABLE brokers ADD COLUMN username TEXT DEFAULT '';",
-            ):
-                try:
-                    cur.execute(col_sql)
-                except Exception:
-                    pass
+                );
+            """)
             conn.commit()
-        logger.info("✅ Database initialized")
+
+        # Safe ALTER for older DBs
+        try:
+            if DATABASE_URL:
+                cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS extra_data JSONB DEFAULT '{}';")
+                cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0;")
+                cur.execute("ALTER TABLE brokers ADD COLUMN IF NOT EXISTS completed_deals INT DEFAULT 0;")
+                cur.execute("ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT TRUE;")
+            else:
+                for col, typ in [
+                    ("extra_data", "TEXT DEFAULT '{}'"),
+                    ("view_count", "INTEGER DEFAULT 0"),
+                ]:
+                    try:
+                        cur.execute(f"ALTER TABLE listings ADD COLUMN {col} {typ};")
+                    except Exception:
+                        pass
+                for col, typ in [
+                    ("completed_deals", "INTEGER DEFAULT 0"),
+                    ("is_online", "INTEGER DEFAULT 1"),
+                ]:
+                    try:
+                        cur.execute(f"ALTER TABLE brokers ADD COLUMN {col} {typ};")
+                    except Exception:
+                        pass
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"ALTER TABLE warning: {e}")
+
+        logger.info("✅ Database initialised successfully")
     except Exception as e:
-        logger.error(f"❌ init_db: {e}", exc_info=True)
+        logger.error(f"❌ Database init error: {e}", exc_info=True)
         if conn and not DATABASE_URL:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
+            conn.rollback()
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
 
 
-# ---------- Listings ----------
+# ---------------------------------------------------------------------------
+# Listings CRUD
+# ---------------------------------------------------------------------------
 
 def add_listing(
-    user_chat_id, user_name, req_type, main_category, sub_category,
-    action_type, property_type, description, price=None, phone=None,
-    photo_id=None, extra_data=None, photos=None,
+    user_chat_id: int,
+    user_name: str,
+    req_type: str,
+    main_category: str,
+    sub_category: str = "",
+    action_type: str = "",
+    property_type: str = "",
+    description: str = "",
+    price: Optional[str] = None,
+    phone: Optional[str] = None,
+    photo_id: Optional[str] = None,
+    extra_data: Optional[Dict] = None,
+    photos: Optional[List[str]] = None,
 ) -> Optional[int]:
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
+
         extra_json = json.dumps(extra_data or {}, ensure_ascii=False)
-        baseline = random.randint(VIEW_BASELINE_MIN, VIEW_BASELINE_MAX)
-        params = (
-            int(user_chat_id or 0),
-            str(user_name or "User"),
-            str(req_type or "BUY").upper(),
-            str(main_category or "መኪና"),
-            str(sub_category or ""),
-            str(action_type or ""),
-            str(property_type or ""),
-            str(description or ""),
-            str(price or ""),
-            str(phone or ""),
-            str(photo_id) if photo_id else None,
-            extra_json,
-            baseline,
-        )
-        q = f"""
-            INSERT INTO listings
-            (user_chat_id, user_name, req_type, main_category, sub_category,
-             action_type, property_type, description, price, phone, photo_id,
-             extra_data, status, view_count)
-            VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},'pending',{p})
-        """
+        # Random baseline view count 35-90
+        baseline_views = random.randint(35, 90)
+
         if DATABASE_URL:
-            cur.execute(q + " RETURNING id", params)
+            cur.execute(
+                f"""
+                INSERT INTO listings
+                (user_chat_id, user_name, req_type, main_category, sub_category,
+                 action_type, property_type, description, price, phone, photo_id,
+                 extra_data, status, view_count)
+                VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p}::jsonb,'pending',{p})
+                RETURNING id
+                """,
+                (
+                    int(user_chat_id), str(user_name or "User"),
+                    str(req_type).upper(), str(main_category),
+                    str(sub_category or ""), str(action_type or ""),
+                    str(property_type or ""), str(description),
+                    str(price or ""), str(phone or ""),
+                    photo_id, extra_json, baseline_views,
+                ),
+            )
             row = cur.fetchone()
-            req_id = row["id"] if isinstance(row, dict) else row[0]
+            listing_id = row["id"] if isinstance(row, dict) else row[0]
         else:
-            cur.execute(q, params)
-            req_id = cur.lastrowid
+            cur.execute(
+                f"""
+                INSERT INTO listings
+                (user_chat_id, user_name, req_type, main_category, sub_category,
+                 action_type, property_type, description, price, phone, photo_id,
+                 extra_data, status, view_count)
+                VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},{p},'pending',{p})
+                """,
+                (
+                    int(user_chat_id), str(user_name or "User"),
+                    str(req_type).upper(), str(main_category),
+                    str(sub_category or ""), str(action_type or ""),
+                    str(property_type or ""), str(description),
+                    str(price or ""), str(phone or ""),
+                    photo_id, extra_json, baseline_views,
+                ),
+            )
+            listing_id = cur.lastrowid
             conn.commit()
 
-        if photos and req_id:
-            for photo in photos:
-                try:
-                    cur.execute(
-                        f"INSERT INTO listing_photos (listing_id, photo_id) VALUES ({p},{p})",
-                        (req_id, str(photo)),
-                    )
-                except Exception as pe:
-                    logger.error(f"photo save: {pe}")
+        # Multi-photo support
+        if photos and listing_id:
+            for ph in photos[:5]:
+                cur.execute(
+                    f"INSERT INTO listing_photos (listing_id, photo_id) VALUES ({p},{p})",
+                    (listing_id, ph),
+                )
             if not DATABASE_URL:
                 conn.commit()
-        logger.info(f"✅ Listing #ADK-{req_id}")
-        return req_id
+
+        return listing_id
     except Exception as e:
-        logger.error(f"add_listing: {e}", exc_info=True)
-        if conn and not DATABASE_URL:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
+        logger.error(f"add_listing error: {e}", exc_info=True)
         return None
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
 
 
-def get_listing_by_id(listing_id: int) -> Optional[dict]:
+def get_listing_by_id(listing_id: int) -> Optional[Dict]:
     conn = None
     try:
         conn = get_db_connection()
@@ -315,193 +342,162 @@ def get_listing_by_id(listing_id: int) -> Optional[dict]:
         p = get_placeholder()
         cur.execute(f"SELECT * FROM listings WHERE id = {p}", (listing_id,))
         row = cur.fetchone()
-        result = _row_to_dict(row, cur)
-        if not result:
+        if not row:
             return None
-        if isinstance(result.get("extra_data"), str):
+        item = _row_to_dict(row, cur)
+        if isinstance(item.get("extra_data"), str):
             try:
-                result["extra_data"] = json.loads(result["extra_data"])
+                item["extra_data"] = json.loads(item["extra_data"])
             except Exception:
-                result["extra_data"] = {}
+                item["extra_data"] = {}
+        # photos
         cur.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (listing_id,))
-        photos = cur.fetchall()
-        result["photos"] = [
-            (r["photo_id"] if isinstance(r, dict) else r[0]) for r in photos
-        ]
-        if not result["photos"] and result.get("photo_id"):
-            result["photos"] = [result["photo_id"]]
-        return result
+        photos = [r["photo_id"] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
+        if not photos and item.get("photo_id"):
+            photos = [item["photo_id"]]
+        item["photos"] = photos
+        return item
     except Exception as e:
-        logger.error(f"get_listing_by_id: {e}")
+        logger.error(f"get_listing_by_id error: {e}")
         return None
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
 
 
 def get_listings_by_category_ordered(
-    limit=20, offset=0, req_type=None, order="DESC"
-) -> List[dict]:
+    limit: int = 12,
+    offset: int = 0,
+    req_type: Optional[str] = None,
+    category: Optional[str] = None,
+    order: str = "DESC",
+    active_only: bool = True,
+) -> List[Dict]:
+    """Always ORDER BY created_at DESC (newest first)."""
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
-        order_sql = "ASC" if str(order).upper() == "ASC" else "DESC"
+
+        where = ["status != 'deleted'"]
+        params: List[Any] = []
+
+        if active_only:
+            where.append("status NOT IN ('sold','rented','expired')")
         if req_type:
-            cur.execute(
-                f"""SELECT * FROM listings
-                    WHERE status = 'pending' AND UPPER(req_type) = UPPER({p})
-                    ORDER BY created_at {order_sql}
-                    LIMIT {p} OFFSET {p}""",
-                (req_type, limit, offset),
-            )
-        else:
-            cur.execute(
-                f"""SELECT * FROM listings WHERE status = 'pending'
-                    ORDER BY created_at {order_sql} LIMIT {p} OFFSET {p}""",
-                (limit, offset),
-            )
+            where.append(f"UPPER(req_type) = UPPER({p})")
+            params.append(req_type)
+        if category:
+            where.append(f"main_category = {p}")
+            params.append(category)
+
+        where_sql = " AND ".join(where)
+        order_sql = "DESC" if order.upper() != "ASC" else "ASC"
+
+        cur.execute(
+            f"""
+            SELECT * FROM listings
+            WHERE {where_sql}
+            ORDER BY created_at {order_sql}
+            LIMIT {p} OFFSET {p}
+            """,
+            params + [limit, offset],
+        )
         rows = cur.fetchall()
-        results = []
+        items = []
         for row in rows:
             item = _row_to_dict(row, cur)
-            if item and isinstance(item.get("extra_data"), str):
+            if isinstance(item.get("extra_data"), str):
                 try:
                     item["extra_data"] = json.loads(item["extra_data"])
                 except Exception:
                     item["extra_data"] = {}
-            results.append(item)
-        return results
+            # photos
+            cur.execute(
+                f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}",
+                (item["id"],),
+            )
+            photos = [r["photo_id"] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
+            if not photos and item.get("photo_id"):
+                photos = [item["photo_id"]]
+            item["photos"] = photos
+            if item.get("view_count") is None:
+                item["view_count"] = 0
+            items.append(item)
+        return items
     except Exception as e:
-        logger.error(f"get_listings_by_category_ordered: {e}")
+        logger.error(f"get_listings_by_category_ordered error: {e}", exc_info=True)
         return []
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
 
 
-def count_listings(req_type=None) -> int:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        if req_type:
-            p = get_placeholder()
-            cur.execute(
-                f"SELECT COUNT(*) as cnt FROM listings WHERE status='pending' AND UPPER(req_type)=UPPER({p})",
-                (req_type,),
-            )
-        else:
-            cur.execute("SELECT COUNT(*) as cnt FROM listings WHERE status='pending'")
-        row = cur.fetchone()
-        if isinstance(row, dict):
-            return int(row.get("cnt") or 0)
-        return int(row[0]) if row else 0
-    except Exception as e:
-        logger.error(f"count_listings: {e}")
-        return 0
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-
-def update_listing_status(req_id: int, status: str) -> bool:
+def count_listings(req_type: Optional[str] = None, active_only: bool = True) -> int:
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
-        cur.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, req_id))
+        where = ["status != 'deleted'"]
+        params = []
+        if active_only:
+            where.append("status NOT IN ('sold','rented','expired')")
+        if req_type:
+            where.append(f"UPPER(req_type) = UPPER({p})")
+            params.append(req_type)
+        cur.execute(f"SELECT COUNT(*) as cnt FROM listings WHERE {' AND '.join(where)}", params)
+        row = cur.fetchone()
+        return int(row["cnt"] if isinstance(row, dict) else row[0] or 0)
+    except Exception as e:
+        logger.error(f"count_listings error: {e}")
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
+
+def update_listing_status(listing_id: int, status: str) -> bool:
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        cur.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (status, listing_id))
         if not DATABASE_URL:
             conn.commit()
         return True
     except Exception as e:
-        logger.error(f"update_listing_status: {e}")
+        logger.error(f"update_listing_status error: {e}")
         return False
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
 
 
-def increment_views(listing_ids: List[int], amount: int = 1) -> Dict[int, int]:
-    result = {}
-    if not listing_ids:
-        return result
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        p = get_placeholder()
-        for lid in listing_ids:
-            try:
-                cur.execute(
-                    f"UPDATE listings SET view_count = COALESCE(view_count,0) + {int(amount)} WHERE id = {p}",
-                    (lid,),
-                )
-                cur.execute(f"SELECT view_count FROM listings WHERE id = {p}", (lid,))
-                row = cur.fetchone()
-                if row is not None:
-                    result[lid] = row["view_count"] if isinstance(row, dict) else row[0]
-            except Exception as e:
-                logger.warning(f"view +{amount} failed {lid}: {e}")
-        if not DATABASE_URL:
-            conn.commit()
-    except Exception as e:
-        logger.error(f"increment_views: {e}")
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
-    return result
-
-
-def get_public_marketplace_items(limit=20, offset=0) -> List[dict]:
+def increment_view_count(listing_id: int, amount: int = 1) -> int:
+    """Increment view_count. Returns new count."""
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
         cur.execute(
-            f"""SELECT * FROM listings
-                WHERE UPPER(req_type)='SELL' AND status != 'deleted'
-                ORDER BY created_at DESC LIMIT {p} OFFSET {p}""",
-            (limit, offset),
+            f"UPDATE listings SET view_count = COALESCE(view_count, 0) + {int(amount)} WHERE id = {p}",
+            (listing_id,),
         )
-        rows = cur.fetchall()
-        out = []
-        for row in rows:
-            item = _row_to_dict(row, cur)
-            if item and isinstance(item.get("extra_data"), str):
-                try:
-                    item["extra_data"] = json.loads(item["extra_data"])
-                except Exception:
-                    item["extra_data"] = {}
-            out.append(item)
-        return out
+        cur.execute(f"SELECT view_count FROM listings WHERE id = {p}", (listing_id,))
+        row = cur.fetchone()
+        if not DATABASE_URL:
+            conn.commit()
+        return int(row["view_count"] if isinstance(row, dict) else row[0] or 0)
     except Exception as e:
-        logger.error(f"get_public_marketplace_items: {e}")
-        return []
+        logger.error(f"increment_view_count error: {e}")
+        return 0
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
 
 
 def expire_old_listings(days: int = 30) -> int:
@@ -511,190 +507,168 @@ def expire_old_listings(days: int = 30) -> int:
         cur = conn.cursor()
         if DATABASE_URL:
             cur.execute(
-                """UPDATE listings SET status='expired'
-                   WHERE status='pending'
-                     AND created_at < NOW() - make_interval(days => %s)""",
-                (int(days),),
+                """
+                UPDATE listings SET status = 'expired'
+                WHERE status = 'pending'
+                  AND created_at < (NOW() - INTERVAL '%s days')
+                """ % int(days)
             )
-            count = cur.rowcount or 0
+            count = cur.rowcount
         else:
             cur.execute(
-                """UPDATE listings SET status='expired'
-                   WHERE status='pending'
-                     AND created_at < datetime('now', ?)""",
+                """
+                UPDATE listings SET status = 'expired'
+                WHERE status = 'pending'
+                  AND created_at < datetime('now', ?)
+                """,
                 (f"-{int(days)} days",),
             )
-            count = cur.rowcount or 0
+            count = cur.rowcount
             conn.commit()
-        logger.info(f"🧹 expired {count} listings")
-        return count
+        logger.info(f"🧹 Auto-expiry: {count} listings marked expired")
+        return count or 0
     except Exception as e:
-        logger.error(f"expire_old_listings: {e}")
+        logger.error(f"expire_old_listings error: {e}")
         return 0
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
 
 
-# ---------- Brokers ----------
+# ---------------------------------------------------------------------------
+# Brokers
+# ---------------------------------------------------------------------------
 
 def add_broker(
-    chat_id,
-    full_name,
-    phone="",
-    role_type="ደላላ",
-    national_id_photo=None,
-    sub_city="",
-    specialty="",
-    username="",
+    chat_id: int,
+    full_name: str,
+    phone: str,
+    role_type: str,
+    national_id_photo: Optional[str],
+    sub_city: str,
 ) -> Optional[int]:
-    """
-    Insert/update broker.
-    Primary identity: chat_id (telegram_id).
-    phone is optional; username preferred for contact.
-    """
     conn = None
     try:
-        chat_id = int(chat_id)
-        full_name = (str(full_name).strip() if full_name else "User")[:200]
-        phone = (str(phone).strip() if phone else "")[:40]
-        username = (str(username).strip() if username else "")[:120]
-        role_type = (str(role_type).strip() if role_type else "ደላላ")[:80]
-        sub_city = (str(sub_city).strip() if sub_city else "")[:80]
-        specialty = (str(specialty).strip() if specialty else "")[:120]
-        photo = str(national_id_photo) if national_id_photo else None
-        prefs_dict = {"car": True, "house": True, "enabled": True}
-
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
-
-        # Safe migrations
-        try:
-            if DATABASE_URL:
-                cur.execute("ALTER TABLE brokers ADD COLUMN IF NOT EXISTS specialty TEXT DEFAULT ''")
-                cur.execute("ALTER TABLE brokers ADD COLUMN IF NOT EXISTS username TEXT DEFAULT ''")
-                try:
-                    cur.execute("ALTER TABLE brokers ALTER COLUMN phone DROP NOT NULL")
-                except Exception:
-                    pass
-            else:
-                for col_sql in (
-                    "ALTER TABLE brokers ADD COLUMN specialty TEXT DEFAULT ''",
-                    "ALTER TABLE brokers ADD COLUMN username TEXT DEFAULT ''",
-                ):
-                    try:
-                        cur.execute(col_sql)
-                        conn.commit()
-                    except Exception:
-                        pass
-        except Exception as mig_e:
-            logger.warning(f"broker migration: {mig_e}")
-
-        cur.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
-        existing = cur.fetchone()
-        existing_id = None
-        if existing:
-            existing_id = existing["id"] if isinstance(existing, dict) else existing[0]
-
         if DATABASE_URL:
-            prefs_val = Json(prefs_dict)
-            if existing_id is not None:
-                cur.execute(
-                    f"""UPDATE brokers SET
-                            full_name = {p},
-                            phone = {p},
-                            username = {p},
-                            role_type = {p},
-                            national_id_photo = {p},
-                            sub_city = {p},
-                            specialty = {p},
-                            status = 'pending'
-                        WHERE chat_id = {p}
-                        RETURNING id""",
-                    (full_name, phone, username, role_type, photo, sub_city, specialty, chat_id),
-                )
-            else:
-                cur.execute(
-                    f"""INSERT INTO brokers
-                        (chat_id, full_name, phone, username, role_type, national_id_photo,
-                         sub_city, specialty, notification_prefs, status)
-                        VALUES ({p},{p},{p},{p},{p},{p},{p},{p},{p},'pending')
-                        RETURNING id""",
-                    (chat_id, full_name, phone, username, role_type, photo,
-                     sub_city, specialty, prefs_val),
-                )
+            cur.execute(
+                f"""
+                INSERT INTO brokers (chat_id, full_name, phone, role_type, national_id_photo, sub_city)
+                VALUES ({p},{p},{p},{p},{p},{p})
+                ON CONFLICT (chat_id) DO UPDATE SET
+                    full_name = EXCLUDED.full_name,
+                    phone = EXCLUDED.phone,
+                    role_type = EXCLUDED.role_type,
+                    national_id_photo = EXCLUDED.national_id_photo,
+                    sub_city = EXCLUDED.sub_city,
+                    status = 'pending'
+                RETURNING id
+                """,
+                (chat_id, full_name, phone, role_type, national_id_photo, sub_city),
+            )
             row = cur.fetchone()
-            if not row:
-                logger.error("add_broker: no RETURNING row")
-                return existing_id
-            broker_id = row["id"] if isinstance(row, dict) else row[0]
+            return row["id"] if isinstance(row, dict) else row[0]
         else:
-            prefs_json = json.dumps(prefs_dict, ensure_ascii=False)
-            if existing_id is not None:
-                cur.execute(
-                    """UPDATE brokers SET
-                        full_name=?, phone=?, username=?, role_type=?,
-                        national_id_photo=?, sub_city=?, specialty=?,
-                        status='pending'
-                        WHERE chat_id=?""",
-                    (full_name, phone, username, role_type, photo, sub_city, specialty, chat_id),
-                )
-                broker_id = existing_id
-            else:
-                cur.execute(
-                    """INSERT INTO brokers
-                       (chat_id, full_name, phone, username, role_type, national_id_photo,
-                        sub_city, specialty, notification_prefs, status)
-                       VALUES (?,?,?,?,?,?,?,?,?, 'pending')""",
-                    (chat_id, full_name, phone, username, role_type, photo,
-                     sub_city, specialty, prefs_json),
-                )
-                broker_id = cur.lastrowid
+            cur.execute(
+                f"""
+                INSERT OR REPLACE INTO brokers
+                (chat_id, full_name, phone, role_type, national_id_photo, sub_city, status)
+                VALUES ({p},{p},{p},{p},{p},{p},'pending')
+                """,
+                (chat_id, full_name, phone, role_type, national_id_photo, sub_city),
+            )
             conn.commit()
-
-        logger.info(
-            f"✅ Broker saved id={broker_id} chat_id={chat_id} "
-            f"username={username!r} sub_city={sub_city!r} specialty={specialty!r}"
-        )
-        return int(broker_id) if broker_id is not None else None
+            return cur.lastrowid
     except Exception as e:
-        logger.error(f"add_broker FAILED: {e}", exc_info=True)
-        if conn and not DATABASE_URL:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
+        logger.error(f"add_broker error: {e}")
         return None
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
 
 
-
-def get_broker(chat_id: int) -> Optional[dict]:
+def get_broker(chat_id: int) -> Optional[Dict]:
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
         cur.execute(f"SELECT * FROM brokers WHERE chat_id = {p}", (chat_id,))
-        return _row_to_dict(cur.fetchone(), cur)
+        row = cur.fetchone()
+        if not row:
+            return None
+        b = _row_to_dict(row, cur)
+        if isinstance(b.get("notification_prefs"), str):
+            try:
+                b["notification_prefs"] = json.loads(b["notification_prefs"])
+            except Exception:
+                b["notification_prefs"] = {}
+        return b
     except Exception as e:
-        logger.error(f"get_broker: {e}")
+        logger.error(f"get_broker error: {e}")
         return None
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
+
+
+def get_approved_brokers() -> List[Dict]:
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM brokers WHERE status = 'approved' ORDER BY created_at DESC")
+        rows = cur.fetchall()
+        result = []
+        for row in rows:
+            b = _row_to_dict(row, cur)
+            if isinstance(b.get("notification_prefs"), str):
+                try:
+                    b["notification_prefs"] = json.loads(b["notification_prefs"])
+                except Exception:
+                    b["notification_prefs"] = {}
+            result.append(b)
+        return result
+    except Exception as e:
+        logger.error(f"get_approved_brokers error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
+def get_approved_brokers_directory(sub_city: Optional[str] = None) -> List[Dict]:
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        if sub_city and sub_city != "ሁሉም":
+            cur.execute(
+                f"SELECT * FROM brokers WHERE status = 'approved' AND sub_city = {p} ORDER BY created_at DESC",
+                (sub_city,),
+            )
+        else:
+            cur.execute("SELECT * FROM brokers WHERE status = 'approved' ORDER BY created_at DESC")
+        rows = cur.fetchall()
+        result = []
+        for row in rows:
+            b = _row_to_dict(row, cur)
+            if isinstance(b.get("notification_prefs"), str):
+                try:
+                    b["notification_prefs"] = json.loads(b["notification_prefs"])
+                except Exception:
+                    b["notification_prefs"] = {}
+            result.append(b)
+        return result
+    except Exception as e:
+        logger.error(f"get_approved_brokers_directory error: {e}")
+        return []
+    finally:
+        if conn:
+            conn.close()
 
 
 def update_broker_status(chat_id: int, status: str) -> bool:
@@ -703,163 +677,46 @@ def update_broker_status(chat_id: int, status: str) -> bool:
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
-        cur.execute(f"UPDATE brokers SET status = {p} WHERE chat_id = {p}", (status.lower(), chat_id))
+        cur.execute(f"UPDATE brokers SET status = {p} WHERE chat_id = {p}", (status, chat_id))
         if not DATABASE_URL:
             conn.commit()
         return True
     except Exception as e:
-        logger.error(f"update_broker_status: {e}")
+        logger.error(f"update_broker_status error: {e}")
         return False
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
 
 
-def update_broker_notification_prefs(chat_id: int, prefs: dict) -> bool:
+def update_broker_notification_prefs(chat_id: int, prefs: Dict) -> bool:
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
-        cur.execute(
-            f"UPDATE brokers SET notification_prefs = {p} WHERE chat_id = {p}",
-            (json.dumps(prefs, ensure_ascii=False), chat_id),
-        )
-        if not DATABASE_URL:
-            conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"update_broker_notification_prefs: {e}")
-        return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-
-def get_approved_brokers() -> List[dict]:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT * FROM brokers WHERE status = 'approved' ORDER BY created_at DESC")
-        rows = cur.fetchall()
-        results = []
-        for row in rows:
-            b = _row_to_dict(row, cur)
-            if b and isinstance(b.get("notification_prefs"), str):
-                try:
-                    b["notification_prefs"] = json.loads(b["notification_prefs"])
-                except Exception:
-                    b["notification_prefs"] = {"car": True, "house": True, "enabled": True}
-            results.append(b)
-        return results
-    except Exception as e:
-        logger.error(f"get_approved_brokers: {e}")
-        return []
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-
-def get_approved_brokers_directory(sub_city=None) -> List[dict]:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        p = get_placeholder()
-        if sub_city and sub_city != "ሁሉም":
+        prefs_json = json.dumps(prefs)
+        if DATABASE_URL:
             cur.execute(
-                f"""SELECT * FROM brokers WHERE status='approved' AND sub_city={p}
-                    ORDER BY created_at DESC""",
-                (sub_city,),
+                f"UPDATE brokers SET notification_prefs = {p}::jsonb WHERE chat_id = {p}",
+                (prefs_json, chat_id),
             )
         else:
             cur.execute(
-                "SELECT * FROM brokers WHERE status='approved' ORDER BY created_at DESC"
+                f"UPDATE brokers SET notification_prefs = {p} WHERE chat_id = {p}",
+                (prefs_json, chat_id),
             )
-        rows = cur.fetchall()
-        return [_row_to_dict(r, cur) for r in rows]
-    except Exception as e:
-        logger.error(f"get_approved_brokers_directory: {e}")
-        return []
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-
-def delete_broker(chat_id: int) -> bool:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        p = get_placeholder()
-        cur.execute(f"DELETE FROM brokers WHERE chat_id = {p}", (chat_id,))
-        if not DATABASE_URL:
             conn.commit()
         return True
     except Exception as e:
-        logger.error(f"delete_broker: {e}")
+        logger.error(f"update_broker_notification_prefs error: {e}")
         return False
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
 
 
-def add_broker_rating(broker_chat_id, user_chat_id, stars) -> bool:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        p = get_placeholder()
-        cur.execute(
-            f"INSERT INTO ratings (broker_chat_id, user_chat_id, stars) VALUES ({p},{p},{p})",
-            (broker_chat_id, user_chat_id, stars),
-        )
-        cur.execute(
-            f"SELECT AVG(stars) as avg_stars, COUNT(*) as total_count FROM ratings WHERE broker_chat_id={p}",
-            (broker_chat_id,),
-        )
-        result = cur.fetchone()
-        if isinstance(result, dict):
-            avg_stars = result.get("avg_stars") or 5.0
-            total_count = result.get("total_count") or 0
-        else:
-            avg_stars = result[0] if result and result[0] else 5.0
-            total_count = result[1] if result and result[1] else 0
-        cur.execute(
-            f"UPDATE brokers SET rating={p}, total_ratings={p} WHERE chat_id={p}",
-            (round(float(avg_stars), 1), total_count, broker_chat_id),
-        )
-        if not DATABASE_URL:
-            conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"add_broker_rating: {e}")
-        return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-
-def save_broker_offer(request_id, broker_id, description, photo_id=None) -> bool:
+def save_broker_offer(request_id: int, broker_id: int, description: str, photo_id: Optional[str] = None) -> bool:
     conn = None
     try:
         conn = get_db_connection()
@@ -873,40 +730,67 @@ def save_broker_offer(request_id, broker_id, description, photo_id=None) -> bool
             conn.commit()
         return True
     except Exception as e:
-        logger.error(f"save_broker_offer: {e}")
+        logger.error(f"save_broker_offer error: {e}")
         return False
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
 
 
-def save_search_alert(user_chat_id, main_category, budget_min, budget_max) -> int:
+def save_search_alert(user_chat_id: int, category: str, budget_min: str, budget_max: str) -> bool:
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
         cur.execute(
-            f"""INSERT INTO search_alerts (user_chat_id, main_category, budget_min, budget_max)
-                VALUES ({p},{p},{p},{p})""",
-            (user_chat_id, main_category, budget_min or "", budget_max or ""),
+            f"""
+            INSERT INTO search_alerts (user_chat_id, main_category, budget_min, budget_max)
+            VALUES ({p},{p},{p},{p})
+            """,
+            (user_chat_id, category, budget_min, budget_max),
         )
-        if DATABASE_URL:
-            cur.execute("SELECT lastval()")
-            row = cur.fetchone()
-            return (list(row.values())[0] if isinstance(row, dict) else row[0]) or 0
-        alert_id = cur.lastrowid
-        conn.commit()
-        return alert_id or 0
+        if not DATABASE_URL:
+            conn.commit()
+        return True
     except Exception as e:
-        logger.error(f"save_search_alert: {e}")
-        return 0
+        logger.error(f"save_search_alert error: {e}")
+        return False
     finally:
         if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
+            conn.close()
+
+
+def rate_broker(broker_chat_id: int, user_chat_id: int, stars: int) -> bool:
+    """Add a rating and recalculate average."""
+    if not (1 <= stars <= 5):
+        return False
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        cur.execute(
+            f"INSERT INTO ratings (broker_chat_id, user_chat_id, stars) VALUES ({p},{p},{p})",
+            (broker_chat_id, user_chat_id, stars),
+        )
+        cur.execute(
+            f"SELECT AVG(stars), COUNT(*) FROM ratings WHERE broker_chat_id = {p}",
+            (broker_chat_id,),
+        )
+        row = cur.fetchone()
+        avg = float(row[0] if not isinstance(row, dict) else row["avg"] or 5.0)
+        total = int(row[1] if not isinstance(row, dict) else row["count"] or 0)
+        cur.execute(
+            f"UPDATE brokers SET rating = {p}, total_ratings = {p} WHERE chat_id = {p}",
+            (round(avg, 1), total, broker_chat_id),
+        )
+        if not DATABASE_URL:
+            conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"rate_broker error: {e}")
+        return False
+    finally:
+        if conn:
+            conn.close()
