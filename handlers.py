@@ -1430,7 +1430,7 @@ TEXT_PAGE_SIZE = 4  # items per text-mode page (good for slow networks)
 async def marketplace_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show hybrid choice for Marketplace (Web App vs Text)."""
     hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "adika-vrkk.onrender.com")
-    web_url = f"https://{hostname}/explorer"
+    web_url = f"{WEBAPP_URL}/explorer"
     keyboard = [
         [InlineKeyboardButton(
             "🌐 በዌብ አፕ ክፈት (ሙሉ ፎቶዎች)",
@@ -1475,7 +1475,7 @@ async def requests_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     hostname = os.environ.get("RENDER_EXTERNAL_HOSTNAME", "adika-vrkk.onrender.com")
     # Explorer opens on Requests tab via query param (frontend can read it)
-    web_url = f"https://{hostname}/explorer?tab=requests"
+    web_url = f"{WEBAPP_URL}/explorer?tab=requests"
     keyboard = [
         [InlineKeyboardButton(
             "🌐 በዌብ አፕ ክፈት (ሙሉ ፎቶዎች)",
@@ -2117,7 +2117,25 @@ async def notification_prefs_callback(update: Update, context: ContextTypes.DEFA
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.error("Exception while handling an update:", exc_info=context.error)
+    """Log full traceback and optionally notify the user."""
+    import traceback
+    err = context.error
+    if err is not None:
+        tb = "".join(traceback.format_exception(type(err), err, err.__traceback__))
+        logger.error("Exception while handling an update:\n%s", tb)
+    else:
+        logger.error("Exception while handling an update: (no error object)")
+    try:
+        if update and isinstance(update, Update):
+            logger.error(
+                "Update context: user=%s chat=%s callback=%s text=%s",
+                getattr(update.effective_user, "id", None),
+                getattr(update.effective_chat, "id", None),
+                getattr(update.callback_query, "data", None) if update.callback_query else None,
+                (update.message.text[:80] if update.message and update.message.text else None),
+            )
+    except Exception:
+        pass
     try:
         if update and isinstance(update, Update) and update.effective_chat:
             await context.bot.send_message(
