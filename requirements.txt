@@ -1,8 +1,7 @@
-# Core
+
 python-telegram-bot>=20.0,<22
-Flask>=2.3
+flask>=2.3
 flask-cors>=4.0
 psycopg2-binary>=2.9
-gunicorn>=21.2
-python-dotenv>=1.0.0
-requests>=2.31.0
+python-dotenv>=1.0
+requests>=2.31
