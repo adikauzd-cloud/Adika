@@ -2,21 +2,26 @@
 # webapp.py — Flask Mini App + REST API
 # ==============================================================================
 import json
+import os
+import asyncio
 import random
+import threading
 from flask import Flask, request, jsonify, Response
-from flask_cors import CORS
 
 from config import (
-    logger, PORT, MAX_IMAGE_BYTES, ADMIN_CHAT_ID_INT, DATABASE_URL,
+    logger, PORT, MAX_IMAGE_BYTES, ADMIN_CHAT_ID_INT, DATABASE_URL, WEBAPP_URL,
 )
 from models import (
-    get_db_connection, get_placeholder,
-    add_listing, get_listing_by_id, update_listing_status,
-    save_search_alert, increment_views,
+    get_db_connection, get_placeholder, add_listing, get_listing_by_id,
+    update_listing_status, save_search_alert, expire_old_listings,
+    get_active_brokers, get_platform_stats, count_listings, count_brokers,
 )
 
+# bot_app set from main for notifications
+bot_app = None
+bot_loop = None  # set from main post_init
+
 web_app = Flask(__name__)
-CORS(web_app, resources={r"/api/*": {"origins": "*"}})
 
 SELLER_FORM_HTML = r"""
 <!DOCTYPE html>
@@ -429,6 +434,7 @@ SELLER_FORM_HTML = r"""
 </html>
 """
 
+
 BUYER_FORM_HTML = r"""
 <!DOCTYPE html>
 <html lang="am">
@@ -624,6 +630,200 @@ BUYER_FORM_HTML = r"""
 </html>
 """
 
+
+
+@web_app.route('/')
+def home():
+   return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
+
+@web_app.route('/seller-form')
+def webapp_seller_form():
+   return Response(SELLER_FORM_HTML, mimetype='text/html; charset=utf-8')
+
+@web_app.route('/buyer-form')
+def webapp_buyer_form():
+   return Response(BUYER_FORM_HTML, mimetype='text/html; charset=utf-8')
+def _send_notification_safe(notification_text: str, req_id: int, buyer_id: int):
+    """Fire broker notifications from Flask thread without blocking or breaking loops."""
+    if not bot_app:
+        logger.warning("bot_app is None – cannot send notification")
+        return
+
+    def run_in_thread():
+        try:
+            from handlers import notify_brokers
+
+            async def _notify():
+                await notify_brokers(bot_app.bot, notification_text, req_id, buyer_id)
+
+            # Prefer loop captured in Application post_init
+            loop = bot_loop
+            if loop is None:
+                loop = getattr(bot_app, "loop", None)
+            if loop is not None and getattr(loop, "is_running", lambda: False)():
+                fut = asyncio.run_coroutine_threadsafe(_notify(), loop)
+                try:
+                    fut.result(timeout=120)
+                except Exception as e:
+                    logger.error(f"notify future error: {e}")
+                return
+
+            # Fallback: dedicated loop in this worker thread
+            new_loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(new_loop)
+                new_loop.run_until_complete(_notify())
+            finally:
+                try:
+                    new_loop.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            logger.error(f"_send_notification_safe error: {e}", exc_info=True)
+
+    threading.Thread(target=run_in_thread, daemon=True, name="notify-brokers").start()
+
+
+
+@web_app.route('/api/submit-listing', methods=['POST'])
+def submit_listing():
+   try:
+       data = request.json or {}
+       user_id = data.get('user_id')
+       category = data.get('category', 'መኪና')
+       price = data.get('price', '')
+       negotiable = data.get('negotiable', True)
+       urgent_sale = data.get('urgent_sale', False)
+       description = data.get('description', '')
+       phone = data.get('phone', '')
+       telegram_user = data.get('telegram_user', '')
+       fuel_type = data.get('fuel_type', '')
+       transmission = data.get('transmission', '')
+       mileage = data.get('mileage', '')
+       condition = data.get('condition', '')
+       car_type = data.get('car_type', '')
+       bedrooms = data.get('bedrooms', '')
+       bathrooms = data.get('bathrooms', '')
+       parking = data.get('parking', '')
+       house_condition = data.get('condition', '')
+       house_type = data.get('house_type', '')
+       photos = data.get('photos', [])
+       logger.info(f"📥 Seller WebApp data: {data}")
+       if not user_id or user_id == "unknown":
+           return jsonify({"status": "error", "message": "User ID አልተገኘም። Telegram ውስጥ ክፈት።"}), 400
+       negotiable_text = "✅ የሚደራደር" if negotiable else "❌ የማይደራደር"
+       urgent_text = "⚡ **አስቸኳይ ሽያጭ!** " if urgent_sale else ""
+       full_desc = f"{urgent_text}"
+       full_desc += f"💰 ዋጋ: {price} ብር ({negotiable_text})\n"
+       if category == 'መኪና':
+           if car_type: full_desc += f"🚗 አይነት: {car_type}\n"
+           if fuel_type: full_desc += f"⛽ ነዳጅ: {fuel_type}\n"
+           if transmission: full_desc += f"⚙️ ማርሽ: {transmission}\n"
+           if mileage: full_desc += f"🛣️ ኪሎሜትር: {mileage} KM\n"
+           if condition: full_desc += f"📊 ሁኔታ: {condition}\n"
+       else:
+           if house_type: full_desc += f"🏠 አይነት: {house_type}\n"
+           if bedrooms: full_desc += f"🛏️ መኝታ: {bedrooms}\n"
+           if bathrooms: full_desc += f"🛁 መታጠቢያ: {bathrooms}\n"
+           if parking: full_desc += f"🚗 ፓርኪንግ: {parking}\n"
+           if house_condition: full_desc += f"📊 ሁኔታ: {house_condition}\n"
+       full_desc += f"📝 መግለጫ: {description}\n"
+       full_desc += f"📞 ስልክ: {phone}\n"
+       if telegram_user: full_desc += f"📱 Telegram: {telegram_user}\n"
+       req_id = add_listing(
+           user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
+           user_name="WebApp User",
+           req_type="SELL",
+           main_category=category,
+           sub_category=car_type if category == 'መኪና' else house_type,
+           action_type="መሸጥ",
+           property_type="",
+           description=full_desc,
+           price=str(price),
+           phone=str(phone),
+           extra_data={
+               'fuel_type': fuel_type, 'transmission': transmission, 'mileage': mileage,
+               'condition': condition or house_condition, 'bedrooms': bedrooms,
+               'bathrooms': bathrooms, 'parking': parking, 'house_type': house_type,
+               'car_type': car_type, 'negotiable': negotiable, 'urgent_sale': urgent_sale,
+               'telegram_user': telegram_user
+           },
+           photos=photos
+       )
+       if req_id:
+           logger.info(f"✅ Seller listing saved ID={req_id}")
+           notification_text = (
+               f"🛍️ **አዲስ የሽያጭ ማስታወቂያ (#ADK-{req_id})**\n\n"
+               f"{full_desc}"
+           )
+           _send_notification_safe(notification_text, req_id, int(user_id))
+           return jsonify({"status": "success", "req_id": req_id})
+       else:
+           return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም።"}), 500
+   except Exception as e:
+       logger.error(f"❌ submit_listing error: {e}", exc_info=True)
+       return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
+
+@web_app.route('/api/submit-request', methods=['POST'])
+def submit_request():
+   try:
+       data = request.json or {}
+       user_id = data.get('user_id')
+       category = data.get('category', 'መኪና')
+       budget_min = data.get('budget_min', '')
+       budget_max = data.get('budget_max', '')
+       create_alert = data.get('create_alert', False)
+       details = data.get('details', '')
+       phone = data.get('phone', '')
+       telegram_user = data.get('telegram_user', '')
+       logger.info(f"📥 Buyer WebApp data: {data}")
+       if not user_id or user_id == "unknown":
+           return jsonify({"status": "error", "message": "User ID አልተገኘም። Telegram ውስጥ ክፈት።"}), 400
+       budget_range = f"{budget_min} - {budget_max}" if budget_min and budget_max else (budget_min or budget_max or "ያልተገለጸ")
+       full_desc = (
+           f"💰 በጀት ክልል: {budget_range} ብር\n"
+           f"📝 ዝርዝር: {details}\n"
+           f"📞 ስልክ: {phone}\n"
+       )
+       if telegram_user: full_desc += f"📱 Telegram: {telegram_user}\n"
+       req_id = add_listing(
+           user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
+           user_name="WebApp User",
+           req_type="BUY",
+           main_category=category,
+           sub_category="",
+           action_type="መግዛት",
+           property_type="",
+           description=full_desc,
+           price=budget_range,
+           phone=str(phone),
+           extra_data={
+               'budget_min': budget_min, 'budget_max': budget_max,
+               'create_alert': create_alert, 'telegram_user': telegram_user
+           }
+       )
+       if req_id:
+           logger.info(f"✅ Buyer request saved ID={req_id}")
+           notification_text = (
+               f"🔔 **አዲስ የ{category} ጥያቄ (#ADK-{req_id})**\n\n"
+               f"{full_desc}"
+           )
+           _send_notification_safe(notification_text, req_id, int(user_id))
+           if create_alert and str(user_id).isdigit():
+               save_search_alert(int(user_id), category, budget_min, budget_max)
+           return jsonify({"status": "success", "req_id": req_id})
+       else:
+           return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም።"}), 500
+   except Exception as e:
+       logger.error(f"❌ submit_request error: {e}", exc_info=True)
+       return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
+
+
+# ==============================================================================
+# WEB APP EXPLORER (React + Tailwind) - Full Production UI
+# Features: Relative time, Mark as Sold, View booster, 2-col grid, Delete, Status
+# ==============================================================================
+
 EXPLORER_HTML = r"""
 <!DOCTYPE html>
 <html lang="am">
@@ -750,7 +950,7 @@ EXPLORER_HTML = r"""
               {isSold && (
                 <div className="absolute inset-0 sold-overlay flex items-center justify-center">
                   <span className="text-white font-bold px-4 py-1.5 rounded-full bg-black/60 text-sm">
-                    {status==='rented' ? '✅ ተከራይቷል' : status==='expired' ? '⏳ ጊዜው አልፏል' : '✅ ተሸጧል'}
+                    {status==='rented' ? '●' : status==='expired' ? '●' : '●'}
                   </span>
                 </div>
               )}
@@ -867,11 +1067,17 @@ EXPLORER_HTML = r"""
       };
 
       const statusBadge = () => {
-        if (status === 'sold') return <span className="text-[9px] font-bold text-white bg-red-500/90 px-1.5 py-0.5 rounded-full">✅ ተሸጧል</span>;
-        if (status === 'rented') return <span className="text-[9px] font-bold text-white bg-orange-500/90 px-1.5 py-0.5 rounded-full">✅ ተከራይቷል</span>;
-        if (status === 'expired') return <span className="text-[9px] font-bold text-white bg-gray-500/90 px-1.5 py-0.5 rounded-full">⏳ አልፏል</span>;
-        const cat = item.main_category === 'መኪና' ? '🚗' : '🏠';
-        return <span className="text-[9px] font-bold text-white bg-emerald-500/90 px-1.5 py-0.5 rounded-full">{cat} ንቁ</span>;
+        if (status === 'sold' || status === 'rented')
+          return <span className="relative flex h-3 w-3" title={status}>
+            <span className="absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-60"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500 ring-2 ring-white"></span>
+          </span>;
+        if (status === 'expired')
+          return <span className="inline-flex rounded-full h-3 w-3 bg-gray-400 ring-2 ring-white" title="Expired"></span>;
+        return <span className="relative flex h-3 w-3" title="Active">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 ring-2 ring-white"></span>
+        </span>;
       };
 
       return (
@@ -890,7 +1096,7 @@ EXPLORER_HTML = r"""
             {isSold && (
               <div className="absolute inset-0 sold-overlay flex items-center justify-center pointer-events-none">
                 <span className="text-white font-bold text-[11px] px-2.5 py-1 rounded-full bg-black/55">
-                  {status==='rented' ? '✅ ተከራይቷል' : status==='expired' ? '⏳ አልፏል' : '✅ ተሸጧል'}
+                  {status==='rented' ? '●' : status==='expired' ? '●' : '●'}
                 </span>
               </div>
             )}
@@ -1097,256 +1303,276 @@ EXPLORER_HTML = r"""
 """
 
 
-@web_app.route("/")
-def home():
-    return "✅ Adika Marketplace Bot is running", 200
 
-
-@web_app.route("/seller-form")
-def seller_form():
-    return Response(SELLER_FORM_HTML, mimetype="text/html; charset=utf-8")
-
-
-@web_app.route("/buyer-form")
-def buyer_form():
-    return Response(BUYER_FORM_HTML, mimetype="text/html; charset=utf-8")
-
-
-@web_app.route("/explorer")
+@web_app.route('/explorer')
 def explorer_page():
-    return Response(EXPLORER_HTML, mimetype="text/html; charset=utf-8")
+    return Response(EXPLORER_HTML, mimetype='text/html; charset=utf-8')
 
 
-@web_app.route("/api/submit-listing", methods=["POST"])
-def submit_listing():
-    try:
-        data = request.json or {}
-        user_id = data.get("user_id")
-        if not user_id or user_id == "unknown":
-            return jsonify({"status": "error", "message": "User ID required"}), 400
-        category = data.get("category", "መኪና")
-        price = data.get("price", "")
-        negotiable = data.get("negotiable", True)
-        urgent_sale = data.get("urgent_sale", False)
-        description = data.get("description", "")
-        phone = data.get("phone", "")
-        telegram_user = data.get("telegram_user", "")
-        photos = data.get("photos") or []
-        # size guard (base64 approx)
-        for ph in photos:
-            if isinstance(ph, str) and len(ph) > MAX_IMAGE_BYTES * 1.4:
-                return jsonify({"status": "error", "message": "Image too large (max 5MB)"}), 400
-
-        full_desc = f"💰 ዋጋ: {price} ብር\n📝 {description}\n📞 {phone}\n"
-        if telegram_user:
-            full_desc += f"📱 {telegram_user}\n"
-
-        extra = {
-            "fuel_type": data.get("fuel_type", ""),
-            "transmission": data.get("transmission", ""),
-            "mileage": data.get("mileage", ""),
-            "condition": data.get("condition", ""),
-            "car_type": data.get("car_type", ""),
-            "bedrooms": data.get("bedrooms", ""),
-            "bathrooms": data.get("bathrooms", ""),
-            "parking": data.get("parking", ""),
-            "house_type": data.get("house_type", ""),
-            "negotiable": negotiable,
-            "urgent_sale": urgent_sale,
-            "telegram_user": telegram_user,
-        }
-        req_id = add_listing(
-            user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
-            user_name="WebApp User",
-            req_type="SELL",
-            main_category=category,
-            sub_category=data.get("car_type") or data.get("house_type") or "",
-            action_type="መሸጥ",
-            property_type="",
-            description=full_desc,
-            price=str(price),
-            phone=str(phone),
-            extra_data=extra,
-            photos=photos,
-        )
-        if req_id:
-            return jsonify({"status": "success", "req_id": req_id})
-        return jsonify({"status": "error", "message": "DB save failed"}), 500
-    except Exception as e:
-        logger.error(f"submit_listing: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@web_app.route("/api/submit-request", methods=["POST"])
-def submit_request():
-    try:
-        data = request.json or {}
-        user_id = data.get("user_id")
-        if not user_id or user_id == "unknown":
-            return jsonify({"status": "error", "message": "User ID required"}), 400
-        category = data.get("category", "መኪና")
-        budget_min = data.get("budget_min", "")
-        budget_max = data.get("budget_max", "")
-        create_alert = data.get("create_alert", False)
-        details = data.get("details", "")
-        phone = data.get("phone", "")
-        telegram_user = data.get("telegram_user", "")
-        budget_range = f"{budget_min} - {budget_max}" if budget_min and budget_max else (budget_min or budget_max or "—")
-        full_desc = f"💰 በጀት: {budget_range}\n📝 {details}\n📞 {phone}\n"
-        if telegram_user:
-            full_desc += f"📱 {telegram_user}\n"
-        req_id = add_listing(
-            user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
-            user_name="WebApp User",
-            req_type="BUY",
-            main_category=category,
-            sub_category="",
-            action_type="መግዛት",
-            property_type="",
-            description=full_desc,
-            price=budget_range,
-            phone=str(phone),
-            extra_data={
-                "budget_min": budget_min, "budget_max": budget_max,
-                "create_alert": create_alert, "telegram_user": telegram_user,
-                "budget_range": budget_range,
-            },
-        )
-        if req_id:
-            if create_alert and str(user_id).isdigit():
-                save_search_alert(int(user_id), category, budget_min, budget_max)
-            return jsonify({"status": "success", "req_id": req_id})
-        return jsonify({"status": "error", "message": "DB save failed"}), 500
-    except Exception as e:
-        logger.error(f"submit_request: {e}", exc_info=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
-
-
-@web_app.route("/api/explorer/listings", methods=["GET"])
+@web_app.route('/api/explorer/listings', methods=['GET'])
 def api_explorer_listings():
+    """Fetch listings/requests with pagination, filters, relative-ready timestamps."""
     try:
-        page = max(1, int(request.args.get("page", 1)))
-        limit = min(50, max(1, int(request.args.get("limit", 12))))
+        page = max(1, int(request.args.get('page', 1)))
+        limit = min(50, max(1, int(request.args.get('limit', 12))))
         offset = (page - 1) * limit
-        req_type = request.args.get("type", "").upper()
-        category = request.args.get("category", "")
-        search = request.args.get("q", "").strip()
-        order = request.args.get("order", "DESC").upper()
-        if order not in ("ASC", "DESC"):
-            order = "DESC"
-        active_only = request.args.get("active_only", "1") == "1"
+        req_type = request.args.get('type', '').upper()
+        category = request.args.get('category', '')
+        search = request.args.get('q', '').strip()
+        order = request.args.get('order', 'DESC').upper()
+        active_only = request.args.get('active_only', '1') == '1'
+        if order not in ('ASC', 'DESC'):
+            order = 'DESC'
 
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
+
         where = ["status != 'deleted'"]
         params = []
+
         if active_only:
-            where.append("status NOT IN ('sold','rented','expired')")
-        if req_type in ("SELL", "BUY"):
-            where.append(f"UPPER(req_type)=UPPER({p})")
+            where.append("status NOT IN ('sold', 'rented', 'expired')")
+        if req_type in ('SELL', 'BUY'):
+            where.append(f"UPPER(req_type) = UPPER({p})")
             params.append(req_type)
         if category:
-            where.append(f"main_category={p}")
+            where.append(f"main_category = {p}")
             params.append(category)
         if search:
             if DATABASE_URL:
                 where.append(f"(description ILIKE {p} OR price ILIKE {p} OR phone ILIKE {p})")
             else:
                 where.append(f"(description LIKE {p} OR price LIKE {p} OR phone LIKE {p})")
-            params.extend([f"%{search}%"] * 3)
+            params.extend([f'%{search}%'] * 3)
+
         where_sql = " AND ".join(where)
+        order_sql = "ASC" if order == "ASC" else "DESC"
+
         cur.execute(f"SELECT COUNT(*) as cnt FROM listings WHERE {where_sql}", params)
         total_row = cur.fetchone()
-        total = total_row["cnt"] if isinstance(total_row, dict) else (total_row[0] if total_row else 0)
-        cur.execute(
-            f"SELECT * FROM listings WHERE {where_sql} ORDER BY id {order} LIMIT {p} OFFSET {p}",
-            params + [limit, offset],
-        )
+        total = total_row['cnt'] if isinstance(total_row, dict) else (total_row[0] if total_row else 0)
+
+        cur.execute(f"""
+            SELECT * FROM listings
+            WHERE {where_sql}
+            ORDER BY id {order_sql}
+            LIMIT {p} OFFSET {p}
+        """, params + [limit, offset])
+
         rows = cur.fetchall()
         items = []
         for row in rows:
             item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cur.description], row))
-            if isinstance(item.get("extra_data"), str):
+            if isinstance(item.get('extra_data'), str):
                 try:
-                    item["extra_data"] = json.loads(item["extra_data"])
+                    item['extra_data'] = json.loads(item['extra_data'])
                 except Exception:
-                    item["extra_data"] = {}
-            cur.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id={p}", (item["id"],))
-            photos = [r["photo_id"] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
-            if not photos and item.get("photo_id"):
-                photos = [item["photo_id"]]
-            item["photos"] = photos
-            if item.get("created_at") and not isinstance(item["created_at"], str):
+                    item['extra_data'] = {}
+            # photos
+            cur.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (item['id'],))
+            photos = [r['photo_id'] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
+            if not photos and item.get('photo_id'):
+                photos = [item['photo_id']]
+            item['photos'] = photos
+            # Ensure view_count baseline for old rows
+            if item.get('view_count') is None:
+                item['view_count'] = 0
+            # Serialize created_at for frontend
+            if item.get('created_at') and not isinstance(item['created_at'], str):
                 try:
-                    item["created_at"] = item["created_at"].isoformat()
+                    item['created_at'] = item['created_at'].isoformat()
                 except Exception:
-                    item["created_at"] = str(item["created_at"])
+                    item['created_at'] = str(item['created_at'])
             items.append(item)
+
         conn.close()
         return jsonify({
-            "status": "success", "page": page, "limit": limit,
-            "total": total, "has_more": offset + limit < total, "items": items,
+            "status": "success",
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "has_more": offset + limit < total,
+            "items": items
         })
     except Exception as e:
-        logger.error(f"api_explorer_listings: {e}", exc_info=True)
+        logger.error(f"api_explorer_listings error: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@web_app.route("/api/views/<int:listing_id>", methods=["POST"])
+@web_app.route('/api/views/<int:listing_id>', methods=['POST'])
 def api_view_booster(listing_id):
+    """
+    Social-proof view booster.
+    Increments view_count by a random amount between +3 and +7.
+    Called once per card per session from the frontend IntersectionObserver.
+    """
+    import random
     try:
         boost = random.randint(3, 7)
-        counts = increment_views([listing_id], amount=boost)
-        # baseline if zero
-        if listing_id not in counts:
-            counts = increment_views([listing_id], amount=random.randint(35, 90) + boost)
-        return jsonify({"status": "success", "view_count": counts.get(listing_id, 0)})
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        # Ensure baseline exists for brand-new rows that still have 0
+        cur.execute(f"SELECT view_count FROM listings WHERE id = {p}", (listing_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"status": "error", "message": "not found"}), 404
+        current = row['view_count'] if isinstance(row, dict) else row[0]
+        if current is None or current == 0:
+            # Assign initial baseline 35–90 then add boost
+            baseline = random.randint(35, 90)
+            new_count = baseline + boost
+        else:
+            new_count = int(current) + boost
+        cur.execute(f"UPDATE listings SET view_count = {p} WHERE id = {p}", (new_count, listing_id))
+        if not DATABASE_URL:
+            conn.commit()
+        conn.close()
+        return jsonify({"status": "success", "view_count": new_count})
     except Exception as e:
-        logger.error(f"view booster: {e}")
+        logger.error(f"view booster error: {e}")
         return jsonify({"status": "error"}), 500
 
 
-@web_app.route("/api/items/<int:listing_id>/status", methods=["PATCH"])
-def api_update_status(listing_id):
+@web_app.route('/api/items/<int:listing_id>/status', methods=['PATCH'])
+def api_update_item_status(listing_id):
+    """
+    Mark listing as sold / rented / pending (re-activate).
+    Only the owner (user_chat_id) or ADMIN may update.
+    Body: { "status": "sold"|"rented"|"pending", "user_id": <telegram_id> }
+    """
     try:
         data = request.json or {}
-        new_status = str(data.get("status", "")).lower()
-        user_id = data.get("user_id")
-        if new_status not in ("sold", "rented", "pending", "expired"):
+        new_status = str(data.get('status', '')).lower().strip()
+        user_id = data.get('user_id')
+        if new_status not in ('sold', 'rented', 'pending', 'expired'):
             return jsonify({"status": "error", "message": "Invalid status"}), 400
-        listing = get_listing_by_id(listing_id)
-        if not listing:
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        cur.execute(f"SELECT user_chat_id, status FROM listings WHERE id = {p}", (listing_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
             return jsonify({"status": "error", "message": "Not found"}), 404
-        owner = listing.get("user_chat_id")
-        is_admin = str(user_id) == str(ADMIN_CHAT_ID_INT) and ADMIN_CHAT_ID_INT != 0
-        if str(user_id) != str(owner) and not is_admin:
+
+        owner_id = row['user_chat_id'] if isinstance(row, dict) else row[0]
+        is_admin = (str(user_id) == str(ADMIN_CHAT_ID_INT) and ADMIN_CHAT_ID_INT != 0)
+        is_owner = (str(user_id) == str(owner_id))
+        if not (is_owner or is_admin):
+            conn.close()
             return jsonify({"status": "error", "message": "Forbidden"}), 403
-        update_listing_status(listing_id, new_status)
+
+        cur.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (new_status, listing_id))
+        if not DATABASE_URL:
+            conn.commit()
+        conn.close()
+        logger.info(f"✅ Listing #{listing_id} status → {new_status} by user {user_id}")
         return jsonify({"status": "success", "new_status": new_status})
     except Exception as e:
-        logger.error(f"status: {e}", exc_info=True)
+        logger.error(f"status update error: {e}", exc_info=True)
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-@web_app.route("/api/items/<int:listing_id>", methods=["DELETE"])
+@web_app.route('/api/items/<int:listing_id>', methods=['DELETE'])
 def api_delete_item(listing_id):
+    """Soft-delete a listing (status='deleted'). Owner or Admin only."""
     try:
         data = request.json or {}
-        user_id = data.get("user_id")
-        listing = get_listing_by_id(listing_id)
-        if not listing:
+        user_id = data.get('user_id')
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        cur.execute(f"SELECT user_chat_id FROM listings WHERE id = {p}", (listing_id,))
+        row = cur.fetchone()
+        if not row:
+            conn.close()
             return jsonify({"status": "error", "message": "Not found"}), 404
-        owner = listing.get("user_chat_id")
-        is_admin = str(user_id) == str(ADMIN_CHAT_ID_INT) and ADMIN_CHAT_ID_INT != 0
-        if str(user_id) != str(owner) and not is_admin:
+        owner_id = row['user_chat_id'] if isinstance(row, dict) else row[0]
+        is_admin = (str(user_id) == str(ADMIN_CHAT_ID_INT) and ADMIN_CHAT_ID_INT != 0)
+        is_owner = (str(user_id) == str(owner_id))
+        if not (is_owner or is_admin):
+            conn.close()
             return jsonify({"status": "error", "message": "Forbidden"}), 403
-        update_listing_status(listing_id, "deleted")
+        cur.execute(f"UPDATE listings SET status = 'deleted' WHERE id = {p}", (listing_id,))
+        if not DATABASE_URL:
+            conn.commit()
+        conn.close()
         return jsonify({"status": "success"})
     except Exception as e:
-        logger.error(f"delete: {e}")
+        logger.error(f"delete item error: {e}")
         return jsonify({"status": "error"}), 500
+
+
+# ---------- Auto-Expiry / Cleanup Job ----------
+
+
+
+
+@web_app.route('/api/stats', methods=['GET'])
+def api_stats():
+    try:
+        stats = get_platform_stats()
+        return jsonify({"status": "success", **stats})
+    except Exception as e:
+        logger.error(f"api_stats: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@web_app.route('/api/brokers', methods=['GET'])
+def api_brokers():
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        limit = min(15, max(1, int(request.args.get("limit", 12))))
+        offset = (page - 1) * limit
+        sub_city = request.args.get("sub_city") or None
+        brokers = get_active_brokers(sub_city=sub_city, status="approved", limit=limit, offset=offset)
+        total = count_brokers(status="approved")
+        # Sanitize for JSON
+        items = []
+        for b in brokers:
+            items.append({
+                "id": b.get("id"),
+                "chat_id": b.get("chat_id"),
+                "full_name": b.get("full_name"),
+                "phone": b.get("phone"),
+                "username": b.get("username"),
+                "sub_city": b.get("sub_city"),
+                "specialty": b.get("specialty") or b.get("role_type"),
+                "rating": float(b.get("rating") or 5),
+                "total_ratings": b.get("total_ratings") or 0,
+                "is_online": bool(b.get("is_online", True)),
+                "status": b.get("status"),
+            })
+        return jsonify({
+            "status": "success",
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "has_more": offset + limit < total,
+            "items": items,
+        })
+    except Exception as e:
+        logger.error(f"api_brokers: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@web_app.route('/api/listings', methods=['GET'])
+def api_listings_alias():
+    """Alias with strict pagination (10-15 max)."""
+    return api_explorer_listings()
 
 
 def run_flask():
-    web_app.run(host="0.0.0.0", port=PORT, use_reloader=False)
+   port = PORT
+   web_app.run(host="0.0.0.0", port=port, use_reloader=False)
+
+
+
+# ==============================================================================
+# 3. DATABASE CONNECTION & INITIALIZATION
+# ==============================================================================
+
