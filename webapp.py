@@ -2,6 +2,7 @@
 # webapp.py — Flask Mini App + REST API
 # ==============================================================================
 import json
+import os
 import asyncio
 import random
 import threading
@@ -1503,7 +1504,7 @@ def api_delete_item(listing_id):
 
 
 def run_flask():
-   port = int(os.environ.get("PORT", 8080))
+   port = PORT
    web_app.run(host="0.0.0.0", port=port, use_reloader=False)
 
 
