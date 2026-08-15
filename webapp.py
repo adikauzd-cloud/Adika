@@ -950,7 +950,7 @@ EXPLORER_HTML = r"""
               {isSold && (
                 <div className="absolute inset-0 sold-overlay flex items-center justify-center">
                   <span className="text-white font-bold px-4 py-1.5 rounded-full bg-black/60 text-sm">
-                    {status==='rented' ? '✅ ተከራይቷል' : status==='expired' ? '⏳ ጊዜው አልፏል' : '✅ ተሸጧል'}
+                    {status==='rented' ? '●' : status==='expired' ? '●' : '●'}
                   </span>
                 </div>
               )}
@@ -1067,11 +1067,11 @@ EXPLORER_HTML = r"""
       };
 
       const statusBadge = () => {
-        if (status === 'sold') return <span className="text-[9px] font-bold text-white bg-red-500/90 px-1.5 py-0.5 rounded-full">✅ ተሸጧል</span>;
-        if (status === 'rented') return <span className="text-[9px] font-bold text-white bg-orange-500/90 px-1.5 py-0.5 rounded-full">✅ ተከራይቷል</span>;
-        if (status === 'expired') return <span className="text-[9px] font-bold text-white bg-gray-500/90 px-1.5 py-0.5 rounded-full">⏳ አልፏል</span>;
+        if (status === 'sold') return <span className="w-2.5 h-2.5 rounded-full bg-red-500 shadow ring-2 ring-white" title="Sold"></span>;
+        if (status === 'rented') return <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shadow ring-2 ring-white" title="Rented"></span>;
+        if (status === 'expired') return <span className="w-2.5 h-2.5 rounded-full bg-gray-400 shadow ring-2 ring-white" title="Expired"></span>;
         const cat = item.main_category === 'መኪና' ? '🚗' : '🏠';
-        return <span className="text-[9px] font-bold text-white bg-emerald-500/90 px-1.5 py-0.5 rounded-full">{cat} ንቁ</span>;
+        return <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow ring-2 ring-white" title="Active"></span>;
       };
 
       return (
@@ -1090,7 +1090,7 @@ EXPLORER_HTML = r"""
             {isSold && (
               <div className="absolute inset-0 sold-overlay flex items-center justify-center pointer-events-none">
                 <span className="text-white font-bold text-[11px] px-2.5 py-1 rounded-full bg-black/55">
-                  {status==='rented' ? '✅ ተከራይቷል' : status==='expired' ? '⏳ አልፏል' : '✅ ተሸጧል'}
+                  {status==='rented' ? '●' : status==='expired' ? '●' : '●'}
                 </span>
               </div>
             )}
