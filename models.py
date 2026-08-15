@@ -536,59 +536,97 @@ def expire_old_listings(days: int = 30) -> int:
 
 # ---------- Brokers ----------
 
-def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city, specialty="") -> Optional[int]:
+def add_broker(
+    chat_id,
+    full_name,
+    phone,
+    role_type="ደላላ",
+    national_id_photo=None,
+    sub_city="",
+    specialty="",
+) -> Optional[int]:
+    """
+    Insert or update a broker row.
+    Columns: chat_id, full_name, phone, role_type, national_id_photo,
+              sub_city, specialty, notification_prefs, status, created_at
+    Returns broker id or None on failure.
+    """
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
+        chat_id = int(chat_id)
+        full_name = str(full_name or "User")[:200]
+        phone = str(phone or "")[:40]
+        role_type = str(role_type or "ደላላ")[:80]
+        sub_city = str(sub_city or "")[:80]
+        specialty = str(specialty or "")[:120]
+        photo = str(national_id_photo) if national_id_photo else None
+        prefs = json.dumps({"car": True, "house": True, "enabled": True})
+
         cur.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
         existing = cur.fetchone()
-        prefs = json.dumps({"car": True, "house": True, "enabled": True})
+
         if existing:
+            existing_id = existing["id"] if isinstance(existing, dict) else existing[0]
             if DATABASE_URL:
                 cur.execute(
-                    f"""UPDATE brokers SET full_name={p}, phone={p}, role_type={p},
-                        national_id_photo={p}, sub_city={p}, specialty={p}, status='pending'
+                    f"""UPDATE brokers SET
+                        full_name={p}, phone={p}, role_type={p},
+                        national_id_photo={p}, sub_city={p}, specialty={p},
+                        status='pending'
                         WHERE chat_id={p} RETURNING id""",
-                    (full_name, phone, role_type, national_id_photo, sub_city, specialty, chat_id),
+                    (full_name, phone, role_type, photo, sub_city, specialty, chat_id),
                 )
                 row = cur.fetchone()
-                broker_id = row["id"] if isinstance(row, dict) else row[0]
+                broker_id = (row["id"] if isinstance(row, dict) else row[0]) if row else existing_id
             else:
                 cur.execute(
-                    """UPDATE brokers SET full_name=?, phone=?, role_type=?,
-                       national_id_photo=?, sub_city=?, specialty=?, status='pending'
-                       WHERE chat_id=?""",
-                    (full_name, phone, role_type, national_id_photo, sub_city, specialty, chat_id),
+                    """UPDATE brokers SET
+                        full_name=?, phone=?, role_type=?,
+                        national_id_photo=?, sub_city=?, specialty=?,
+                        status='pending'
+                        WHERE chat_id=?""",
+                    (full_name, phone, role_type, photo, sub_city, specialty, chat_id),
                 )
-                broker_id = existing["id"] if isinstance(existing, dict) else existing[0]
+                broker_id = existing_id
                 conn.commit()
         else:
             if DATABASE_URL:
                 cur.execute(
                     f"""INSERT INTO brokers
-                        (chat_id, full_name, phone, role_type, national_id_photo, sub_city,
-                         specialty, notification_prefs, status)
-                        VALUES ({p},{p},{p},{p},{p},{p},{p},{p},'pending') RETURNING id""",
-                    (chat_id, full_name, phone, role_type, national_id_photo, sub_city, specialty, prefs),
+                        (chat_id, full_name, phone, role_type, national_id_photo,
+                         sub_city, specialty, notification_prefs, status)
+                        VALUES ({p},{p},{p},{p},{p},{p},{p},{p},'pending')
+                        RETURNING id""",
+                    (chat_id, full_name, phone, role_type, photo, sub_city, specialty, prefs),
                 )
                 row = cur.fetchone()
+                if not row:
+                    logger.error("add_broker INSERT returned no row")
+                    return None
                 broker_id = row["id"] if isinstance(row, dict) else row[0]
             else:
                 cur.execute(
                     """INSERT INTO brokers
-                       (chat_id, full_name, phone, role_type, national_id_photo, sub_city,
-                        specialty, notification_prefs, status)
+                       (chat_id, full_name, phone, role_type, national_id_photo,
+                        sub_city, specialty, notification_prefs, status)
                        VALUES (?,?,?,?,?,?,?,?, 'pending')""",
-                    (chat_id, full_name, phone, role_type, national_id_photo, sub_city, specialty, prefs),
+                    (chat_id, full_name, phone, role_type, photo, sub_city, specialty, prefs),
                 )
                 broker_id = cur.lastrowid
                 conn.commit()
-        logger.info(f"✅ Broker {broker_id}")
-        return broker_id
+
+        logger.info(f"✅ Broker saved id={broker_id} chat_id={chat_id}")
+        return int(broker_id) if broker_id is not None else None
     except Exception as e:
-        logger.error(f"add_broker: {e}")
+        logger.error(f"add_broker FAILED: {e}", exc_info=True)
+        if conn and not DATABASE_URL:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         return None
     finally:
         if conn:
@@ -596,6 +634,7 @@ def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city
                 conn.close()
             except Exception:
                 pass
+
 
 
 def get_broker(chat_id: int) -> Optional[dict]:
