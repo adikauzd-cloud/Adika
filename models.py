@@ -1,15 +1,14 @@
 # models.py
 """
-Adika Marketplace - Database Layer
-PostgreSQL (preferred) + SQLite fallback.
-Connection helpers + all CRUD operations.
+Adika Marketplace - Database Layer (Production Ready)
+PostgreSQL preferred + SQLite fallback.
 """
 
 import json
 import logging
 import random
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -20,14 +19,12 @@ from config import DATABASE_URL, DB_FILE, ADMIN_CHAT_ID_INT
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Connection helpers
-# ---------------------------------------------------------------------------
-
 def get_db_connection():
-    """Return a live connection (PostgreSQL or SQLite)."""
     if DATABASE_URL:
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        cleaned = DATABASE_URL.strip().strip('"').strip("'")
+        if cleaned.startswith("postgres://"):
+            cleaned = cleaned.replace("postgres://", "postgresql://", 1)
+        conn = psycopg2.connect(cleaned, cursor_factory=RealDictCursor)
         conn.autocommit = True
         return conn
     conn = sqlite3.connect(DB_FILE, check_same_thread=False)
@@ -48,10 +45,6 @@ def _row_to_dict(row, cursor=None) -> Dict[str, Any]:
         return dict(zip([c[0] for c in cursor.description], row))
     return dict(row)
 
-
-# ---------------------------------------------------------------------------
-# Schema initialisation
-# ---------------------------------------------------------------------------
 
 def init_db() -> None:
     conn = None
@@ -127,7 +120,6 @@ def init_db() -> None:
                 );
             """)
         else:
-            # SQLite schema
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS listings (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -206,7 +198,7 @@ def init_db() -> None:
             """)
             conn.commit()
 
-        # Safe ALTER for older DBs
+        # Safe migrations
         try:
             if DATABASE_URL:
                 cur.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS extra_data JSONB DEFAULT '{}';")
@@ -214,18 +206,12 @@ def init_db() -> None:
                 cur.execute("ALTER TABLE brokers ADD COLUMN IF NOT EXISTS completed_deals INT DEFAULT 0;")
                 cur.execute("ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT TRUE;")
             else:
-                for col, typ in [
-                    ("extra_data", "TEXT DEFAULT '{}'"),
-                    ("view_count", "INTEGER DEFAULT 0"),
-                ]:
+                for col, typ in [("extra_data", "TEXT DEFAULT '{}'"), ("view_count", "INTEGER DEFAULT 0")]:
                     try:
                         cur.execute(f"ALTER TABLE listings ADD COLUMN {col} {typ};")
                     except Exception:
                         pass
-                for col, typ in [
-                    ("completed_deals", "INTEGER DEFAULT 0"),
-                    ("is_online", "INTEGER DEFAULT 1"),
-                ]:
+                for col, typ in [("completed_deals", "INTEGER DEFAULT 0"), ("is_online", "INTEGER DEFAULT 1")]:
                     try:
                         cur.execute(f"ALTER TABLE brokers ADD COLUMN {col} {typ};")
                     except Exception:
@@ -243,10 +229,6 @@ def init_db() -> None:
         if conn:
             conn.close()
 
-
-# ---------------------------------------------------------------------------
-# Listings CRUD
-# ---------------------------------------------------------------------------
 
 def add_listing(
     user_chat_id: int,
@@ -268,9 +250,7 @@ def add_listing(
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
-
         extra_json = json.dumps(extra_data or {}, ensure_ascii=False)
-        # Random baseline view count 35-90
         baseline_views = random.randint(35, 90)
 
         if DATABASE_URL:
@@ -315,7 +295,6 @@ def add_listing(
             listing_id = cur.lastrowid
             conn.commit()
 
-        # Multi-photo support
         if photos and listing_id:
             for ph in photos[:5]:
                 cur.execute(
@@ -350,7 +329,6 @@ def get_listing_by_id(listing_id: int) -> Optional[Dict]:
                 item["extra_data"] = json.loads(item["extra_data"])
             except Exception:
                 item["extra_data"] = {}
-        # photos
         cur.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (listing_id,))
         photos = [r["photo_id"] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
         if not photos and item.get("photo_id"):
@@ -373,16 +351,13 @@ def get_listings_by_category_ordered(
     order: str = "DESC",
     active_only: bool = True,
 ) -> List[Dict]:
-    """Always ORDER BY created_at DESC (newest first)."""
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
-
         where = ["status != 'deleted'"]
         params: List[Any] = []
-
         if active_only:
             where.append("status NOT IN ('sold','rented','expired')")
         if req_type:
@@ -391,10 +366,8 @@ def get_listings_by_category_ordered(
         if category:
             where.append(f"main_category = {p}")
             params.append(category)
-
         where_sql = " AND ".join(where)
         order_sql = "DESC" if order.upper() != "ASC" else "ASC"
-
         cur.execute(
             f"""
             SELECT * FROM listings
@@ -413,11 +386,7 @@ def get_listings_by_category_ordered(
                     item["extra_data"] = json.loads(item["extra_data"])
                 except Exception:
                     item["extra_data"] = {}
-            # photos
-            cur.execute(
-                f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}",
-                (item["id"],),
-            )
+            cur.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id = {p}", (item["id"],))
             photos = [r["photo_id"] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
             if not photos and item.get("photo_id"):
                 photos = [item["photo_id"]]
@@ -477,7 +446,6 @@ def update_listing_status(listing_id: int, status: str) -> bool:
 
 
 def increment_view_count(listing_id: int, amount: int = 1) -> int:
-    """Increment view_count. Returns new count."""
     conn = None
     try:
         conn = get_db_connection()
@@ -614,12 +582,17 @@ def get_broker(chat_id: int) -> Optional[Dict]:
             conn.close()
 
 
-def get_approved_brokers() -> List[Dict]:
+def get_all_brokers(status: Optional[str] = None) -> List[Dict]:
+    """Return all brokers, optionally filtered by status."""
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM brokers WHERE status = 'approved' ORDER BY created_at DESC")
+        p = get_placeholder()
+        if status:
+            cur.execute(f"SELECT * FROM brokers WHERE status = {p} ORDER BY created_at DESC", (status,))
+        else:
+            cur.execute("SELECT * FROM brokers ORDER BY created_at DESC")
         rows = cur.fetchall()
         result = []
         for row in rows:
@@ -632,11 +605,15 @@ def get_approved_brokers() -> List[Dict]:
             result.append(b)
         return result
     except Exception as e:
-        logger.error(f"get_approved_brokers error: {e}")
+        logger.error(f"get_all_brokers error: {e}")
         return []
     finally:
         if conn:
             conn.close()
+
+
+def get_approved_brokers() -> List[Dict]:
+    return get_all_brokers(status="approved")
 
 
 def get_approved_brokers_directory(sub_city: Optional[str] = None) -> List[Dict]:
@@ -762,7 +739,6 @@ def save_search_alert(user_chat_id: int, category: str, budget_min: str, budget_
 
 
 def rate_broker(broker_chat_id: int, user_chat_id: int, stars: int) -> bool:
-    """Add a rating and recalculate average."""
     if not (1 <= stars <= 5):
         return False
     conn = None
