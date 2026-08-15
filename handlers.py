@@ -17,7 +17,7 @@ from telegram.ext import (
 
 from config import (
     logger, MAIN_KEYBOARD, ADMIN_CHAT_ID_INT, ADMIN_IDS, SUB_CITIES, SPECIALTIES,
-    TEXT_PAGE_SIZE, VIEW_INCREMENT, RENDER_EXTERNAL_HOSTNAME,
+    TEXT_PAGE_SIZE, VIEW_INCREMENT, RENDER_EXTERNAL_HOSTNAME, WEBAPP_URL,
     SUPPORT_ADMIN_URL, SUPPORT_ADMIN_HANDLE,
     CAR_SUB_CATEGORIES, HOUSE_TYPES, PROPERTY_TYPES,
     FUEL_TYPES, TRANSMISSION_TYPES, CONDITIONS,
@@ -247,7 +247,7 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 # ---------- Hybrid marketplace / requests ----------
 
 async def marketplace_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    url = f"https://{RENDER_EXTERNAL_HOSTNAME}/explorer"
+    url = f"{WEBAPP_URL}/explorer"
     kb = [
         [InlineKeyboardButton("🌐 በዌብ አፕ ክፈት (ሙሉ ፎቶዎች)", web_app=WebAppInfo(url=url))],
         [InlineKeyboardButton("⚡ በጽሁፍ እይ (ለዝቅተኛ ኔትወርክ)", callback_data="text_mode_marketplace_1")],
@@ -271,7 +271,7 @@ async def requests_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="HTML",
         )
         return
-    url = f"https://{RENDER_EXTERNAL_HOSTNAME}/explorer?tab=requests"
+    url = f"{WEBAPP_URL}/explorer?tab=requests"
     kb = [
         [InlineKeyboardButton("🌐 በዌብ አፕ ክፈት (ሙሉ ፎቶዎች)", web_app=WebAppInfo(url=url))],
         [InlineKeyboardButton("⚡ በጽሁፍ እይ (ለዝቅተኛ ኔትወርክ)", callback_data="text_mode_requests_1")],
@@ -563,8 +563,16 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["broker_phone"] = phone_norm if validate_phone(phone_norm) else phone
 
-    # Remove contact reply keyboard so inline buttons work cleanly
-    kb = [[InlineKeyboardButton(sc, callback_data=f"bsc_{sc}")] for sc in SUB_CITIES]
+    # Index-based callback_data (avoids emoji/slash issues in Telegram)
+    kb = []
+    row = []
+    for i, sc in enumerate(SUB_CITIES):
+        row.append(InlineKeyboardButton(sc, callback_data=f"bsc_{i}"))
+        if len(row) == 2:
+            kb.append(row)
+            row = []
+    if row:
+        kb.append(row)
     kb.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
     await msg.reply_text(
         "✅ ስልክ ተቀብሏል።\n\n📍 <b>ክፍለ ከተማ ይምረጡ፦</b>",
@@ -581,52 +589,83 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
+    await q.answer()
     if q.data == "flow_home":
         return await go_home(update, context)
-    await q.answer()
-    context.user_data["broker_subcity"] = q.data.replace("bsc_", "")
-    kb = [[InlineKeyboardButton(s, callback_data=f"bsp_{s}")] for s in SPECIALTIES]
+    try:
+        idx = int(q.data.replace("bsc_", ""))
+        context.user_data["broker_subcity"] = SUB_CITIES[idx]
+    except (ValueError, IndexError):
+        context.user_data["broker_subcity"] = q.data.replace("bsc_", "")
+    kb = [
+        [InlineKeyboardButton(s, callback_data=f"bsp_{i}")]
+        for i, s in enumerate(SPECIALTIES)
+    ]
     kb.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
-    await q.edit_message_text(
-        "🎯 <b>የሙያ ዘርፍ ይምረጡ፦</b>",
-        reply_markup=InlineKeyboardMarkup(kb),
-        parse_mode="HTML",
-    )
+    sub = context.user_data.get("broker_subcity", "")
+    text = f"✅ {sub}\n\n🎯 <b>የሙያ ዘርፍ ይምረጡ፦</b>"
+    try:
+        await q.edit_message_text(text, reply_markup=InlineKeyboardMarkup(kb), parse_mode="HTML")
+    except Exception:
+        await context.bot.send_message(
+            chat_id=q.from_user.id,
+            text=text,
+            reply_markup=InlineKeyboardMarkup(kb),
+            parse_mode="HTML",
+        )
     return BROKER_SPECIALTY
 
 
 async def broker_reg_specialty(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Final step: resolve specialty index and INSERT into brokers."""
     q = update.callback_query
+    await q.answer()
     if q.data == "flow_home":
         return await go_home(update, context)
-    await q.answer()
-    specialty = q.data.replace("bsp_", "")
+
+    try:
+        idx = int(q.data.replace("bsp_", ""))
+        specialty = SPECIALTIES[idx]
+    except (ValueError, IndexError):
+        specialty = q.data.replace("bsp_", "") or "🔄 ሁለቱም"
+
     user = update.effective_user
-    bid = add_broker(
-        chat_id=user.id,
-        full_name=context.user_data.get("broker_name", user.first_name),
-        phone=context.user_data.get("broker_phone", ""),
-        role_type="ደላላ",
-        national_id_photo=None,
-        sub_city=context.user_data.get("broker_subcity", ""),
-        specialty=specialty,
-    )
-    if bid:
-        await q.edit_message_text(
-            "✅ <b>ምዝገባዎ ተጠናቋል!</b>\n⏳ አድሚን ካረጋገጠ በኋላ ማሳወቂያ ይደርስዎታል።",
-            parse_mode="HTML",
+    full_name = context.user_data.get("broker_name") or user.first_name or "User"
+    phone = context.user_data.get("broker_phone") or ""
+    sub_city = context.user_data.get("broker_subcity") or ""
+
+    try:
+        bid = add_broker(
+            chat_id=user.id,
+            full_name=full_name,
+            phone=phone,
+            role_type="ደላላ",
+            national_id_photo=None,
+            sub_city=sub_city,
+            specialty=specialty,
         )
+    except Exception as e:
+        logger.error(f"broker_reg_specialty add_broker: {e}", exc_info=True)
+        bid = None
+
+    if bid:
+        ok_msg = "✅ <b>ምዝገባዎ ተጠናቋል!</b>\n⏳ አድሚን ካረጋገጠ በኋላ ማሳወቂያ ይደርስዎታል።"
+        try:
+            await q.edit_message_text(ok_msg, parse_mode="HTML")
+        except Exception:
+            await context.bot.send_message(chat_id=user.id, text=ok_msg, parse_mode="HTML")
         if ADMIN_CHAT_ID_INT:
             try:
+                admin_text = (
+                    f"🚨 አዲስ ደላላ\n"
+                    f"👤 {full_name}\n"
+                    f"📞 {phone}\n"
+                    f"📍 {sub_city} | {specialty}\n"
+                    f"ID: `{user.id}`"
+                )
                 await context.bot.send_message(
                     chat_id=ADMIN_CHAT_ID_INT,
-                    text=(
-                        f"🚨 አዲስ ደላላ\n"
-                        f"👤 {context.user_data.get('broker_name')}\n"
-                        f"📞 {context.user_data.get('broker_phone')}\n"
-                        f"📍 {context.user_data.get('broker_subcity')} | {specialty}\n"
-                        f"ID: `{user.id}`"
-                    ),
+                    text=admin_text,
                     parse_mode="Markdown",
                     reply_markup=InlineKeyboardMarkup([[
                         InlineKeyboardButton("✅ አጽድቅ", callback_data=f"admin_appr_{user.id}"),
@@ -637,16 +676,22 @@ async def broker_reg_specialty(update: Update, context: ContextTypes.DEFAULT_TYP
                 logger.error(f"admin notify: {e}")
         await context.bot.send_message(
             chat_id=user.id,
-            text="🏠 ዋና ገጽ",
+            text="ወደ ዋና ገጽ ተመልሰዋል።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
         )
     else:
-        await q.edit_message_text("❌ ምዝገባ አልተሳካም።")
+        fail_msg = "❌ ምዝገባ አልተሳካም። እባክዎ እንደገና ይሞክሩ ወይም /start ይጫኑ።"
+        try:
+            await q.edit_message_text(fail_msg, parse_mode="HTML")
+        except Exception:
+            await context.bot.send_message(
+                chat_id=user.id,
+                text=fail_msg,
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            )
     context.user_data.clear()
     return ConversationHandler.END
 
-
-# ---------- Support ----------
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
@@ -777,7 +822,7 @@ async def admin_approval_callback(update: Update, context: ContextTypes.DEFAULT_
 
 async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Dual choice: Web App form OR step-by-step bot chat form."""
-    url = f"https://{RENDER_EXTERNAL_HOSTNAME}/buyer-form"
+    url = f"{WEBAPP_URL}/buyer-form"
     kb = [
         [InlineKeyboardButton("🌐 በ Web App ይሙሉ", web_app=WebAppInfo(url=url))],
         [InlineKeyboardButton("💬 በ ቦት ፎርም ይሙሉ", callback_data="botform_buy_start")],
@@ -792,7 +837,7 @@ async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Dual choice: Web App form OR step-by-step bot chat form."""
-    url = f"https://{RENDER_EXTERNAL_HOSTNAME}/seller-form"
+    url = f"{WEBAPP_URL}/seller-form"
     kb = [
         [InlineKeyboardButton("🌐 በ Web App ይሙሉ", web_app=WebAppInfo(url=url))],
         [InlineKeyboardButton("💬 በ ቦት ፎርም ይሙሉ", callback_data="botform_sell_start")],
