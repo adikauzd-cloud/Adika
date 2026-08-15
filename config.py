@@ -70,3 +70,7 @@ CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈ
 # 6. HELPER FUNCTIONS (SINGLE DEFINITIONS ONLY)
 # ==============================================================================
 
+
+# Broker registration options
+BROKER_CATEGORIES = ["🚗 መኪና", "🏠 ቤትና ቦታ", "📦 አጠቃላይ ደላላ"]
+BROKER_REG_SUBCITIES = ["ቦሌ", "አራዳ", "ቂርቆስ", "አዳማ", "አዲስ አበባ (ሙሉ)"]
