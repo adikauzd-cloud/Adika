@@ -1,5 +1,5 @@
 # ==============================================================================
-# handlers.py — Telegram bot handlers, keyboards, conversations (COMPLETE)
+# handlers.py — Telegram bot handlers, keyboards, conversations (FULLY FIXED)
 # ==============================================================================
 import json
 import re
@@ -161,6 +161,7 @@ def format_card(item: dict) -> str:
         except Exception:
             extra = {}
 
+    # Status badges in English
     if req_type == "BUY":
         header = f"[🎯 Buyer Request]  <code>#ADK-{item_id}</code>"
         price_display = f"💰 <b>Budget:</b> {extra.get('budget_range') or price or '—'} ETB"
@@ -190,14 +191,15 @@ def format_card(item: dict) -> str:
     return "\n".join(lines)
 
 def format_broker_card(b: dict) -> str:
-    """Format a broker card."""
+    """Format a broker card with Verified Agent badge."""
     rating = float(b.get("rating") or 5)
     stars = "⭐" * min(5, int(rating))
     online = b.get("is_online", True)
     status = "🟢 ONLINE" if online else "⚪ OFFLINE"
+    verified_badge = "🛡️ Verified Agent" if b.get("status") == "approved" else ""
     return (
         f"👤 <b>{b.get('full_name', '—')}</b>  {status}\n"
-        f"✅ Trusted Broker\n"
+        f"{verified_badge}\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
         f"📍 Sub-City: {b.get('sub_city', '—')}\n"
         f"🎯 Specialty: {b.get('specialty') or b.get('role_type', '—')}\n"
@@ -570,7 +572,7 @@ async def broker_reg_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✍️ <b>Broker Registration</b>\n\n"
         f"👤 Name: <b>{context.user_data['broker_name']}</b> (from Telegram)\n"
         f"📱 {context.user_data['broker_username']}\n\n"
-        f"Please share your phone number:",
+        f"Please share your phone number or type it manually:",
         reply_markup=ReplyKeyboardMarkup(kb, resize_keyboard=True),
         parse_mode="HTML",
     )
@@ -586,7 +588,10 @@ async def broker_reg_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         phone = (update.message.text or "").strip()
         if not validate_phone(phone):
-            await update.message.reply_text("❌ Please enter a valid Ethiopian phone number.")
+            await update.message.reply_text(
+                "❌ Please enter a valid Ethiopian phone number (e.g., 0911223344):",
+                reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True),
+            )
             return PHONE_NUMBER
     
     context.user_data["broker_phone"] = phone
@@ -1442,6 +1447,7 @@ def register_handlers(app):
     """Register all handlers with the application."""
     cancel = MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), go_home)
 
+    # Broker Registration Conversation
     broker_conv = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^✍️ የደላላ/አቅራቢ መመዝገቢያ$"), broker_reg_start)],
         states={
@@ -1465,6 +1471,7 @@ def register_handlers(app):
         persistent=False,
     )
 
+    # Buyer Conversation
     buyer_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(buyer_bot_form_start, pattern="^buyer_bot_form$"),
@@ -1506,6 +1513,7 @@ def register_handlers(app):
         persistent=False,
     )
 
+    # Seller Conversation
     seller_conv = ConversationHandler(
         entry_points=[
             CallbackQueryHandler(seller_bot_form_start, pattern="^seller_bot_form$"),
@@ -1587,11 +1595,13 @@ def register_handlers(app):
         persistent=False,
     )
 
+    # Add all conversation handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(broker_conv)
     app.add_handler(buyer_conv)
     app.add_handler(seller_conv)
 
+    # Regular message handlers - with exact text matches
     app.add_handler(MessageHandler(filters.Regex("^🛒 የገበያ ቦታ$"), marketplace_choice))
     app.add_handler(MessageHandler(filters.Regex("^📋 የፈላጊዎች ጥያቄዎች$"), requests_choice))
     app.add_handler(MessageHandler(filters.Regex("^👥 የደላሎች መድረክ$"), view_brokers_directory))
@@ -1599,6 +1609,7 @@ def register_handlers(app):
     app.add_handler(MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ማስተካከያ$"), notification_prefs_start))
     app.add_handler(cancel)
 
+    # Callback query handlers
     app.add_handler(CallbackQueryHandler(go_home, pattern="^flow_home$"))
     app.add_handler(CallbackQueryHandler(text_mode_callback, pattern=r"^(text_mode_|tm_sold_|tm_call_)"))
     app.add_handler(CallbackQueryHandler(lambda u, c: u.callback_query.answer(), pattern="^noop$"))
