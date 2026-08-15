@@ -1893,29 +1893,68 @@ async def view_brokers_directory(update: Update, context: ContextTypes.DEFAULT_T
 
 
 def _broker_chat_url(b: dict) -> str:
+    """Always return a Telegram-valid URL (http/https/tg). Never empty."""
+    chat_id = b.get("chat_id")
+    try:
+        chat_id = int(chat_id) if chat_id is not None else None
+    except (TypeError, ValueError):
+        chat_id = None
+
     uname = (b.get("username") or "").strip()
+    # strip leading @ and reject placeholders
     if uname.startswith("@"):
-        return f"https://t.me/{uname.lstrip('@')}"
-    if uname.startswith("http") or uname.startswith("tg://"):
+        uname = uname[1:]
+    if uname.startswith("tg://user?id="):
         return uname
-    if uname:
+    if uname.startswith("http://") or uname.startswith("https://"):
+        return uname
+    # valid telegram username: 5+ chars, alphanumeric + underscore
+    if uname and re.match(r"^[A-Za-z0-9_]{5,}$", uname):
         return f"https://t.me/{uname}"
-    return f"tg://user?id={b.get('chat_id')}"
+    if chat_id:
+        return f"tg://user?id={chat_id}"
+    # last resort — still valid URL so Telegram does not BadRequest
+    return "https://t.me/AdikaSupport"
 
 
 def _broker_card_keyboard(b: dict, viewer_id: int) -> InlineKeyboardMarkup:
+    """Safe inline keyboard — never pass empty/invalid url= to Telegram."""
     chat_id_b = b.get("chat_id")
+    try:
+        chat_id_b = int(chat_id_b) if chat_id_b is not None else 0
+    except (TypeError, ValueError):
+        chat_id_b = 0
+
     phone = (b.get("phone") or "").strip()
+    # keep digits only for display/callback
+    phone_digits = re.sub(r"\D", "", phone)
+
     rows = []
     row1 = []
-    if phone:
-        tel = phone if phone.startswith("+") else f"+251{phone.lstrip('0')}"
-        row1.append(InlineKeyboardButton("📞 Call", url=f"tel:{tel}"))
-    row1.append(InlineKeyboardButton("💬 Message", url=_broker_chat_url(b)))
+    # Telegram often rejects tel: URLs on InlineKeyboardButton → use callback
+    if phone_digits:
+        row1.append(
+            InlineKeyboardButton("📞 Call", callback_data=f"broker_call_{chat_id_b}")
+        )
+    else:
+        row1.append(
+            InlineKeyboardButton("📞 N/A", callback_data="broker_call_na")
+        )
+    row1.append(
+        InlineKeyboardButton("💬 Message", url=_broker_chat_url(b))
+    )
     rows.append(row1)
-    rows.append([InlineKeyboardButton("⭐ ደረጃ ስጥ", callback_data=f"broker_rate_{chat_id_b}")])
-    if viewer_id == chat_id_b or viewer_id in ADMIN_IDS:
-        rows.append([InlineKeyboardButton("🗑️ Delete Profile", callback_data=f"broker_del_{chat_id_b}")])
+    rows.append([
+        InlineKeyboardButton("⭐ ደረጃ ስጥ", callback_data=f"broker_rate_{chat_id_b}")
+    ])
+    try:
+        viewer_id = int(viewer_id)
+    except (TypeError, ValueError):
+        viewer_id = 0
+    if chat_id_b and (viewer_id == chat_id_b or viewer_id in ADMIN_IDS):
+        rows.append([
+            InlineKeyboardButton("🗑️ Delete Profile", callback_data=f"broker_del_{chat_id_b}")
+        ])
     return InlineKeyboardMarkup(rows)
 
 
@@ -1924,8 +1963,7 @@ async def filter_brokers_by_subcity_callback(update: Update, context: ContextTyp
     await q.answer()
     data = q.data or ""
     if data == "dir_sc_all":
-        sub = None
-        label = "ሁሉም"
+        sub, label = None, "ሁሉም"
     else:
         try:
             idx = int(data.replace("dir_sc_", ""))
@@ -1934,26 +1972,99 @@ async def filter_brokers_by_subcity_callback(update: Update, context: ContextTyp
         except (ValueError, IndexError):
             sub, label = None, "ሁሉም"
 
-    brokers = get_active_brokers(sub_city=sub, status="approved", limit=30, offset=0)
-    if not brokers:
-        await q.edit_message_text(
-            f"📭 በ«{label}» የተረጋገጡ ደላሎች አልተገኙም።",
-            parse_mode="HTML",
-        )
+    try:
+        brokers = get_active_brokers(sub_city=sub, status="approved", limit=30, offset=0)
+    except Exception as e:
+        logger.error(f"get_active_brokers failed: {e}", exc_info=True)
+        await q.edit_message_text("❌ ደላሎችን ማምጣት አልተቻለም። ቆይተው ይሞክሩ።")
         return
 
-    await q.edit_message_text(
-        f"👥 <b>የተረጋገጡ ደላሎች</b> — {label}\nጠቅላላ: {len(brokers)}",
-        parse_mode="HTML",
-    )
+    if not brokers:
+        try:
+            await q.edit_message_text(
+                f"📭 በ«{label}» የተረጋገጡ ደላሎች አልተገኙም።",
+                parse_mode="HTML",
+            )
+        except Exception:
+            await context.bot.send_message(
+                chat_id=q.from_user.id,
+                text=f"📭 በ«{label}» የተረጋገጡ ደላሎች አልተገኙም።",
+            )
+        return
+
+    try:
+        await q.edit_message_text(
+            f"👥 <b>የተረጋገጡ ደላሎች</b> — {label}\nጠቅላላ: {len(brokers)}",
+            parse_mode="HTML",
+        )
+    except Exception:
+        await context.bot.send_message(
+            chat_id=q.from_user.id,
+            text=f"👥 የተረጋገጡ ደላሎች — {label} ({len(brokers)})",
+        )
+
     viewer = q.from_user.id
+    sent = 0
     for b in brokers:
+        try:
+            if not isinstance(b, dict):
+                continue
+            if not b.get("chat_id"):
+                logger.warning(f"skip broker without chat_id: {b}")
+                continue
+            text = format_broker_profile_professional(b)
+            kb = _broker_card_keyboard(b, viewer)
+            await context.bot.send_message(
+                chat_id=viewer,
+                text=text,
+                parse_mode="HTML",
+                reply_markup=kb,
+                disable_web_page_preview=True,
+            )
+            sent += 1
+        except Exception as e:
+            logger.error(
+                f"broker card send failed id={b.get('id')} chat_id={b.get('chat_id')}: {e}",
+                exc_info=True,
+            )
+            # try plain-text fallback without keyboard
+            try:
+                await context.bot.send_message(
+                    chat_id=viewer,
+                    text=(
+                        f"👤 {b.get('full_name') or '—'}\n"
+                        f"📍 {b.get('sub_city') or '—'}\n"
+                        f"💼 {b.get('specialty') or b.get('role_type') or '—'}"
+                    ),
+                )
+            except Exception as e2:
+                logger.error(f"broker fallback also failed: {e2}")
+                continue
+    if sent == 0:
         await context.bot.send_message(
             chat_id=viewer,
-            text=format_broker_profile_professional(b),
-            parse_mode="HTML",
-            reply_markup=_broker_card_keyboard(b, viewer),
+            text="📭 ሊታዩ የሚችሉ ደላሎች አልተገኙም።",
         )
+
+
+async def broker_call_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Show phone via alert — avoids invalid tel: URL BadRequest."""
+    q = update.callback_query
+    data = q.data or ""
+    if data == "broker_call_na":
+        await q.answer("📞 ስልክ አልተመዘገበም", show_alert=True)
+        return
+    try:
+        cid = int(data.replace("broker_call_", ""))
+    except ValueError:
+        await q.answer("📞 ስልክ አልተገኘም", show_alert=True)
+        return
+    b = get_broker(cid)
+    phone = (b or {}).get("phone") or ""
+    if phone:
+        await q.answer(f"📞 {phone}", show_alert=True)
+    else:
+        await q.answer("📞 ስልክ አልተመዘገበም", show_alert=True)
 
 
 async def broker_rate_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
