@@ -471,6 +471,7 @@ def add_broker(
     sub_city="",
     specialty="",
     username="",
+    fayda_photo_id=None,
 ) -> Optional[int]:
     """Insert or update broker. Returns broker id or None."""
     conn = None
@@ -483,6 +484,7 @@ def add_broker(
         sub_city = (str(sub_city).strip() if sub_city else "")[:80]
         specialty = (str(specialty).strip() if specialty else role_type)[:120]
         photo = str(national_id_photo) if national_id_photo else None
+        fayda = str(fayda_photo_id) if fayda_photo_id else None
         prefs = {"car": True, "house": True, "enabled": True}
 
         conn = get_db_connection()
@@ -497,6 +499,7 @@ def add_broker(
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS specialty TEXT DEFAULT ''",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT TRUE",
+                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS fayda_photo_id TEXT",
                 ):
                     try:
                         cur.execute(stmt)
@@ -508,6 +511,7 @@ def add_broker(
                     "ALTER TABLE brokers ADD COLUMN specialty TEXT DEFAULT ''",
                     "ALTER TABLE brokers ADD COLUMN is_verified INTEGER DEFAULT 0",
                     "ALTER TABLE brokers ADD COLUMN is_online INTEGER DEFAULT 1",
+                    "ALTER TABLE brokers ADD COLUMN fayda_photo_id TEXT",
                 ):
                     try:
                         cur.execute(stmt)
@@ -841,46 +845,93 @@ def save_broker_offer(request_id: int, broker_id: int, description: str, photo_i
 
 # ========== RATINGS ==========
 
-def add_broker_rating(broker_chat_id, user_chat_id, stars):
+def add_broker_rating(broker_chat_id, user_chat_id, stars) -> bool:
+    """Upsert rating and refresh average on brokers table."""
     conn = None
     try:
+        broker_chat_id = int(broker_chat_id)
+        user_chat_id = int(user_chat_id)
+        stars = int(stars)
+        if stars < 1 or stars > 5:
+            return False
+
         conn = get_db_connection()
-        cursor = conn.cursor()
+        cur = conn.cursor()
         p = get_placeholder()
-        cursor.execute(
+
+        # Ensure ratings table exists
+        try:
+            if DATABASE_URL:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ratings (
+                        id SERIAL PRIMARY KEY,
+                        broker_chat_id BIGINT NOT NULL,
+                        user_chat_id BIGINT NOT NULL,
+                        stars INT NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(broker_chat_id, user_chat_id)
+                    )
+                """)
+            else:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS ratings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        broker_chat_id INTEGER NOT NULL,
+                        user_chat_id INTEGER NOT NULL,
+                        stars INTEGER NOT NULL,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(broker_chat_id, user_chat_id)
+                    )
+                """)
+                conn.commit()
+        except Exception as te:
+            logger.warning(f"ratings table: {te}")
+
+        # Upsert: delete old then insert (works on both PG and SQLite)
+        cur.execute(
+            f"DELETE FROM ratings WHERE broker_chat_id = {p} AND user_chat_id = {p}",
+            (broker_chat_id, user_chat_id),
+        )
+        cur.execute(
             f"INSERT INTO ratings (broker_chat_id, user_chat_id, stars) VALUES ({p}, {p}, {p})",
-            (broker_chat_id, user_chat_id, stars)
+            (broker_chat_id, user_chat_id, stars),
         )
-        cursor.execute(
-            f"SELECT AVG(stars) as avg_stars, COUNT(*) as total_count FROM ratings WHERE broker_chat_id = {p}",
-            (broker_chat_id,)
+        cur.execute(
+            f"SELECT AVG(stars) AS avg_stars, COUNT(*) AS total_count FROM ratings WHERE broker_chat_id = {p}",
+            (broker_chat_id,),
         )
-        result = cursor.fetchone()
+        result = cur.fetchone()
         if isinstance(result, dict):
-            avg_stars = result.get('avg_stars', 5.0)
-            total_count = result.get('total_count', 0)
+            avg_stars = float(result.get("avg_stars") or 5.0)
+            total_count = int(result.get("total_count") or 0)
         else:
-            avg_stars = result[0] if result[0] else 5.0
-            total_count = result[1] if result[1] else 0
-        cursor.execute(
+            avg_stars = float(result[0] or 5.0)
+            total_count = int(result[1] or 0)
+
+        cur.execute(
             f"UPDATE brokers SET rating = {p}, total_ratings = {p} WHERE chat_id = {p}",
-            (round(float(avg_stars), 1), total_count, broker_chat_id)
+            (round(avg_stars, 1), total_count, broker_chat_id),
         )
         if not DATABASE_URL:
             conn.commit()
+        logger.info(f"rating ok broker={broker_chat_id} stars={stars} avg={avg_stars}")
         return True
     except Exception as e:
-        logger.error(f"Add broker rating error: {e}")
+        logger.error(f"add_broker_rating error: {e}", exc_info=True)
+        if conn and not DATABASE_URL:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
         return False
     finally:
         if conn:
             try:
                 conn.close()
-            except:
+            except Exception:
                 pass
 
 
-# ========== SEARCH ALERTS ==========
 
 def save_search_alert(user_chat_id: int, main_category: str, budget_min: str, budget_max: str) -> int:
     conn = None
