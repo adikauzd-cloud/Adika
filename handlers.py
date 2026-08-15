@@ -165,14 +165,14 @@ def format_marketplace_card_professional(item: dict) -> str:
 
     # --- Header badge ---
     if req_type == "BUY":
-        header = f"🎯 Buyer Request  ·  <code>#ADK-{item_id}</code>"
+        header = f"🎯  <code>#ADK-{item_id}</code>"
         price_label = "በጀት"
         price_display = f"💰 <b>{price_label}:</b> {extra.get('budget_range') or price or '—'} ብር"
     else:
         if status in ('sold', 'rented'):
             header = f"🔴 Sold Out  ·  <code>#ADK-{item_id}</code>"
         else:
-            header = f"🟢 Active  ·  <code>#ADK-{item_id}</code>"
+            header = f"🟢  <code>#ADK-{item_id}</code>"
         negotiable = "የሚደራደር" if extra.get('negotiable', True) else "የማይደራደር"
         urgent = " ⚡ አስቸኳይ" if extra.get('urgent_sale') else ""
         price_display = f"💰 <b>ዋጋ:</b> {price} ብር <i>({negotiable})</i>{urgent}"
@@ -231,7 +231,7 @@ def format_buyer_card(req: dict) -> str:
     return format_marketplace_card_professional(req)
 
 def format_broker_profile_professional(b: dict) -> str:
-    """Compact broker directory card — 🟢 pulse-style status, English labels."""
+    """Compact directory card: 🟢 online + 🛡️ Verified beside name."""
     if not isinstance(b, dict):
         return "👤 —"
     try:
@@ -239,14 +239,12 @@ def format_broker_profile_professional(b: dict) -> str:
     except (TypeError, ValueError):
         rating = 5.0
     online = b.get("is_online", True)
-    if online in (0, "0", False, "false", "False"):
-        online = False
+    if online in (0, "0", False, "false", "False", None):
+        online = bool(online) if online not in (0, "0", False, "false", "False", None) else False
+    # default online True when flag missing
+    if b.get("is_online") is None:
+        online = True
     verified = str(b.get("status", "")).lower() in ("approved", "online") or bool(b.get("is_verified"))
-    # Compact green/gray dot
-    status_dot = "🟢" if online else "⚪"
-    badge = f"{status_dot} {'Online' if online else 'Offline'}"
-    if verified:
-        badge += "  ·  ✓ Verified"
 
     def _esc(v):
         s = str(v if v is not None else "—")
@@ -255,10 +253,15 @@ def format_broker_profile_professional(b: dict) -> str:
     name = _esc(b.get("full_name") or "—")
     area = _esc(b.get("sub_city") or "—")
     role = _esc(b.get("specialty") or b.get("role_type") or "—")
+    # Compact: green/white dot only (no large emoji stacks)
+    status_dot = "🟢" if online else "⚪"
+    name_line = f"👤 {name}"
+    if verified:
+        name_line += "  🛡️ Verified"
     return (
-        f"{badge}\n"
+        f"{status_dot}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"👤 {name}\n"
+        f"{name_line}\n"
         f"📍 {area}\n"
         f"💼 {role}\n"
         f"⭐ {rating:.1f} / 5.0"
@@ -2117,48 +2120,53 @@ async def broker_call_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def broker_rate_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Step 1: show 1⭐–5⭐ inline buttons."""
     q = update.callback_query
-    await q.answer()
+    data = q.data or ""
     try:
-        cid = int((q.data or "").replace("broker_rate_", ""))
+        cid = int(data.replace("broker_rate_", ""))
     except ValueError:
-        await q.answer("❌ ስህተት", show_alert=True)
+        await q.answer("Invalid broker.", show_alert=True)
         return
+    await q.answer()
     kb = [[
         InlineKeyboardButton(f"{n}⭐", callback_data=f"broker_star_{cid}_{n}")
         for n in range(1, 6)
     ]]
     await context.bot.send_message(
         chat_id=q.from_user.id,
-        text="⭐ ደረጃ ይምረጡ (1–5):",
+        text="⭐ Rate this broker (1–5):",
         reply_markup=InlineKeyboardMarkup(kb),
     )
 
 
 async def broker_star_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Step 2: persist score + success toast."""
     q = update.callback_query
     data = q.data or ""
-    parts = data.split("_")
     # broker_star_{cid}_{n}
+    parts = data.split("_")
     try:
         cid = int(parts[2])
         stars = int(parts[3])
     except (IndexError, ValueError):
-        await q.answer("❌ ስህተት", show_alert=True)
+        await q.answer("Invalid rating.", show_alert=True)
         return
-    ok = False
     try:
         ok = add_broker_rating(cid, q.from_user.id, stars)
     except Exception as e:
         logger.error(f"broker_star_cb: {e}", exc_info=True)
+        ok = False
     if ok:
-        await q.answer("አስተያየትዎ በጥሩ ሁኔታ ተመዝግቧል!", show_alert=True)
+        await q.answer("✅ Rating saved successfully!", show_alert=True)
         try:
-            await q.edit_message_text(f"✅ {stars}⭐ — አስተያየትዎ በጥሩ ሁኔታ ተመዝግቧል!")
+            await q.edit_message_text(
+                f"✅ {stars}⭐ saved — thank you!"
+            )
         except Exception:
             pass
     else:
-        await q.answer("❌ ደረጃ ማስቀመጥ አልተቻለም።", show_alert=True)
+        await q.answer("❌ Could not save rating. Try again.", show_alert=True)
 
 
 async def broker_del_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
