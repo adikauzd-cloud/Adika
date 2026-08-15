@@ -1,19 +1,13 @@
 # ==============================================================================
-# webapp.py — Flask Mini App + REST API (Fixed)
+# webapp.py — Flask Mini App + REST API
 # ==============================================================================
 import json
 import random
-import re
-from datetime import datetime, timezone
-from typing import Optional, Dict, Any
-
-from flask import Flask, request, jsonify, Response, abort
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
-from werkzeug.exceptions import BadRequest
 
 from config import (
     logger, PORT, MAX_IMAGE_BYTES, ADMIN_CHAT_ID_INT, DATABASE_URL,
-    MAX_PHOTOS, ALLOWED_IMAGE_TYPES, ENVIRONMENT, BASE_URL,
 )
 from models import (
     get_db_connection, get_placeholder,
@@ -24,9 +18,7 @@ from models import (
 web_app = Flask(__name__)
 CORS(web_app, resources={r"/api/*": {"origins": "*"}})
 
-# ---------- HTML Templates ----------
-# [Seller Form HTML - same as previous, clean]
-SELLER_FORM_HTML = """
+SELLER_FORM_HTML = r"""
 <!DOCTYPE html>
 <html lang="am">
 <head>
@@ -42,13 +34,13 @@ SELLER_FORM_HTML = """
     body { margin:0; background:#f8fafc; font-family:system-ui,-apple-system,sans-serif; -webkit-tap-highlight-color:transparent; }
     .chip-active { background:#2563eb; color:#fff; font-weight:700; box-shadow:0 1px 3px rgba(37,99,235,.3); }
     .chip-idle { background:#f3f4f6; color:#4b5563; border:1px solid #e5e7eb; }
-    input, textarea, select { font-size: 16px !important; }
+    input, textarea, select { font-size: 16px !important; } /* prevent iOS zoom */
   </style>
 </head>
 <body>
   <div id="root"></div>
   <script type="text/babel">
-    const { useState, useRef } = React;
+    const { useState, useEffect, useRef } = React;
     const tg = window.Telegram.WebApp;
     tg.expand(); tg.ready();
     tg.setHeaderColor('#1e40af'); tg.setBackgroundColor('#f8fafc');
@@ -58,12 +50,12 @@ SELLER_FORM_HTML = """
     const autoPhone = user.phone_number || '';
 
     function formatPrice(val) {
-      const digits = String(val).replace(/[^\\d]/g, '');
+      const digits = String(val).replace(/[^\d]/g, '');
       if (!digits) return '';
-      return digits.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
+      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
     function parsePrice(val) {
-      return String(val).replace(/[^\\d]/g, '');
+      return String(val).replace(/[^\d]/g, '');
     }
 
     function Chip({ label, active, onClick, danger }) {
@@ -98,23 +90,26 @@ SELLER_FORM_HTML = """
     function SellerForm() {
       const [step, setStep] = useState(1);
       const [category, setCategory] = useState('መኪና');
+      // car fields
       const [fuel, setFuel] = useState('');
       const [transmission, setTransmission] = useState('');
       const [mileage, setMileage] = useState('');
       const [condition, setCondition] = useState('');
       const [carType, setCarType] = useState('');
+      // house fields
       const [bedrooms, setBedrooms] = useState('');
       const [bathrooms, setBathrooms] = useState('');
       const [parking, setParking] = useState(false);
       const [houseCondition, setHouseCondition] = useState('');
       const [houseType, setHouseType] = useState('');
+      // common
       const [price, setPrice] = useState('');
       const [negotiable, setNegotiable] = useState(true);
       const [urgent, setUrgent] = useState(false);
       const [description, setDescription] = useState('');
       const [phone, setPhone] = useState(autoPhone);
       const [telegramUser, setTelegramUser] = useState(autoUsername);
-      const [photos, setPhotos] = useState([]);
+      const [photos, setPhotos] = useState([]); // data URLs
       const [status, setStatus] = useState('');
       const [submitting, setSubmitting] = useState(false);
       const fileRef = useRef(null);
@@ -214,6 +209,7 @@ SELLER_FORM_HTML = """
 
       return (
         <div className="min-h-screen pb-28">
+          {/* Progress */}
           <div className="sticky top-0 z-20 bg-white/90 backdrop-blur border-b px-4 pt-3 pb-2">
             <h1 className="text-center font-bold text-sm text-gray-800 mb-2">ንብረት ለገበያ ያቅርቡ</h1>
             <div className="flex items-center gap-1">
@@ -232,6 +228,7 @@ SELLER_FORM_HTML = """
           </div>
 
           <div className="p-4 space-y-4">
+            {/* STEP 1 */}
             {step === 1 && (
               <div className="space-y-4">
                 <div>
@@ -330,6 +327,7 @@ SELLER_FORM_HTML = """
               </div>
             )}
 
+            {/* STEP 2 */}
             {step === 2 && (
               <div className="space-y-4">
                 <div>
@@ -345,6 +343,7 @@ SELLER_FORM_HTML = """
                 <ToggleCard active={negotiable} onToggle={() => setNegotiable(!negotiable)} icon="💰" label="ዋጋው የሚደራደር ነው" />
                 <ToggleCard active={urgent} onToggle={() => setUrgent(!urgent)} icon="⚡" label="አስቸኳይ ሽያጭ" danger />
 
+                {/* Drag-drop photos */}
                 <div>
                   <label className="text-xs font-medium text-gray-600 mb-1.5 block">📸 ፎቶዎች (እስከ 5)</label>
                   <div
@@ -376,6 +375,7 @@ SELLER_FORM_HTML = """
               </div>
             )}
 
+            {/* STEP 3 */}
             {step === 3 && (
               <div className="space-y-4">
                 <div>
@@ -397,6 +397,7 @@ SELLER_FORM_HTML = """
             )}
           </div>
 
+          {/* Bottom actions */}
           <div className="fixed bottom-0 left-0 right-0 p-3 bg-white/95 backdrop-blur border-t flex gap-2">
             {step > 1 ? (
               <button type="button" onClick={() => setStep(s => s-1)}
@@ -428,8 +429,7 @@ SELLER_FORM_HTML = """
 </html>
 """
 
-# [Buyer Form HTML - same as previous, clean]
-BUYER_FORM_HTML = """
+BUYER_FORM_HTML = r"""
 <!DOCTYPE html>
 <html lang="am">
 <head>
@@ -461,12 +461,12 @@ BUYER_FORM_HTML = """
     const autoPhone = user.phone_number || '';
 
     function formatPrice(val) {
-      const digits = String(val).replace(/[^\\d]/g, '');
+      const digits = String(val).replace(/[^\d]/g, '');
       if (!digits) return '';
-      return digits.replace(/\\B(?=(\\d{3})+(?!\\d))/g, ',');
+      return digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
     function parsePrice(val) {
-      return String(val).replace(/[^\\d]/g, '');
+      return String(val).replace(/[^\d]/g, '');
     }
 
     function Chip({ label, active, onClick }) {
@@ -570,6 +570,7 @@ BUYER_FORM_HTML = """
               </div>
             </div>
 
+            {/* Notification preference card – correct Amharic */}
             <button type="button" onClick={() => setCreateAlert(!createAlert)}
               className={`w-full flex items-center gap-3 p-3.5 rounded-xl border transition-all text-left ${
                 createAlert ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-gray-50 border-gray-200 text-gray-600'
@@ -623,8 +624,7 @@ BUYER_FORM_HTML = """
 </html>
 """
 
-# [Explorer HTML - with status dot indicator only]
-EXPLORER_HTML = """
+EXPLORER_HTML = r"""
 <!DOCTYPE html>
 <html lang="am">
 <head>
@@ -650,10 +650,6 @@ EXPLORER_HTML = """
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     .modal-enter { animation: fadeIn 0.2s ease; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
-    .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
-    .status-dot.available { background: #22c55e; }
-    .status-dot.sold { background: #ef4444; }
-    .status-dot.request { background: #f59e0b; }
   </style>
 </head>
 <body>
@@ -697,6 +693,7 @@ EXPLORER_HTML = """
       );
     }
 
+    /* ---------- Item Detail Modal ---------- */
     function ItemDetailModal({ item, onClose, onStatusChange, onDelete, currentUid }) {
       const extra = item.extra_data || {};
       const isSell = (item.req_type || '').toUpperCase() === 'SELL';
@@ -731,6 +728,7 @@ EXPLORER_HTML = """
       return (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center modal-enter" onClick={onClose}>
           <div className="bg-white w-full max-w-md max-h-[92vh] rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
+            {/* Image carousel */}
             <div className="relative aspect-4-3 bg-gray-900/5 shrink-0 flex items-center justify-center overflow-hidden border-b border-black/[0.06]">
               {photos.length > 0 ? (
                 <img src={photos[photoIdx]} className="max-w-full max-h-full w-full h-full object-contain" alt=""
@@ -779,9 +777,10 @@ EXPLORER_HTML = """
                 {item.phone && <span className="bg-gray-100 px-2 py-1 rounded-lg">📞 {item.phone}</span>}
               </div>
 
+              {/* Contact actions */}
               {!isSold && (
                 <div className="flex gap-2 pt-1">
-                  <a href={item.phone ? `tel:${String(item.phone).replace(/\\s+/g,'')}` : '#'}
+                  <a href={item.phone ? `tel:${String(item.phone).replace(/\s+/g,'')}` : '#'}
                     className="flex-1 py-3 rounded-xl bg-blue-500/15 text-blue-700 border border-blue-500/30 text-sm font-bold text-center">📞 ደውል</a>
                   {extra.telegram_user && (
                     <a href={`https://t.me/${String(extra.telegram_user).replace('@','')}`} target="_blank" rel="noreferrer"
@@ -790,6 +789,7 @@ EXPLORER_HTML = """
                 </div>
               )}
 
+              {/* Owner controls */}
               {isOwner && (
                 <div className="border-t pt-3 space-y-2">
                   <p className="text-xs font-medium text-gray-500">የባለቤት ቁጥጥር</p>
@@ -826,6 +826,7 @@ EXPLORER_HTML = """
       );
     }
 
+    /* ---------- Card ---------- */
     function Card({ item, onOpen, onStatusChange, onDelete, currentUid }) {
       const cardRef = useRef(null);
       const extra = item.extra_data || {};
@@ -836,14 +837,6 @@ EXPLORER_HTML = """
       const isOwner = currentUid && String(item.user_chat_id) === String(currentUid);
       const [menuOpen, setMenuOpen] = useState(false);
       const [localViews, setLocalViews] = useState(item.view_count || 0);
-
-      // Get status dot class
-      const getStatusDot = () => {
-        if (isSell && !isSold) return 'available';
-        if (isSell && isSold) return 'sold';
-        if (!isSell) return 'request';
-        return 'available';
-      };
 
       useEffect(() => {
         if (!cardRef.current || viewedThisSession.has(item.id) || isSold) return;
@@ -873,9 +866,19 @@ EXPLORER_HTML = """
         } catch(e) {}
       };
 
+      const statusBadge = () => {
+        // Subtle status dot only (no Amharic text)
+        if (status === 'sold' || status === 'rented')
+          return <span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 shadow" title="Sold" />;
+        if (status === 'expired')
+          return <span className="inline-block w-2.5 h-2.5 rounded-full bg-gray-400 shadow" title="Expired" />;
+        return <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500 shadow" title="Available" />;
+      };
+
       return (
         <div ref={cardRef}
           className="bg-white rounded-2xl border border-black/[0.08] shadow-sm hover:shadow-md transition-shadow overflow-hidden relative active:scale-[0.98]">
+          {/* Photo – opens modal */}
           <div className="relative aspect-4-3 bg-gradient-to-br from-slate-50 to-blue-50 cursor-pointer" onClick={() => onOpen(item)}>
             {photos.length > 0 ? (
               <img src={photos[0]} alt="" className="w-full h-full object-cover" loading="lazy"
@@ -885,12 +888,6 @@ EXPLORER_HTML = """
                 {item.main_category === 'መኪና' ? '🚗' : '🏠'}
               </div>
             )}
-            
-            {/* Status Dot - Only the dot, no text */}
-            <div className="absolute top-2 right-2">
-              <span className={`status-dot ${getStatusDot()}`} />
-            </div>
-
             {isSold && (
               <div className="absolute inset-0 sold-overlay flex items-center justify-center pointer-events-none">
                 <span className="text-white font-bold text-[11px] px-2.5 py-1 rounded-full bg-black/55">
@@ -898,13 +895,13 @@ EXPLORER_HTML = """
                 </span>
               </div>
             )}
-            
+            <div className="absolute top-1.5 left-1.5">{statusBadge()}</div>
             {isOwner && (
-              <div className="absolute top-2 left-2" onClick={e => e.stopPropagation()}>
+              <div className="absolute top-1.5 right-1.5" onClick={e => e.stopPropagation()}>
                 <button onClick={() => setMenuOpen(!menuOpen)}
                   className="w-7 h-7 rounded-full glass-dark text-white text-sm flex items-center justify-center">⋮</button>
                 {menuOpen && (
-                  <div className="absolute left-0 mt-1 w-32 bg-white rounded-xl shadow-lg border border-gray-100 text-[11px] z-20 overflow-hidden">
+                  <div className="absolute right-0 mt-1 w-32 bg-white rounded-xl shadow-lg border border-gray-100 text-[11px] z-20 overflow-hidden">
                     {!isSold && (
                       <>
                         <button onClick={() => markStatus('sold')} className="w-full text-left px-3 py-2 hover:bg-gray-50">✅ ተሸጧል</button>
@@ -917,13 +914,14 @@ EXPLORER_HTML = """
                 )}
               </div>
             )}
-            
+            {/* Bottom glass badge: views + time */}
             <div className="absolute bottom-1.5 left-1.5 right-1.5 flex justify-between pointer-events-none">
               <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">👀 {localViews}</span>
               <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">{relativeTime(item.created_at)}</span>
             </div>
           </div>
 
+          {/* Content */}
           <div className="p-2.5 space-y-1">
             <h3 className="font-bold text-gray-900 text-[12px] line-clamp-1 leading-tight" onClick={() => onOpen(item)}>
               {item.main_category}{item.sub_category ? ` • ${String(item.sub_category).replace(/[🚗🚚🚜🏡🏢🏞️]/g,'').trim()}` : ''}
@@ -936,7 +934,7 @@ EXPLORER_HTML = """
               {extra.urgent_sale && <span className="text-red-500 text-[10px] ml-0.5">⚡</span>}
             </div>
             <div className="flex gap-1.5 pt-0.5">
-              <a href={!isSold && item.phone ? `tel:${String(item.phone).replace(/\\s+/g,'')}` : undefined}
+              <a href={!isSold && item.phone ? `tel:${String(item.phone).replace(/\s+/g,'')}` : undefined}
                 onClick={e => { if (isSold || !item.phone) e.preventDefault(); }}
                 className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-500/15 text-blue-700 border border-blue-500/30'}`}>
                 📞 ደውል
@@ -955,6 +953,7 @@ EXPLORER_HTML = """
       );
     }
 
+    /* ---------- App ---------- */
     function App() {
       const params = new URLSearchParams(window.location.search);
       const initialTab = params.get('tab') === 'requests' ? 'requests' : 'marketplace';
@@ -966,7 +965,7 @@ EXPLORER_HTML = """
       const [filters, setFilters] = useState({ q: '', category: '' });
       const [searchInput, setSearchInput] = useState('');
       const [detailItem, setDetailItem] = useState(null);
-      const cacheRef = useRef({});
+      const cacheRef = useRef({}); // client-side tab/category cache
 
       const loadData = useCallback(async (pageNum = 1, append = false) => {
         const cacheKey = `${tab}|${filters.category}|${filters.q}|${pageNum}`;
@@ -1000,8 +999,10 @@ EXPLORER_HTML = """
         finally { setLoading(false); }
       }, [tab, filters]);
 
+      // Reload on tab / category change
       useEffect(() => { loadData(1, false); }, [tab, filters.category, filters.q]);
 
+      // Debounce search input → filters.q (300ms)
       useEffect(() => {
         const t = setTimeout(() => {
           setFilters(f => f.q === searchInput ? f : {...f, q: searchInput});
@@ -1014,31 +1015,34 @@ EXPLORER_HTML = """
 
       return (
         <div className="min-h-screen pb-16">
+          {/* Sticky glass header */}
           <div className="sticky top-0 z-30 glass border-b border-gray-200/60">
             <div className="flex">
               <button onClick={() => setTab('marketplace')}
                 className={`flex-1 py-2.5 text-xs font-bold transition ${tab==='marketplace' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
-                🛒 Marketplace
+                🛒 የገበያ ቦታ
               </button>
               <button onClick={() => setTab('requests')}
                 className={`flex-1 py-2.5 text-xs font-bold transition ${tab==='requests' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
-                📋 Buyer Requests
+                📋 የፈላጊዎች
               </button>
             </div>
+            {/* Search with icon */}
             <div className="px-2.5 pt-2 pb-1.5">
               <div className="relative">
                 <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
-                <input type="search" placeholder="Search..." value={searchInput}
+                <input type="search" placeholder="ፈልግ..." value={searchInput}
                   onChange={e => setSearchInput(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 bg-gray-50/80 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-200 focus:bg-white" />
               </div>
             </div>
+            {/* Glassmorphism category pills */}
             <div className="px-2.5 pb-2 flex gap-2 overflow-x-auto no-scrollbar" style={{WebkitOverflowScrolling:'touch'}}>
               {[
-                {id:'', label:'✨ All'},
-                {id:'መኪና', label:'🚗 Cars'},
-                {id:'ቤት', label:'🏠 Houses'},
-                {id:'ንግድ', label:'🏢 Commercial'},
+                {id:'', label:'✨ ሁሉም'},
+                {id:'መኪና', label:'🚗 መኪና'},
+                {id:'ቤት', label:'🏠 ቤት / ቦታ'},
+                {id:'ንግድ', label:'🏢 የሥራ ቦታ / ንግድ'},
               ].map(cat => (
                 <button key={cat.id || 'all'} type="button"
                   onClick={() => setFilters(f => ({...f, category: cat.id}))}
@@ -1053,6 +1057,7 @@ EXPLORER_HTML = """
             </div>
           </div>
 
+          {/* 2-col grid */}
           <div className="p-2.5 grid grid-cols-2 gap-2.5">
             {loading && items.length === 0 && Array.from({length: 6}).map((_,i) => <SkeletonCard key={i} />)}
             {items.map(item => (
@@ -1064,18 +1069,18 @@ EXPLORER_HTML = """
           {!loading && items.length === 0 && (
             <div className="text-center py-16 text-gray-400">
               <div className="text-4xl mb-2">📭</div>
-              <p className="text-sm">Nothing found</p>
+              <p className="text-sm">ምንም ንብረት አልተገኘም</p>
             </div>
           )}
           {hasMore && !loading && (
             <div className="text-center pb-6">
               <button onClick={() => loadData(page+1, true)}
                 className="bg-white border border-blue-200 text-blue-600 px-5 py-2 rounded-full text-xs font-medium shadow-sm">
-                Load More
+                ተጨማሪ ይመልከቱ
               </button>
             </div>
           )}
-          {loading && items.length > 0 && <div className="text-center py-3 text-xs text-gray-400">Loading...</div>}
+          {loading && items.length > 0 && <div className="text-center py-3 text-xs text-gray-400">እየጫነ ነው...</div>}
 
           {detailItem && (
             <ItemDetailModal item={detailItem} currentUid={currentUserId}
@@ -1092,45 +1097,257 @@ EXPLORER_HTML = """
 </html>
 """
 
-# ---------- REST API Routes ----------
-# [Routes same as previous, unchanged]
 
 @web_app.route("/")
 def home():
     return "✅ Adika Marketplace Bot is running", 200
 
-@web_app.route("/health")
-def health():
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT 1")
-        cur.fetchone()
-        return_connection(conn)
-        return jsonify({"status": "ok", "db": "connected", "environment": ENVIRONMENT}), 200
-    except Exception as e:
-        logger.error(f"Health check failed: {e}")
-        return jsonify({"status": "error", "db": "disconnected", "error": str(e)}), 500
 
 @web_app.route("/seller-form")
 def seller_form():
     return Response(SELLER_FORM_HTML, mimetype="text/html; charset=utf-8")
 
+
 @web_app.route("/buyer-form")
 def buyer_form():
     return Response(BUYER_FORM_HTML, mimetype="text/html; charset=utf-8")
+
 
 @web_app.route("/explorer")
 def explorer_page():
     return Response(EXPLORER_HTML, mimetype="text/html; charset=utf-8")
 
-# ---------- API Routes ----------
-# [All API routes same as previous - omitted for brevity, but include full API]
+
+@web_app.route("/api/submit-listing", methods=["POST"])
+def submit_listing():
+    try:
+        data = request.json or {}
+        user_id = data.get("user_id")
+        if not user_id or user_id == "unknown":
+            return jsonify({"status": "error", "message": "User ID required"}), 400
+        category = data.get("category", "መኪና")
+        price = data.get("price", "")
+        negotiable = data.get("negotiable", True)
+        urgent_sale = data.get("urgent_sale", False)
+        description = data.get("description", "")
+        phone = data.get("phone", "")
+        telegram_user = data.get("telegram_user", "")
+        photos = data.get("photos") or []
+        # size guard (base64 approx)
+        for ph in photos:
+            if isinstance(ph, str) and len(ph) > MAX_IMAGE_BYTES * 1.4:
+                return jsonify({"status": "error", "message": "Image too large (max 5MB)"}), 400
+
+        full_desc = f"💰 ዋጋ: {price} ብር\n📝 {description}\n📞 {phone}\n"
+        if telegram_user:
+            full_desc += f"📱 {telegram_user}\n"
+
+        extra = {
+            "fuel_type": data.get("fuel_type", ""),
+            "transmission": data.get("transmission", ""),
+            "mileage": data.get("mileage", ""),
+            "condition": data.get("condition", ""),
+            "car_type": data.get("car_type", ""),
+            "bedrooms": data.get("bedrooms", ""),
+            "bathrooms": data.get("bathrooms", ""),
+            "parking": data.get("parking", ""),
+            "house_type": data.get("house_type", ""),
+            "negotiable": negotiable,
+            "urgent_sale": urgent_sale,
+            "telegram_user": telegram_user,
+        }
+        req_id = add_listing(
+            user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
+            user_name="WebApp User",
+            req_type="SELL",
+            main_category=category,
+            sub_category=data.get("car_type") or data.get("house_type") or "",
+            action_type="መሸጥ",
+            property_type="",
+            description=full_desc,
+            price=str(price),
+            phone=str(phone),
+            extra_data=extra,
+            photos=photos,
+        )
+        if req_id:
+            return jsonify({"status": "success", "req_id": req_id})
+        return jsonify({"status": "error", "message": "DB save failed"}), 500
+    except Exception as e:
+        logger.error(f"submit_listing: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@web_app.route("/api/submit-request", methods=["POST"])
+def submit_request():
+    try:
+        data = request.json or {}
+        user_id = data.get("user_id")
+        if not user_id or user_id == "unknown":
+            return jsonify({"status": "error", "message": "User ID required"}), 400
+        category = data.get("category", "መኪና")
+        budget_min = data.get("budget_min", "")
+        budget_max = data.get("budget_max", "")
+        create_alert = data.get("create_alert", False)
+        details = data.get("details", "")
+        phone = data.get("phone", "")
+        telegram_user = data.get("telegram_user", "")
+        budget_range = f"{budget_min} - {budget_max}" if budget_min and budget_max else (budget_min or budget_max or "—")
+        full_desc = f"💰 በጀት: {budget_range}\n📝 {details}\n📞 {phone}\n"
+        if telegram_user:
+            full_desc += f"📱 {telegram_user}\n"
+        req_id = add_listing(
+            user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
+            user_name="WebApp User",
+            req_type="BUY",
+            main_category=category,
+            sub_category="",
+            action_type="መግዛት",
+            property_type="",
+            description=full_desc,
+            price=budget_range,
+            phone=str(phone),
+            extra_data={
+                "budget_min": budget_min, "budget_max": budget_max,
+                "create_alert": create_alert, "telegram_user": telegram_user,
+                "budget_range": budget_range,
+            },
+        )
+        if req_id:
+            if create_alert and str(user_id).isdigit():
+                save_search_alert(int(user_id), category, budget_min, budget_max)
+            return jsonify({"status": "success", "req_id": req_id})
+        return jsonify({"status": "error", "message": "DB save failed"}), 500
+    except Exception as e:
+        logger.error(f"submit_request: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@web_app.route("/api/explorer/listings", methods=["GET"])
+def api_explorer_listings():
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        limit = min(50, max(1, int(request.args.get("limit", 12))))
+        offset = (page - 1) * limit
+        req_type = request.args.get("type", "").upper()
+        category = request.args.get("category", "")
+        search = request.args.get("q", "").strip()
+        order = request.args.get("order", "DESC").upper()
+        if order not in ("ASC", "DESC"):
+            order = "DESC"
+        active_only = request.args.get("active_only", "1") == "1"
+
+        conn = get_db_connection()
+        cur = conn.cursor()
+        p = get_placeholder()
+        where = ["status != 'deleted'"]
+        params = []
+        if active_only:
+            where.append("status NOT IN ('sold','rented','expired')")
+        if req_type in ("SELL", "BUY"):
+            where.append(f"UPPER(req_type)=UPPER({p})")
+            params.append(req_type)
+        if category:
+            where.append(f"main_category={p}")
+            params.append(category)
+        if search:
+            if DATABASE_URL:
+                where.append(f"(description ILIKE {p} OR price ILIKE {p} OR phone ILIKE {p})")
+            else:
+                where.append(f"(description LIKE {p} OR price LIKE {p} OR phone LIKE {p})")
+            params.extend([f"%{search}%"] * 3)
+        where_sql = " AND ".join(where)
+        cur.execute(f"SELECT COUNT(*) as cnt FROM listings WHERE {where_sql}", params)
+        total_row = cur.fetchone()
+        total = total_row["cnt"] if isinstance(total_row, dict) else (total_row[0] if total_row else 0)
+        cur.execute(
+            f"SELECT * FROM listings WHERE {where_sql} ORDER BY id {order} LIMIT {p} OFFSET {p}",
+            params + [limit, offset],
+        )
+        rows = cur.fetchall()
+        items = []
+        for row in rows:
+            item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cur.description], row))
+            if isinstance(item.get("extra_data"), str):
+                try:
+                    item["extra_data"] = json.loads(item["extra_data"])
+                except Exception:
+                    item["extra_data"] = {}
+            cur.execute(f"SELECT photo_id FROM listing_photos WHERE listing_id={p}", (item["id"],))
+            photos = [r["photo_id"] if isinstance(r, dict) else r[0] for r in cur.fetchall()]
+            if not photos and item.get("photo_id"):
+                photos = [item["photo_id"]]
+            item["photos"] = photos
+            if item.get("created_at") and not isinstance(item["created_at"], str):
+                try:
+                    item["created_at"] = item["created_at"].isoformat()
+                except Exception:
+                    item["created_at"] = str(item["created_at"])
+            items.append(item)
+        conn.close()
+        return jsonify({
+            "status": "success", "page": page, "limit": limit,
+            "total": total, "has_more": offset + limit < total, "items": items,
+        })
+    except Exception as e:
+        logger.error(f"api_explorer_listings: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@web_app.route("/api/views/<int:listing_id>", methods=["POST"])
+def api_view_booster(listing_id):
+    try:
+        boost = random.randint(3, 7)
+        counts = increment_views([listing_id], amount=boost)
+        # baseline if zero
+        if listing_id not in counts:
+            counts = increment_views([listing_id], amount=random.randint(35, 90) + boost)
+        return jsonify({"status": "success", "view_count": counts.get(listing_id, 0)})
+    except Exception as e:
+        logger.error(f"view booster: {e}")
+        return jsonify({"status": "error"}), 500
+
+
+@web_app.route("/api/items/<int:listing_id>/status", methods=["PATCH"])
+def api_update_status(listing_id):
+    try:
+        data = request.json or {}
+        new_status = str(data.get("status", "")).lower()
+        user_id = data.get("user_id")
+        if new_status not in ("sold", "rented", "pending", "expired"):
+            return jsonify({"status": "error", "message": "Invalid status"}), 400
+        listing = get_listing_by_id(listing_id)
+        if not listing:
+            return jsonify({"status": "error", "message": "Not found"}), 404
+        owner = listing.get("user_chat_id")
+        is_admin = str(user_id) == str(ADMIN_CHAT_ID_INT) and ADMIN_CHAT_ID_INT != 0
+        if str(user_id) != str(owner) and not is_admin:
+            return jsonify({"status": "error", "message": "Forbidden"}), 403
+        update_listing_status(listing_id, new_status)
+        return jsonify({"status": "success", "new_status": new_status})
+    except Exception as e:
+        logger.error(f"status: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@web_app.route("/api/items/<int:listing_id>", methods=["DELETE"])
+def api_delete_item(listing_id):
+    try:
+        data = request.json or {}
+        user_id = data.get("user_id")
+        listing = get_listing_by_id(listing_id)
+        if not listing:
+            return jsonify({"status": "error", "message": "Not found"}), 404
+        owner = listing.get("user_chat_id")
+        is_admin = str(user_id) == str(ADMIN_CHAT_ID_INT) and ADMIN_CHAT_ID_INT != 0
+        if str(user_id) != str(owner) and not is_admin:
+            return jsonify({"status": "error", "message": "Forbidden"}), 403
+        update_listing_status(listing_id, "deleted")
+        return jsonify({"status": "success"})
+    except Exception as e:
+        logger.error(f"delete: {e}")
+        return jsonify({"status": "error"}), 500
+
 
 def run_flask():
-    try:
-        logger.info(f"🌐 Starting Flask server on port {PORT}")
-        web_app.run(host="0.0.0.0", port=PORT, use_reloader=False)
-    except Exception as e:
-        logger.error(f"❌ Failed to start Flask: {e}")
-        raise
+    web_app.run(host="0.0.0.0", port=PORT, use_reloader=False)
