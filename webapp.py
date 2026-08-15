@@ -866,15 +866,22 @@ EXPLORER_HTML = r"""
 
     function relativeTime(iso) {
       if (!iso) return '';
-      const d = new Date(iso);
-      if (isNaN(d)) return '';
-      const sec = Math.floor((Date.now() - d.getTime()) / 1000);
-      if (sec < 45) return 'Just now';
-      if (sec < 3600) return Math.floor(sec / 60) + 'm ago';
-      if (sec < 86400) return Math.floor(sec / 3600) + 'h ago';
-      if (sec < 604800) return Math.floor(sec / 86400) + 'd ago';
-      if (sec < 2592000) return Math.floor(sec / 604800) + 'w ago';
-      return Math.floor(sec / 2592000) + 'mo ago';
+      try {
+        const d = new Date(iso);
+        const secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+        if (secs < 60) return 'Just now';
+        if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+        if (secs < 86400) {
+          const h = Math.floor(secs / 3600);
+          return h + (h === 1 ? ' hr ago' : ' hrs ago');
+        }
+        if (secs < 172800) return 'Yesterday';
+        const days = Math.floor(secs / 86400);
+        if (days < 30) return days + 'd ago';
+        const months = Math.floor(days / 30);
+        if (months < 12) return months + ' mo ago';
+        return Math.floor(days / 365) + 'y ago';
+      } catch (e) { return ''; }
     }
 
     const viewedThisSession = new Set();
@@ -972,7 +979,7 @@ EXPLORER_HTML = r"""
                 {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').trim() || 'መግለጫ የለም'}
               </p>
               <div className="flex flex-wrap gap-2 text-[11px] text-gray-500">
-                <span className="bg-gray-100 px-2 py-1 rounded-lg">👀 {item.view_count || 0} እይታዎች</span>
+                <span className="bg-gray-100 px-2 py-1 rounded-lg">👁️ {item.view_count || 0} views</span>
                 <span className="bg-gray-100 px-2 py-1 rounded-lg">#{item.id}</span>
                 {item.phone && <span className="bg-gray-100 px-2 py-1 rounded-lg">📞 {item.phone}</span>}
               </div>
@@ -1067,17 +1074,21 @@ EXPLORER_HTML = r"""
       };
 
       const statusBadge = () => {
-        if (status === 'sold' || status === 'rented')
-          return <span className="relative flex h-3 w-3" title={status}>
-            <span className="absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-60"></span>
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500 ring-2 ring-white"></span>
-          </span>;
+        const sold = status === 'sold' || status === 'rented';
+        if (sold)
+          return (
+            <span className="relative flex h-2 w-2" title="Sold Out">
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500 ring-2 ring-white"></span>
+            </span>
+          );
         if (status === 'expired')
-          return <span className="inline-flex rounded-full h-3 w-3 bg-gray-400 ring-2 ring-white" title="Expired"></span>;
-        return <span className="relative flex h-3 w-3" title="Active">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
-          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 ring-2 ring-white"></span>
-        </span>;
+          return <span className="inline-flex rounded-full h-2 w-2 bg-gray-400 ring-2 ring-white" title="Expired"></span>;
+        return (
+          <span className="relative flex h-2 w-2" title="Active">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 ring-2 ring-white"></span>
+          </span>
+        );
       };
 
       return (
@@ -1121,7 +1132,7 @@ EXPLORER_HTML = r"""
             )}
             {/* Bottom glass badge: views + time */}
             <div className="absolute bottom-1.5 left-1.5 right-1.5 flex justify-between pointer-events-none">
-              <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">👀 {localViews}</span>
+              <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">👁️ {localViews} views</span>
               <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">{relativeTime(item.created_at)}</span>
             </div>
           </div>
