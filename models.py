@@ -321,76 +321,92 @@ def get_listings_by_category(limit=10, offset=0, req_type=None):
     return get_listings_by_category_ordered(limit=limit, offset=offset, req_type=req_type, order="DESC")
 
 def get_listings_by_category_ordered(limit=20, offset=0, req_type=None, order="DESC"):
+    """Same filter as Mini App /api/explorer/listings: exclude deleted/sold/rented/expired."""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
         order_sql = "ASC" if str(order).upper() == "ASC" else "DESC"
+        where = [
+            "status IS NOT NULL",
+            "status NOT IN ('deleted', 'sold', 'rented', 'expired')",
+        ]
+        params = []
         if req_type:
+            where.append(f"UPPER(TRIM(req_type)) = UPPER(TRIM({p}))")
+            params.append(str(req_type).strip())
+        where_sql = " AND ".join(where)
+        params.extend([int(limit), int(offset)])
+        query = f"""
+            SELECT * FROM listings
+            WHERE {where_sql}
+            ORDER BY COALESCE(created_at, CURRENT_TIMESTAMP) {order_sql}, id {order_sql}
+            LIMIT {p} OFFSET {p}
+        """
+        if not DATABASE_URL:
+            # SQLite: no CURRENT_TIMESTAMP in COALESCE the same way for missing
             query = f"""
-                SELECT * FROM listings 
-                WHERE status = 'ONLINE' AND UPPER(req_type) = UPPER({p})
-                ORDER BY created_at {order_sql}
+                SELECT * FROM listings
+                WHERE {where_sql}
+                ORDER BY id {order_sql}
                 LIMIT {p} OFFSET {p}
             """
-            cursor.execute(query, (req_type, limit, offset))
-        else:
-            query = f"""
-                SELECT * FROM listings 
-                WHERE status = 'ONLINE' 
-                ORDER BY created_at {order_sql}
-                LIMIT {p} OFFSET {p}
-            """
-            cursor.execute(query, (limit, offset))
+        cursor.execute(query, params)
         rows = cursor.fetchall()
         results = []
         for row in rows:
             item = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-            if 'extra_data' in item and isinstance(item['extra_data'], str):
+            if "extra_data" in item and isinstance(item["extra_data"], str):
                 try:
-                    item['extra_data'] = json.loads(item['extra_data'])
-                except:
-                    item['extra_data'] = {}
+                    item["extra_data"] = json.loads(item["extra_data"])
+                except Exception:
+                    item["extra_data"] = {}
             results.append(item)
+        logger.info(f"get_listings_by_category_ordered type={req_type} → {len(results)} rows")
         return results
     except Exception as e:
-        logger.error(f"get_listings_by_category_ordered error: {e}")
+        logger.error(f"get_listings_by_category_ordered error: {e}", exc_info=True)
         return []
     finally:
         if conn:
             try:
                 conn.close()
-            except:
+            except Exception:
                 pass
 
+
 def count_listings(req_type=None):
+    """Count active listings — aligned with Mini App filters."""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
+        p = get_placeholder()
+        where = [
+            "status IS NOT NULL",
+            "status NOT IN ('deleted', 'sold', 'rented', 'expired')",
+        ]
+        params = []
         if req_type:
-            p = get_placeholder()
-            cursor.execute(
-                f"SELECT COUNT(*) as cnt FROM listings WHERE status = 'ONLINE' AND UPPER(req_type) = UPPER({p})",
-                (req_type,)
-            )
-        else:
-            cursor.execute("SELECT COUNT(*) as cnt FROM listings WHERE status = 'ONLINE'")
+            where.append(f"UPPER(TRIM(req_type)) = UPPER(TRIM({p}))")
+            params.append(str(req_type).strip())
+        where_sql = " AND ".join(where)
+        cursor.execute(f"SELECT COUNT(*) as cnt FROM listings WHERE {where_sql}", params)
         row = cursor.fetchone()
         if isinstance(row, dict):
-            return row.get('cnt', 0)
-        else:
-            return row[0] if row else 0
+            return int(row.get("cnt") or 0)
+        return int(row[0]) if row else 0
     except Exception as e:
-        logger.error(f"Count listings error: {e}")
+        logger.error(f"Count listings error: {e}", exc_info=True)
         return 0
     finally:
         if conn:
             try:
                 conn.close()
-            except:
+            except Exception:
                 pass
+
 
 def update_listing_status(req_id: int, status: str) -> bool:
     conn = None
@@ -684,43 +700,35 @@ def get_approved_brokers_directory(sub_city=None):
 
 def get_active_brokers(sub_city=None, status="ONLINE", limit=50, offset=0):
     """
-    Directory query — include ONLINE, approved, and NULL status.
-    Exclude only rejected / deleted / banned.
+    Fetch brokers for directory.
+    Include every broker that is not rejected/deleted/banned.
     """
     conn = None
     try:
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
-        where, params = [], []
 
-        # Inclusive status filter (never empty directory due to strict equality)
-        if status in (None, "", "all", "*"):
-            where.append(
-                f"(status IS NULL OR status NOT IN ('rejected', 'deleted', 'banned', 'rejected'))"
-            )
-        elif status in ("ONLINE", "online", "approved", "pending"):
-            # Match ONLINE, approved, pending, NULL — exclude rejected
-            where.append(
-                f"(status IS NULL OR UPPER(COALESCE(status, 'ONLINE')) IN "
-                f"('ONLINE', 'APPROVED', 'PENDING'))"
-            )
-        else:
-            where.append(f"(status = {p} OR status IS NULL)")
-            params.append(status)
+        # Simple inclusive filter — never hide pending/ONLINE/approved/NULL
+        where = [
+            "(status IS NULL OR LOWER(CAST(status AS TEXT)) NOT IN "
+            "('rejected', 'deleted', 'banned', 'rejected'))"
+        ]
+        params = []
 
-        if sub_city and sub_city not in ("ሁሉም", "አዲስ አበባ (ሙሉ)", "", None):
+        if sub_city and str(sub_city).strip() not in ("ሁሉም", "አዲስ አበባ (ሙሉ)", "", "None"):
             where.append(f"sub_city = {p}")
-            params.append(sub_city)
+            params.append(str(sub_city).strip())
 
-        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+        where_sql = " AND ".join(where)
         params += [int(limit), int(offset)]
-        order = (
-            "ORDER BY created_at DESC NULLS LAST, id DESC"
-            if DATABASE_URL
-            else "ORDER BY id DESC"
+
+        # Avoid NULLS LAST (breaks SQLite)
+        sql = (
+            f"SELECT * FROM brokers WHERE {where_sql} "
+            f"ORDER BY id DESC LIMIT {p} OFFSET {p}"
         )
-        sql = f"SELECT * FROM brokers{where_sql} {order} LIMIT {p} OFFSET {p}"
+        logger.info(f"get_active_brokers SQL params={params} sub={sub_city!r}")
         cur.execute(sql, params)
         rows = cur.fetchall() or []
         cols = [col[0] for col in cur.description] if cur.description else []
@@ -737,7 +745,8 @@ def get_active_brokers(sub_city=None, status="ONLINE", limit=50, offset=0):
                 b["sub_city"] = b.get("sub_city") or ""
                 b["specialty"] = b.get("specialty") or b.get("role_type") or ""
                 b["status"] = b.get("status") or "ONLINE"
-                b["is_online"] = b.get("is_online") if b.get("is_online") is not None else True
+                if b.get("is_online") is None:
+                    b["is_online"] = True
                 if isinstance(b.get("notification_prefs"), str):
                     try:
                         b["notification_prefs"] = json.loads(b["notification_prefs"])
@@ -747,7 +756,7 @@ def get_active_brokers(sub_city=None, status="ONLINE", limit=50, offset=0):
             except Exception as row_err:
                 logger.warning(f"skip bad broker row: {row_err}")
                 continue
-        logger.info(f"get_active_brokers → {len(out)} rows (sub={sub_city!r})")
+        logger.info(f"get_active_brokers → {len(out)} brokers")
         return out
     except Exception as e:
         logger.error(f"get_active_brokers: {e}", exc_info=True)
