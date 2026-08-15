@@ -5,6 +5,7 @@ import sys
 import os
 import threading
 import time
+import asyncio
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -64,12 +65,33 @@ def main():
     if not BOT_TOKEN:
         raise RuntimeError("❌ BOT_TOKEN environment variable is required")
 
+    # Python 3.10+ / 3.12: ensure a MainThread event loop exists for PTB
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_closed():
+            raise RuntimeError("closed")
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     init_db()
     threading.Thread(target=run_flask, daemon=True, name="flask").start()
     start_cleanup_scheduler()
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    async def _post_init(application: Application):
+        # Store running loop so Flask threads can schedule coroutines safely
+        webapp_module.bot_loop = asyncio.get_running_loop()
+        logger.info("Event loop captured for cross-thread notifications")
+
+    app = (
+        Application.builder()
+        .token(BOT_TOKEN)
+        .concurrent_updates(True)
+        .post_init(_post_init)
+        .build()
+    )
     webapp_module.bot_app = app
+    webapp_module.bot_loop = None
 
     cancel_filter = filters.Regex("^🏠 ዋና ገጽ$")
     cancel_handler = MessageHandler(cancel_filter, go_home)
