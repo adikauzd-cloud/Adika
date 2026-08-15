@@ -1067,11 +1067,17 @@ EXPLORER_HTML = r"""
       };
 
       const statusBadge = () => {
-        if (status === 'sold') return <span className="w-2.5 h-2.5 rounded-full bg-red-500 shadow ring-2 ring-white" title="Sold"></span>;
-        if (status === 'rented') return <span className="w-2.5 h-2.5 rounded-full bg-orange-500 shadow ring-2 ring-white" title="Rented"></span>;
-        if (status === 'expired') return <span className="w-2.5 h-2.5 rounded-full bg-gray-400 shadow ring-2 ring-white" title="Expired"></span>;
-        const cat = item.main_category === 'መኪና' ? '🚗' : '🏠';
-        return <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow ring-2 ring-white" title="Active"></span>;
+        if (status === 'sold' || status === 'rented')
+          return <span className="relative flex h-3 w-3" title={status}>
+            <span className="absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-60"></span>
+            <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-500 ring-2 ring-white"></span>
+          </span>;
+        if (status === 'expired')
+          return <span className="inline-flex rounded-full h-3 w-3 bg-gray-400 ring-2 ring-white" title="Expired"></span>;
+        return <span className="relative flex h-3 w-3" title="Active">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60"></span>
+          <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 ring-2 ring-white"></span>
+        </span>;
       };
 
       return (
