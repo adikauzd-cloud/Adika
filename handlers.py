@@ -44,7 +44,7 @@ from models import (
     SELLER_BEDROOMS, SELLER_PARKING, SELLER_PHONE, SELLER_PHOTO, SELLER_HOUSE_CONDITION,
     BROKER_NAME, BROKER_PHONE, BROKER_CATEGORY, BROKER_SUBCITY,
     BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO,
-) = range(34)
+) = range(33)
 
 def validate_phone(phone: str) -> bool:
     if not phone:
