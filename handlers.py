@@ -31,6 +31,7 @@ from models import (
     add_broker, get_broker, update_broker_status, update_broker_notification_prefs,
     get_approved_brokers, get_approved_brokers_directory, get_active_brokers,
     add_broker_rating, save_broker_offer, save_search_alert, get_matching_alerts,
+    increment_listing_views,
     delete_broker,
 )
 
@@ -1504,7 +1505,7 @@ async def want_myself_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
 # ---------- Hybrid choice: Web App vs Text Mode ----------
 
-TEXT_PAGE_SIZE = 4  # items per text-mode page (good for slow networks)
+TEXT_PAGE_SIZE = 5  # items per text-mode page
 
 
 async def marketplace_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1539,6 +1540,81 @@ async def requests_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="HTML",
     )
+
+
+
+
+def _format_tel_url(phone: str) -> Optional[str]:
+    """Return tel:+251... URL or None if invalid."""
+    if not phone:
+        return None
+    digits = re.sub(r"\D", "", str(phone))
+    if digits.startswith("0") and len(digits) == 10:
+        return f"tel:+251{digits[1:]}"
+    if digits.startswith("251") and len(digits) >= 12:
+        return f"tel:+{digits}"
+    if len(digits) >= 9:
+        return f"tel:+{digits}"
+    return None
+
+
+def _build_single_card_keyboard(
+    mode: str,
+    item: dict,
+    viewer_id: int = 0,
+    page: int = 1,
+    total_pages: int = 1,
+    show_pagination: bool = False,
+) -> InlineKeyboardMarkup:
+    """
+    Row1: Call (tel: URL when possible, else callback) | Sold Out (owner)
+    Row2: pagination on last card
+    Row3: Home
+    """
+    item_id = item.get("id")
+    owner_id = int(item.get("user_chat_id") or 0)
+    phone = (item.get("phone") or "").strip()
+    status = str(item.get("status") or "").lower()
+    rows = []
+
+    row1 = []
+    tel = _format_tel_url(phone)
+    if tel:
+        # Primary: native dialer via tel: (works on mobile Telegram)
+        row1.append(InlineKeyboardButton("📞 Call", url=tel))
+    elif phone:
+        row1.append(InlineKeyboardButton("📞 Call", callback_data=f"tm_call_{item_id}"))
+    else:
+        row1.append(InlineKeyboardButton("📞 N/A", callback_data=f"tm_call_{item_id}"))
+
+    is_owner = viewer_id and owner_id and int(viewer_id) == owner_id
+    is_admin = viewer_id in ADMIN_IDS if ADMIN_IDS else False
+    if (is_owner or is_admin) and status not in ("sold", "rented", "deleted"):
+        row1.append(InlineKeyboardButton("🏷️ Sold Out", callback_data=f"tm_sold_{item_id}"))
+    rows.append(row1)
+
+    if show_pagination and total_pages > 1:
+        nav = []
+        if page > 1:
+            nav.append(InlineKeyboardButton("⬅️ ቀዳሚ", callback_data=f"text_mode_{mode}_{page - 1}"))
+        nav.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop"))
+        if page < total_pages:
+            nav.append(InlineKeyboardButton("ቀጣይ ➡️", callback_data=f"text_mode_{mode}_{page + 1}"))
+        rows.append(nav)
+
+    rows.append([InlineKeyboardButton("🏠 ዋና ገጽ", callback_data="flow_home")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _increment_views_batch(ids, amount=1):
+    """Compat helper — returns {id: new_count}."""
+    out = {}
+    for lid in ids or []:
+        try:
+            out[int(lid)] = increment_listing_views(int(lid), amount=amount)
+        except Exception:
+            pass
+    return out
 
 
 async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1673,11 +1749,13 @@ async def text_mode_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
             return
 
-        ids = [it.get('id') for it in items if it.get('id')]
-        new_counts = _increment_views_batch(ids, amount=13)
         for it in items:
-            if it.get('id') in new_counts:
-                it['view_count'] = new_counts[it['id']]
+            lid = it.get("id")
+            if lid:
+                try:
+                    it["view_count"] = increment_listing_views(int(lid), amount=1)
+                except Exception:
+                    pass
 
         total_pages = max(1, (total + TEXT_PAGE_SIZE - 1) // TEXT_PAGE_SIZE)
         page = min(page, total_pages)
@@ -1857,15 +1935,14 @@ def _broker_card_keyboard(b: dict, viewer_id: int) -> InlineKeyboardMarkup:
 
     rows = []
     row1 = []
-    # Telegram often rejects tel: URLs on InlineKeyboardButton → use callback
-    if phone_digits:
-        row1.append(
-            InlineKeyboardButton("📞 Call", callback_data=f"broker_call_{chat_id_b}")
-        )
+    # Prefer tel: for mobile dialer; callback fallback for Desktop/Web
+    tel = _format_tel_url(phone)
+    if tel:
+        row1.append(InlineKeyboardButton("📞 Call", url=tel))
+    elif phone_digits:
+        row1.append(InlineKeyboardButton("📞 Call", callback_data=f"broker_call_{chat_id_b}"))
     else:
-        row1.append(
-            InlineKeyboardButton("📞 N/A", callback_data="broker_call_na")
-        )
+        row1.append(InlineKeyboardButton("📞 N/A", callback_data="broker_call_na"))
     row1.append(
         InlineKeyboardButton("💬 Message", url=_broker_chat_url(b))
     )
@@ -2044,9 +2121,9 @@ async def broker_star_cb(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         logger.error(f"broker_star_cb: {e}", exc_info=True)
     if ok:
-        await q.answer(f"✅ {stars}⭐ ተመዝግቧል!", show_alert=True)
+        await q.answer("አስተያየትዎ በጥሩ ሁኔታ ተመዝግቧል!", show_alert=True)
         try:
-            await q.edit_message_text(f"✅ {stars}⭐ ተመዝግቧል። እናመሰግናለን!")
+            await q.edit_message_text(f"✅ {stars}⭐ — አስተያየትዎ በጥሩ ሁኔታ ተመዝግቧል!")
         except Exception:
             pass
     else:
