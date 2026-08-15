@@ -1,5 +1,5 @@
 # ==============================================================================
-# ADD THESE IMPORTS AND FUNCTIONS TO webapp.py
+# እነዚህን ክፍሎች ወደ webapp.py ያክሉ
 # ==============================================================================
 
 import queue
@@ -21,7 +21,6 @@ def notification_worker():
             if notification is None:
                 break
             
-            # Process notification
             try:
                 from handlers import notify_brokers
                 
@@ -36,7 +35,6 @@ def notification_worker():
                         bot_loop
                     )
                 else:
-                    # Fallback: run in current thread
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     loop.run_until_complete(
@@ -85,7 +83,6 @@ def _send_notification_safe(notification_text: str, req_id: int, buyer_id: int):
 def health_check():
     """Health check endpoint for monitoring."""
     try:
-        # Test database connection
         from models import db_connection
         with db_connection() as conn:
             cursor = conn.cursor()
