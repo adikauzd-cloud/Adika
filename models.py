@@ -1,5 +1,5 @@
 # ==============================================================================
-# models.py — Database schema, connection, CRUD (FULLY FIXED)
+# models.py — Database schema, connection, CRUD
 # ==============================================================================
 import json
 import random
@@ -16,8 +16,7 @@ import sqlite3
 from config import (
     DATABASE_URL, DB_FILE, logger,
     VIEW_BASELINE_MIN, VIEW_BASELINE_MAX,
-    MAX_PHOTOS, PHONE_PATTERNS,
-    ENVIRONMENT, CACHE_ENABLED
+    MAX_PHOTOS
 )
 
 # ---------- Connection Pooling ----------
@@ -108,7 +107,6 @@ def _row_to_dict(row, cursor=None) -> Optional[dict]:
         return None
 
 def _parse_extra_data(item: dict) -> dict:
-    """Parse extra_data field from JSON string to dict."""
     if not item:
         return {}
     if isinstance(item.get("extra_data"), str):
@@ -117,10 +115,6 @@ def _parse_extra_data(item: dict) -> dict:
         except Exception:
             item["extra_data"] = {}
     return item
-
-def _get_current_time():
-    """Get current UTC time with timezone awareness."""
-    return datetime.now(timezone.utc)
 
 def init_db():
     """Initialize database with all tables and indexes."""
@@ -322,29 +316,7 @@ def init_db():
         logger.error(f"❌ init_db: {e}", exc_info=True)
         raise
 
-def with_retry(retries=3, delay=1, backoff=2):
-    """Decorator to retry database operations."""
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            last_error = None
-            current_delay = delay
-            for attempt in range(retries):
-                try:
-                    return func(*args, **kwargs)
-                except Exception as e:
-                    last_error = e
-                    if attempt < retries - 1:
-                        logger.warning(f"Retry {attempt+1}/{retries} for {func.__name__}: {e}")
-                        time.sleep(current_delay)
-                        current_delay *= backoff
-                    else:
-                        raise
-            raise last_error
-        return wrapper
-    return decorator
-
-# ---------- Listings CRUD ----------
-@with_retry(retries=3)
+# ---------- Listings ----------
 def add_listing(
     user_chat_id, user_name, req_type, main_category, sub_category,
     action_type, property_type, description, price=None, phone=None,
@@ -573,36 +545,6 @@ def increment_views(listing_ids: List[int], amount: int = 1) -> Dict[int, int]:
     
     return result
 
-def get_public_marketplace_items(limit=20, offset=0) -> List[dict]:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        p = get_placeholder()
-        
-        cur.execute(
-            f"""SELECT * FROM listings
-                WHERE UPPER(req_type)='SELL' AND status NOT IN ('deleted','expired')
-                ORDER BY created_at DESC LIMIT {p} OFFSET {p}""",
-            (limit, offset),
-        )
-        
-        rows = cur.fetchall()
-        out = []
-        for row in rows:
-            item = _row_to_dict(row, cur)
-            if item:
-                item = _parse_extra_data(item)
-            out.append(item)
-        return out
-    
-    except Exception as e:
-        logger.error(f"get_public_marketplace_items: {e}")
-        return []
-    finally:
-        if conn:
-            return_connection(conn)
-
 def expire_old_listings(days: int = 30) -> int:
     conn = None
     try:
@@ -637,8 +579,7 @@ def expire_old_listings(days: int = 30) -> int:
         if conn:
             return_connection(conn)
 
-# ---------- Brokers CRUD ----------
-@with_retry(retries=3)
+# ---------- Brokers ----------
 def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city, specialty="") -> Optional[int]:
     conn = None
     try:
@@ -700,14 +641,6 @@ def add_broker(chat_id, full_name, phone, role_type, national_id_photo, sub_city
         
         return broker_id
     
-    except psycopg2.IntegrityError as e:
-        logger.error(f"❌ Database integrity error in add_broker: {e}")
-        if conn and not DATABASE_URL:
-            try:
-                conn.rollback()
-            except:
-                pass
-        return None
     except Exception as e:
         logger.error(f"❌ Error in add_broker: {e}", exc_info=True)
         if conn and not DATABASE_URL:
