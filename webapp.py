@@ -14,6 +14,7 @@ from config import (
 from models import (
     get_db_connection, get_placeholder, add_listing, get_listing_by_id,
     update_listing_status, save_search_alert, expire_old_listings,
+    get_active_brokers, get_platform_stats, count_listings, count_brokers,
 )
 
 # bot_app set from main for notifications
@@ -1501,6 +1502,62 @@ def api_delete_item(listing_id):
 
 
 # ---------- Auto-Expiry / Cleanup Job ----------
+
+
+
+
+@web_app.route('/api/stats', methods=['GET'])
+def api_stats():
+    try:
+        stats = get_platform_stats()
+        return jsonify({"status": "success", **stats})
+    except Exception as e:
+        logger.error(f"api_stats: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@web_app.route('/api/brokers', methods=['GET'])
+def api_brokers():
+    try:
+        page = max(1, int(request.args.get("page", 1)))
+        limit = min(15, max(1, int(request.args.get("limit", 12))))
+        offset = (page - 1) * limit
+        sub_city = request.args.get("sub_city") or None
+        brokers = get_active_brokers(sub_city=sub_city, status="approved", limit=limit, offset=offset)
+        total = count_brokers(status="approved")
+        # Sanitize for JSON
+        items = []
+        for b in brokers:
+            items.append({
+                "id": b.get("id"),
+                "chat_id": b.get("chat_id"),
+                "full_name": b.get("full_name"),
+                "phone": b.get("phone"),
+                "username": b.get("username"),
+                "sub_city": b.get("sub_city"),
+                "specialty": b.get("specialty") or b.get("role_type"),
+                "rating": float(b.get("rating") or 5),
+                "total_ratings": b.get("total_ratings") or 0,
+                "is_online": bool(b.get("is_online", True)),
+                "status": b.get("status"),
+            })
+        return jsonify({
+            "status": "success",
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "has_more": offset + limit < total,
+            "items": items,
+        })
+    except Exception as e:
+        logger.error(f"api_brokers: {e}", exc_info=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@web_app.route('/api/listings', methods=['GET'])
+def api_listings_alias():
+    """Alias with strict pagination (10-15 max)."""
+    return api_explorer_listings()
 
 
 def run_flask():
