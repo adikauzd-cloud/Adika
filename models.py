@@ -251,8 +251,7 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
         else:
             cursor.execute(query, params)
             req_id = cursor.lastrowid
-            conn.commit()
-        logger.info(f"✅ Listing inserted with ID: {req_id}")
+        # CRITICAL: commit so Mini App feed sees the row immediately
         if photos and req_id:
             logger.info(f"📸 Saving {len(photos)} photos for listing {req_id}")
             for photo in photos:
@@ -264,8 +263,7 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                     )
                 except Exception as pe:
                     logger.error(f"Failed to save photo for listing {req_id}: {pe}")
-            if not DATABASE_URL:
-                conn.commit()
+        conn.commit()
         logger.info(f"✅ Listing added successfully → #ADK-{req_id}")
         return req_id
     except Exception as e:
