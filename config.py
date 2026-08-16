@@ -14,6 +14,19 @@ DB_FILE = os.environ.get("DB_FILE", "adika_marketplace.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+# Production (Render): never fall back to SQLite — prevents data loss on redeploy
+_IS_RENDER = bool(os.environ.get("RENDER") or os.environ.get("RENDER_EXTERNAL_HOSTNAME"))
+if _IS_RENDER and not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL is required on Render. Attach a PostgreSQL database "
+        "(or Supabase connection string) and set DATABASE_URL in Environment."
+    )
+if DATABASE_URL:
+    logger.info("📦 Database: PostgreSQL (persistent)")
+else:
+    logger.warning("⚠️ DATABASE_URL not set — using local SQLite (dev only; data lost on redeploy)")
+
+
 if RENDER_EXTERNAL_HOSTNAME:
     WEBAPP_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}"
 else:
