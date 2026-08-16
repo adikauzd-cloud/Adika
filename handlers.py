@@ -231,7 +231,7 @@ def format_buyer_card(req: dict) -> str:
     return format_marketplace_card_professional(req)
 
 def format_broker_profile_professional(b: dict) -> str:
-    """Compact directory card: 🟢 online + 🛡️ Verified beside name."""
+    """Top badge row: green dot + online + Verified (not next to name)."""
     if not isinstance(b, dict):
         return "👤 —"
     try:
@@ -239,9 +239,8 @@ def format_broker_profile_professional(b: dict) -> str:
     except (TypeError, ValueError):
         rating = 5.0
     online = b.get("is_online", True)
-    if online in (0, "0", False, "false", "False", None):
-        online = bool(online) if online not in (0, "0", False, "false", "False", None) else False
-    # default online True when flag missing
+    if online in (0, "0", False, "false", "False"):
+        online = False
     if b.get("is_online") is None:
         online = True
     verified = str(b.get("status", "")).lower() in ("approved", "online") or bool(b.get("is_verified"))
@@ -253,15 +252,16 @@ def format_broker_profile_professional(b: dict) -> str:
     name = _esc(b.get("full_name") or "—")
     area = _esc(b.get("sub_city") or "—")
     role = _esc(b.get("specialty") or b.get("role_type") or "—")
-    # Compact: green/white dot only (no large emoji stacks)
-    status_dot = "🟢" if online else "⚪"
-    name_line = f"👤 {name}"
+    if online:
+        status_line = "🟢 online"
+    else:
+        status_line = "⚪ offline"
     if verified:
-        name_line += "  🛡️ Verified"
+        status_line += "  ·  🔵 Verified"
     return (
-        f"{status_dot}\n"
+        f"{status_line}\n"
         f"━━━━━━━━━━━━━━━━━━\n"
-        f"{name_line}\n"
+        f"👤 {name}\n"
         f"📍 {area}\n"
         f"💼 {role}\n"
         f"⭐ {rating:.1f} / 5.0"
