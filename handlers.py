@@ -583,100 +583,127 @@ async def buyer_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
        return await go_home(update, context)
    context.user_data['description'] = update.message.text
    await update.message.reply_text(
-       "📞 **ስልክ ቁጥርዎን ያስገቡ፦**\n\n"
-       "📱 **Telegram Username (አማራጭ)** ማከል ከፈለጉ ከስልኩ ጋር ያስገቡ።\n"
-       "💡 *ለምሳሌ፦* `0911223344 @Abebe`",
-       parse_mode="Markdown",
-       reply_markup=ReplyKeyboardMarkup([["🏠 ዋና ገጽ"]], resize_keyboard=True)
+       "📞 <b>ስልክ ቁጥር (አማራጭ)</b>\n\n"
+       "🔒 ለግላዊነትዎ ስልክ <b>መስጠት አይገደዱም</b>።\n"
+       "ደላሎች በ Telegram ብቻ ሊያገኙዎት ይችላሉ።\n\n"
+       "💡 ስልክ ካለዎት ያስገቡ ወይም @username\n"
+       "⏭️ ለመዝለል «አልፋለሁ» ይጫኑ።",
+       parse_mode="HTML",
+       reply_markup=ReplyKeyboardMarkup(
+           [["⏭️ አልፋለሁ"], ["🏠 ዋና ገጽ"]],
+           resize_keyboard=True,
+       ),
    )
    return BUYER_PHONE
 
 async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
-   if update.message.text == "🏠 ዋና ገጽ":
-       return await go_home(update, context)
-   text = update.message.text.strip()
-   telegram_user = ""
-   phone = text
-   username_match = re.search(r'@\w+', text)
-   if username_match:
-       telegram_user = username_match.group()
-       phone = text.replace(telegram_user, '').strip()
-   if not validate_phone(phone):
-       await update.message.reply_text("❌ ትክክለኛ የስልክ ቁጥር ያስገቡ። (ለምሳሌ፦ 0911223344 ወይም 0911223344 @Abebe)")
-       return BUYER_PHONE
-   context.user_data["phone"] = phone
-   context.user_data["telegram_user"] = telegram_user
-   user = update.effective_user
-   user_data = context.user_data
-   desc = user_data.get('description', '')
-   budget = user_data.get('budget_range', '')
-   main_category = user_data.get('main_category', '')
-   if user_data.get('property_subtype'):
-       desc = f"🏠 {user_data.get('property_subtype')}\n{desc}"
-   try:
-       req_id = add_listing(
-           user_chat_id=user.id,
-           user_name=user.first_name or "User",
-           req_type="BUY",
-           main_category=main_category,
-           sub_category=user_data.get('sub_category', ''),
-           action_type=user_data.get('action_type', 'መግዛት'),
-           property_type=user_data.get('property_type', ''),
-           description=desc,
-           price=budget,
-           phone=phone,
-           extra_data={
-               'create_alert': user_data.get('create_alert', False),
-               'budget_range': budget,
-               'telegram_user': telegram_user
-           }
-       )
-       if req_id:
-           await update.message.reply_text(
-               f"✅ **ጥያቄዎ በስኬት ተመዝግቧል!** 🎉\n\n"
-               f"🆔 **የጥያቄ ቁጥር:** #ADK-{req_id}\n"
-               f"📌 **ምድብ:** {main_category}\n"
-               f"📞 **ስልክ:** {phone}\n"
-               + (f"📱 **Telegram:** {telegram_user}\n" if telegram_user else "") +
-               f"\nአቅራቢዎች ወይም ደላሎች ጥያቄዎን አይተው መልስ ይሰጡዎታል።",
-               reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-               parse_mode="Markdown",
-           )
-           notification_text = format_marketplace_card_professional({
-               'id': req_id,
-               'main_category': main_category,
-               'sub_category': user_data.get('sub_category', ''),
-               'action_type': user_data.get('action_type', 'መግዛት'),
-               'req_type': 'BUY',
-               'description': desc,
-               'price': budget,
-               'phone': phone,
-               'extra_data': {
-                   'budget_range': budget,
-                   'telegram_user': telegram_user
-               }
-           })
-           await notify_brokers(context.bot, notification_text, req_id, user.id)
-       else:
-           await update.message.reply_text(
-               "❌ **መረጃውን መመዝገብ አልተቻለም።**",
-               reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-               parse_mode="Markdown"
-           )
-   except Exception as e:
-       logger.error(f"❌ Buyer save error: {e}", exc_info=True)
-       await update.message.reply_text(
-           "❌ **ስህተት ተከስቷል።** እባክዎ እንደገና ይሞክሩ።",
-           reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-           parse_mode="Markdown"
-       )
-   context.user_data.clear()
-   return ConversationHandler.END
+    """Phone OPTIONAL — privacy-first."""
+    if update.message.text == "🏠 ዋና ገጽ":
+        return await go_home(update, context)
 
+    text = (update.message.text or "").strip()
+    user = update.effective_user
+    telegram_user = ""
+    phone = ""
+    skip_tokens = {"⏭️ አልፋለሁ", "አልፋለሁ", "skip", "Skip", "SKIP", "-", "—", "."}
 
-# ==============================================================================
-# 10. SELLER FLOW
-# ==============================================================================
+    if text not in skip_tokens:
+        username_match = re.search(r"@\w+", text)
+        if username_match:
+            telegram_user = username_match.group()
+            phone = text.replace(telegram_user, "").strip()
+        else:
+            phone = text
+        digits = re.sub(r"\D", "", phone or "")
+        if phone and digits and not validate_phone(phone):
+            await update.message.reply_text(
+                "❌ ትክክለኛ ስልክ (0911223344) ወይም «⏭️ አልፋለሁ» ይጫኑ።"
+            )
+            return BUYER_PHONE
+        if phone and not digits:
+            phone = ""
+
+    if not telegram_user and user.username:
+        telegram_user = f"@{user.username}"
+
+    context.user_data["phone"] = phone
+    context.user_data["telegram_user"] = telegram_user
+    user_data = context.user_data
+    desc = user_data.get("description", "")
+    budget = user_data.get("budget_range", "")
+    main_category = user_data.get("main_category", "")
+    if user_data.get("property_subtype"):
+        desc = f"🏠 {user_data.get('property_subtype')}\n{desc}"
+
+    try:
+        req_id = add_listing(
+            user_chat_id=user.id,
+            user_name=user.first_name or "User",
+            req_type="BUY",
+            main_category=main_category,
+            sub_category=user_data.get("sub_category", ""),
+            action_type=user_data.get("action_type", "መግዛት"),
+            property_type=user_data.get("property_type", ""),
+            description=desc,
+            price=budget,
+            phone=phone or "",
+            extra_data={
+                "create_alert": user_data.get("create_alert", False),
+                "budget_range": budget,
+                "telegram_user": telegram_user,
+                "privacy_phone_skipped": not bool(phone),
+            },
+        )
+        if req_id:
+            phone_line = f"📞 ስልክ: {phone}\n" if phone else "🔒 ስልክ: የተደበቀ (Telegram ብቻ)\n"
+            tg_line = f"📱 Telegram: {telegram_user}\n" if telegram_user else ""
+            await update.message.reply_text(
+                f"✅ <b>ጥያቄዎ ተመዝግቧል!</b> 🎉\n\n"
+                f"🆔 #ADK-{req_id}\n"
+                f"📌 {main_category}\n"
+                f"{phone_line}{tg_line}\n"
+                "ደላሎች offer ይልኩልዎታል።",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+                parse_mode="HTML",
+            )
+            contact_display = phone or telegram_user or f"tg://user?id={user.id}"
+            notification_text = format_marketplace_card_professional({
+                "id": req_id,
+                "main_category": main_category,
+                "sub_category": user_data.get("sub_category", ""),
+                "action_type": user_data.get("action_type", "መግዛት"),
+                "req_type": "BUY",
+                "description": desc,
+                "price": budget,
+                "phone": contact_display if phone else "Telegram only",
+                "status": "pending",
+                "view_count": 0,
+                "extra_data": {"budget_range": budget, "telegram_user": telegram_user},
+            })
+            if not phone:
+                notification_text = re.sub(
+                    r"📞 <code>.*?</code>",
+                    "🔒 <i>Contact via Telegram only</i>",
+                    notification_text,
+                )
+            try:
+                await notify_brokers(context.bot, notification_text, req_id, user.id, photos=None)
+            except Exception as ne:
+                logger.error(f"notify_brokers: {ne}", exc_info=True)
+        else:
+            await update.message.reply_text(
+                "❌ ጥያቄ ማስቀመጥ አልተቻለም።",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            )
+    except Exception as e:
+        logger.error(f"buyer_phone save: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ ስህተት። እንደገና ይሞክሩ።",
+            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+        )
+    context.user_data.clear()
+    return ConversationHandler.END
+
 
 async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
@@ -1353,11 +1380,11 @@ async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
     user_id = query.from_user.id
     broker = get_broker(user_id)
-    if not broker or broker.get('status') != 'approved':
-        await query.message.reply_text(
-            "⛔ **ይህን ማድረግ የሚችሉት በአድሚን የተረጋገጡ ደላሎች/አቅራቢዎች ብቻ ናቸው!**",
-            parse_mode="Markdown"
-        )
+    if not broker:
+        await query.message.reply_text("⛔ እባክዎ መጀመሪያ እንደ ደላላ ይመዝገቡ።")
+        return ConversationHandler.END
+    if str(broker.get("status") or "").lower() in ("rejected", "banned", "deleted"):
+        await query.message.reply_text("⛔ መለያዎ አልተፈቀደም።")
         return ConversationHandler.END
     parts = query.data.split('_')
     if len(parts) < 3:
@@ -1435,6 +1462,19 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if update.message.photo:
             photo_id = update.message.photo[-1].file_id
         
+        # Chat / Call actions for requester
+        _uname = str((broker or {}).get("username") or "").lstrip("@")
+        if _uname:
+            _chat_url = f"https://t.me/{_uname}"
+        elif broker_user.username:
+            _chat_url = f"https://t.me/{broker_user.username}"
+        else:
+            _chat_url = f"tg://user?id={broker_user.id}"
+        _rows = [[InlineKeyboardButton("💬 ቻት አድርግ", url=_chat_url)]]
+        if broker_phone and str(broker_phone) not in ("አልተጠቀሰም", "N/A", "-", "", "None"):
+            _rows.append([InlineKeyboardButton("📞 ደውል", callback_data=f"broker_call_{broker_user.id}")])
+        offer_kb = InlineKeyboardMarkup(_rows)
+
         save_broker_offer(int(req_id), broker_user.id, offer_text, photo_id)
         
         if photo_id:
@@ -1442,13 +1482,15 @@ async def broker_offer_photo(update: Update, context: ContextTypes.DEFAULT_TYPE)
                 chat_id=buyer_id,
                 photo=photo_id,
                 caption=message_to_buyer,
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_markup=offer_kb,
             )
         else:
             await context.bot.send_message(
                 chat_id=buyer_id,
                 text=message_to_buyer,
-                parse_mode="HTML"
+                parse_mode="HTML",
+                reply_markup=offer_kb,
             )
         
         await update.message.reply_text(
