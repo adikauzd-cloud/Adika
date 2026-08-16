@@ -205,7 +205,7 @@ SELLER_FORM_HTML = r"""
           <div className="min-h-screen flex items-center justify-center p-6">
             <div className="text-center space-y-3">
               <div className="text-5xl">✅</div>
-              <p className="font-bold text-lg text-green-700">ማስታወቂያዎ ተመዝግቧል!</p>
+              <p className="font-bold text-base text-green-700 leading-snug px-2 text-center">ማስታወቂያዎ በተሳካ ሁኔታ ተመዝግቧል! ለደላሎችም ተልኳል። ማስታወቂያዎን ማጥፋት ወይም ማስተካከል ሲፈልጉ በማንኛውም ጊዜ ወደ 'የገበያ ቦታ' በመሄድ ማስተካከል ይችላሉ።</p>
               <p className="text-sm text-gray-500">ለደላሎች ተልኳል…</p>
             </div>
           </div>
@@ -533,7 +533,7 @@ BUYER_FORM_HTML = r"""
           <div className="min-h-screen flex items-center justify-center p-6">
             <div className="text-center space-y-3">
               <div className="text-5xl">✅</div>
-              <p className="font-bold text-lg text-green-700">ጥያቄዎ ተመዝግቧል!</p>
+              <p className="font-bold text-base text-green-700 leading-snug px-2 text-center">ማስታወቂያዎ በተሳካ ሁኔታ ተመዝግቧል! ለደላሎችም ተልኳል። ማስታወቂያዎን ማጥፋት ወይም ማስተካከል ሲፈልጉ በማንኛውም ጊዜ ወደ 'የገበያ ቦታ' በመሄድ ማስተካከል ይችላሉ።</p>
               <p className="text-sm text-gray-500">አቅራቢዎች መልስ ይሰጡዎታል…</p>
             </div>
           </div>
@@ -1076,15 +1076,20 @@ EXPLORER_HTML = r"""
       const statusBadge = () => {
         const sold = status === 'sold' || status === 'rented';
         if (sold)
-          return <span className="block w-3 h-3 bg-rose-500 border-2 border-white rounded-full shadow-sm" title="Sold Out"></span>;
+          return <span className="block w-2.5 h-2.5 bg-rose-500 rounded-full shadow-[0_2px_6px_rgba(244,63,94,0.5)] drop-shadow-[0_4px_6px_rgba(0,0,0,0.15)]" title="Sold Out"></span>;
         if (status === 'expired')
-          return <span className="block w-3 h-3 bg-gray-400 border-2 border-white rounded-full shadow-sm" title="Expired"></span>;
-        return <span className="block w-3 h-3 bg-emerald-500 border-2 border-white rounded-full shadow-sm" title="Active"></span>;
+          return <span className="block w-2.5 h-2.5 bg-gray-400 rounded-full drop-shadow-[0_4px_6px_rgba(0,0,0,0.15)]" title="Expired"></span>;
+        return (
+          <span className="relative flex h-2.5 w-2.5" title="Active">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_2px_8px_rgba(16,185,129,0.65)] drop-shadow-[0_4px_6px_rgba(0,0,0,0.15)]"></span>
+          </span>
+        );
       };
 
       return (
         <div ref={cardRef}
-          className="bg-white rounded-2xl p-2.5 border border-white/80 shadow-[0_8px_20px_rgba(147,197,253,0.35)] hover:shadow-[0_12px_25px_rgba(147,197,253,0.5)] transition-all duration-200 flex flex-col justify-between relative active:scale-[0.98]">
+          className="bg-white rounded-2xl p-2.5 border-none shadow-[0_8px_20px_rgba(0,0,0,0.12)] hover:shadow-[0_12px_28px_rgba(0,0,0,0.16)] transition-all duration-200 flex flex-col justify-between relative active:scale-[0.98]">
           {/* Photo – opens modal */}
           <div className="relative w-full h-32 rounded-xl overflow-hidden bg-slate-100 cursor-pointer" onClick={() => onOpen(item)}>
             {photos.length > 0 ? (
@@ -1123,8 +1128,8 @@ EXPLORER_HTML = r"""
             )}
             {/* Bottom glass badge: views + time */}
             <div className="absolute bottom-1.5 left-1.5 right-1.5 flex justify-between pointer-events-none">
-              <span className="bg-black/50 backdrop-blur-md px-2 py-0.5 rounded-full text-[10px] text-white font-medium">👁️ {localViews} views</span>
-              <span className="bg-black/50 backdrop-blur-md px-2 py-0.5 rounded-full text-[10px] text-white font-medium">{relativeTime(item.created_at)}</span>
+              <span className="bg-black/50 backdrop-blur-md px-1.5 py-0.5 rounded-full text-[9px] text-white font-medium">👁️ {localViews} views</span>
+              <span className="bg-black/50 backdrop-blur-md px-1.5 py-0.5 rounded-full text-[9px] text-white font-medium">{relativeTime(item.created_at)}</span>
             </div>
           </div>
 
@@ -1219,16 +1224,16 @@ EXPLORER_HTML = r"""
       const onDelete = (id) => setItems(prev => prev.filter(it => it.id !== id));
 
       return (
-        <div className="min-h-screen bg-[#E8F3FC] p-3 pb-16 text-slate-800">
+        <div className="w-full max-w-md mx-auto min-h-screen bg-[#E8F3FC] px-2.5 pb-16 text-slate-800">
           {/* Sticky glass header */}
-          <div className="sticky top-0 z-30 bg-[#E8F3FC]/90 backdrop-blur-md border-b border-blue-100/60">
-            <div className="flex">
+          <div className="sticky top-0 z-50 bg-[#D6EAF8]/95 backdrop-blur-md border-b border-blue-200/50">
+            <div className="flex gap-2 p-2">
               <button onClick={() => setTab('marketplace')}
-                className={`flex-1 py-2.5 text-xs font-bold transition ${tab==='marketplace' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
+                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${tab==='marketplace' ? 'bg-white/90 text-blue-700 shadow-sm' : 'bg-white/40 text-slate-600'} backdrop-blur-sm`}>
                 🛒 የገበያ ቦታ
               </button>
               <button onClick={() => setTab('requests')}
-                className={`flex-1 py-2.5 text-xs font-bold transition ${tab==='requests' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
+                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${tab==='requests' ? 'bg-white/90 text-blue-700 shadow-sm' : 'bg-white/40 text-slate-600'} backdrop-blur-sm`}>
                 📋 የፈላጊዎች
               </button>
             </div>
@@ -1263,7 +1268,7 @@ EXPLORER_HTML = r"""
           </div>
 
           {/* 2-col grid */}
-          <div className="grid grid-cols-2 gap-3.5 mt-2 px-0.5">
+          <div className="grid grid-cols-2 gap-2.5 mt-2">
             {loading && items.length === 0 && Array.from({length: 6}).map((_,i) => <SkeletonCard key={i} />)}
             {items.map(item => (
               <Card key={item.id} item={item} currentUid={currentUserId}
