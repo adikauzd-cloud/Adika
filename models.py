@@ -668,11 +668,18 @@ def update_broker_notification_prefs(chat_id: int, prefs: dict) -> bool:
                 pass
 
 def get_approved_brokers():
+    """Brokers eligible for notifications: ONLINE + approved (exclude rejected)."""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM brokers WHERE status = 'approved'")
+        cursor.execute(
+            """
+            SELECT * FROM brokers
+            WHERE status IS NULL
+               OR LOWER(CAST(status AS TEXT)) IN ('approved', 'online', 'pending')
+            """
+        )
         rows = cursor.fetchall()
         results = []
         for row in rows:
