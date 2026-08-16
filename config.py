@@ -4,9 +4,25 @@
 import os
 import logging
 
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger("adika")
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "0")
-DATABASE_URL = (os.environ.get("DATABASE_URL", "") or "").strip().strip('"').strip("'")
+
+# Accept common env names (Render PostgreSQL / Supabase)
+DATABASE_URL = (
+    os.environ.get("DATABASE_URL")
+    or os.environ.get("SUPABASE_DB_URL")
+    or os.environ.get("POSTGRES_URL")
+    or os.environ.get("POSTGRES_CONNECTION_STRING")
+    or ""
+)
+DATABASE_URL = str(DATABASE_URL).strip().strip('"').strip("'")
+
 RENDER_EXTERNAL_HOSTNAME = (os.environ.get("RENDER_EXTERNAL_HOSTNAME", "") or "").strip()
 PORT = int(os.environ.get("PORT", "8080"))
 DB_FILE = os.environ.get("DB_FILE", "adika_marketplace.db")
@@ -14,27 +30,23 @@ DB_FILE = os.environ.get("DB_FILE", "adika_marketplace.db")
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Production (Render): never fall back to SQLite — prevents data loss on redeploy
-_IS_RENDER = bool(os.environ.get("RENDER") or os.environ.get("RENDER_EXTERNAL_HOSTNAME"))
-if _IS_RENDER and not DATABASE_URL:
-    raise RuntimeError(
-        "DATABASE_URL is required on Render. Attach a PostgreSQL database "
-        "(or Supabase connection string) and set DATABASE_URL in Environment."
-    )
+_IS_RENDER = bool(os.environ.get("RENDER") or RENDER_EXTERNAL_HOSTNAME)
 if DATABASE_URL:
     logger.info("📦 Database: PostgreSQL (persistent)")
+elif _IS_RENDER:
+    # Do NOT crash the service — warn loudly so the operator can attach a DB
+    logger.error(
+        "❌ DATABASE_URL is not set on Render. "
+        "Attach PostgreSQL (or paste a Supabase URI) as env DATABASE_URL. "
+        "Falling back to SQLite (data will be LOST on every redeploy)."
+    )
 else:
-    logger.warning("⚠️ DATABASE_URL not set — using local SQLite (dev only; data lost on redeploy)")
-
+    logger.warning("⚠️ DATABASE_URL not set — local SQLite (dev only)")
 
 if RENDER_EXTERNAL_HOSTNAME:
     WEBAPP_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}"
 else:
     WEBAPP_URL = os.environ.get("WEBAPP_URL", "http://127.0.0.1:8080")
-
-if not BOT_TOKEN:
-    # Allow import for tooling; main() will re-check
-    pass
 
 try:
     ADMIN_CHAT_ID_INT = int(ADMIN_CHAT_ID) if ADMIN_CHAT_ID else 0
@@ -42,12 +54,6 @@ except ValueError:
     ADMIN_CHAT_ID_INT = 0
 
 ADMIN_IDS = {ADMIN_CHAT_ID_INT} if ADMIN_CHAT_ID_INT else set()
-
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
-logger = logging.getLogger("adika")
 
 TEXT_PAGE_SIZE = 4
 VIEW_INCREMENT = 1
@@ -78,13 +84,6 @@ FUEL_TYPES = ["⛽ ቤንዚን", "🛢️ ናፍጣ", "⚡ ኤሌክትሪክ",
 TRANSMISSION_TYPES = ["🕹️ ማንዋል", "🤖 ኦቶማቲክ"]
 CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈልግ"]
 
-
-# ==============================================================================
-# 6. HELPER FUNCTIONS (SINGLE DEFINITIONS ONLY)
-# ==============================================================================
-
-
-# Broker registration options
 BROKER_CATEGORIES = ["🚗 መኪና", "🏠 ቤትና ቦታ", "📦 አጠቃላይ ደላላ"]
 BROKER_REG_SUBCITIES = [
     "ቦሌ", "አራዳ", "ቂርቆስ", "ልደታ", "አዲስ ከተማ",
