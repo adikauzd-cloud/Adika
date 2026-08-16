@@ -20,6 +20,7 @@ def get_db_connection():
         conn.autocommit = True
         return conn
     else:
+        logger.warning("SQLite fallback — data is NOT persistent across deploys. Set DATABASE_URL.")
         conn = sqlite3.connect(DB_FILE, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         return conn
