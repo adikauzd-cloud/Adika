@@ -42,13 +42,13 @@ SELLER_FORM_HTML = r"""
     input, textarea, select { font-size: 16px !important; } /* prevent iOS zoom */
   </style>
 </head>
-<body>
+<body class="bg-[#E8F3FC]">
   <div id="root"></div>
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
     const tg = window.Telegram.WebApp;
     tg.expand(); tg.ready();
-    tg.setHeaderColor('#1e40af'); tg.setBackgroundColor('#f8fafc');
+    tg.setHeaderColor('#2563eb'); tg.setBackgroundColor('#f8fafc');
 
     const user = tg.initDataUnsafe?.user || {};
     const autoUsername = user.username ? '@' + user.username : '';
@@ -154,7 +154,7 @@ SELLER_FORM_HTML = r"""
 
       const canNext1 = category && (category === 'መኪና' ? (carType || condition) : (houseType || houseCondition));
       const canNext2 = parsePrice(price).length > 0;
-      const canSubmit = phone && description;
+      const canSubmit = Boolean(description && description.trim());
 
       const submit = async () => {
         if (!canSubmit || submitting) return;
@@ -384,7 +384,7 @@ SELLER_FORM_HTML = r"""
             {step === 3 && (
               <div className="space-y-4">
                 <div>
-                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">📞 ስልክ ቁጥር</label>
+                  <label className="text-xs font-medium text-gray-600 mb-1.5 block">📞 ስልክ ቁጥር <span className="text-gray-400 font-normal">(አማራጭ)</span></label>
                   <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
                     placeholder="0911223344"
                     className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
@@ -460,7 +460,7 @@ BUYER_FORM_HTML = r"""
     const { useState } = React;
     const tg = window.Telegram.WebApp;
     tg.expand(); tg.ready();
-    tg.setHeaderColor('#1e40af'); tg.setBackgroundColor('#f8fafc');
+    tg.setHeaderColor('#2563eb'); tg.setBackgroundColor('#f8fafc');
 
     const user = tg.initDataUnsafe?.user || {};
     const autoUsername = user.username ? '@' + user.username : '';
@@ -496,7 +496,7 @@ BUYER_FORM_HTML = r"""
       const [submitting, setSubmitting] = useState(false);
 
       const submit = async () => {
-        if (!phone || !details || submitting) return;
+        if (!details || submitting) return;
         setSubmitting(true);
         setStatus('');
         const data = {
@@ -595,7 +595,7 @@ BUYER_FORM_HTML = r"""
             </div>
 
             <div>
-              <label className="text-xs font-medium text-gray-600 mb-1.5 block">📞 ስልክ ቁጥር</label>
+              <label className="text-xs font-medium text-gray-600 mb-1.5 block">📞 ስልክ ቁጥር <span className="text-gray-400 font-normal">(አማራጭ)</span></label>
               <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
                 placeholder="0911223344"
                 className="w-full px-3 py-2.5 rounded-xl bg-gray-50 border border-gray-200 focus:bg-white focus:ring-2 focus:ring-blue-500 outline-none text-sm" />
@@ -615,7 +615,7 @@ BUYER_FORM_HTML = r"""
           <div className="fixed bottom-0 left-0 right-0 p-3 bg-white/95 backdrop-blur border-t flex gap-2">
             <button type="button" onClick={() => tg.close()}
               className="w-1/3 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm">❌ ሰርዝ</button>
-            <button type="button" onClick={submit} disabled={!phone || !details || submitting}
+            <button type="button" onClick={submit} disabled={!details || submitting}
               className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold text-sm disabled:opacity-40 flex items-center justify-center gap-1">
               {submitting ? 'እየተላከ...' : '📨 ጥያቄውን ላክ'}
             </button>
@@ -860,8 +860,8 @@ EXPLORER_HTML = r"""
     const tg = window.Telegram.WebApp;
     tg.expand();
     tg.ready();
-    tg.setHeaderColor('#1e40af');
-    tg.setBackgroundColor('#f1f5f9');
+    tg.setHeaderColor('#2563eb');
+    tg.setBackgroundColor('#E8F3FC');
     const currentUserId = tg.initDataUnsafe?.user?.id || null;
 
     function relativeTime(iso) {
@@ -1076,26 +1076,17 @@ EXPLORER_HTML = r"""
       const statusBadge = () => {
         const sold = status === 'sold' || status === 'rented';
         if (sold)
-          return (
-            <span className="relative flex h-2 w-2" title="Sold Out">
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500 ring-2 ring-white"></span>
-            </span>
-          );
+          return <span className="block w-3 h-3 bg-rose-500 border-2 border-white rounded-full shadow-sm" title="Sold Out"></span>;
         if (status === 'expired')
-          return <span className="inline-flex rounded-full h-2 w-2 bg-gray-400 ring-2 ring-white" title="Expired"></span>;
-        return (
-          <span className="relative flex h-2 w-2" title="Active">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 ring-2 ring-white"></span>
-          </span>
-        );
+          return <span className="block w-3 h-3 bg-gray-400 border-2 border-white rounded-full shadow-sm" title="Expired"></span>;
+        return <span className="block w-3 h-3 bg-emerald-500 border-2 border-white rounded-full shadow-sm" title="Active"></span>;
       };
 
       return (
         <div ref={cardRef}
-          className="bg-white rounded-2xl border border-black/[0.08] shadow-sm hover:shadow-md transition-shadow overflow-hidden relative active:scale-[0.98]">
+          className="bg-white rounded-2xl p-2.5 border border-white/80 shadow-[0_8px_20px_rgba(147,197,253,0.35)] hover:shadow-[0_12px_25px_rgba(147,197,253,0.5)] transition-all duration-200 flex flex-col justify-between relative active:scale-[0.98]">
           {/* Photo – opens modal */}
-          <div className="relative aspect-4-3 bg-gradient-to-br from-slate-50 to-blue-50 cursor-pointer" onClick={() => onOpen(item)}>
+          <div className="relative w-full h-32 rounded-xl overflow-hidden bg-slate-100 cursor-pointer" onClick={() => onOpen(item)}>
             {photos.length > 0 ? (
               <img src={photos[0]} alt="" className="w-full h-full object-cover" loading="lazy"
                 onError={e => { e.target.style.display='none'; }} />
@@ -1111,7 +1102,7 @@ EXPLORER_HTML = r"""
                 </span>
               </div>
             )}
-            <div className="absolute top-1.5 left-1.5">{statusBadge()}</div>
+            <div className="absolute top-2 left-2 z-10">{statusBadge()}</div>
             {isOwner && (
               <div className="absolute top-1.5 right-1.5" onClick={e => e.stopPropagation()}>
                 <button onClick={() => setMenuOpen(!menuOpen)}
@@ -1132,37 +1123,35 @@ EXPLORER_HTML = r"""
             )}
             {/* Bottom glass badge: views + time */}
             <div className="absolute bottom-1.5 left-1.5 right-1.5 flex justify-between pointer-events-none">
-              <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">👁️ {localViews} views</span>
-              <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">{relativeTime(item.created_at)}</span>
+              <span className="bg-black/50 backdrop-blur-md px-2 py-0.5 rounded-full text-[10px] text-white font-medium">👁️ {localViews} views</span>
+              <span className="bg-black/50 backdrop-blur-md px-2 py-0.5 rounded-full text-[10px] text-white font-medium">{relativeTime(item.created_at)}</span>
             </div>
           </div>
 
           {/* Content */}
-          <div className="p-2.5 space-y-1">
-            <h3 className="font-bold text-gray-900 text-[12px] line-clamp-1 leading-tight" onClick={() => onOpen(item)}>
+          <div className="mt-2.5 px-1 space-y-1">
+            <h3 className="font-bold text-sm text-slate-900 truncate" onClick={() => onOpen(item)}>
               {item.main_category}{item.sub_category ? ` • ${String(item.sub_category).replace(/[🚗🚚🚜🏡🏢🏞️]/g,'').trim()}` : ''}
             </h3>
-            <p className="text-[10px] text-gray-500 line-clamp-1">
+            <p className="text-xs text-slate-500 truncate mt-0.5">
               {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').slice(0, 42)}
             </p>
-            <div className="text-[13px] font-bold text-blue-700">
+            <div className="mt-2 flex items-center gap-1 font-extrabold text-blue-600 text-sm">
               {isSell ? '💰 ዋጋ' : '💰 በጀት'}: {item.price || '—'}
               {extra.urgent_sale && <span className="text-red-500 text-[10px] ml-0.5">⚡</span>}
             </div>
-            <div className="flex gap-1.5 pt-0.5">
+            <div className="grid grid-cols-2 gap-1.5 mt-3">
               <a href={!isSold && item.phone ? `tel:${String(item.phone).replace(/\s+/g,'')}` : undefined}
                 onClick={e => { if (isSold || !item.phone) e.preventDefault(); }}
-                className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-500/15 text-blue-700 border border-blue-500/30'}`}>
+                className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl font-bold text-xs border active:scale-95 transition-all ${isSold ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200/60'}`}>
                 📞 ደውል
               </a>
-              {extra.telegram_user ? (
-                <a href={!isSold ? `https://t.me/${String(extra.telegram_user).replace('@','')}` : undefined}
-                  target="_blank" rel="noreferrer"
-                  onClick={e => { if (isSold) e.preventDefault(); }}
-                  className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-500/15 text-blue-700 border border-blue-500/30'}`}>
-                  💬 ቻት
-                </a>
-              ) : null}
+              <a href={!isSold && extra.telegram_user ? `https://t.me/${String(extra.telegram_user).replace('@','')}` : (!isSold ? `tg://user?id=${item.user_chat_id}` : undefined)}
+                target="_blank" rel="noreferrer"
+                onClick={e => { if (isSold) e.preventDefault(); }}
+                className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl font-bold text-xs border active:scale-95 transition-all ${isSold ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'}`}>
+                💬 ቻት
+              </a>
             </div>
           </div>
         </div>
@@ -1230,9 +1219,9 @@ EXPLORER_HTML = r"""
       const onDelete = (id) => setItems(prev => prev.filter(it => it.id !== id));
 
       return (
-        <div className="min-h-screen pb-16">
+        <div className="min-h-screen bg-[#E8F3FC] p-3 pb-16 text-slate-800">
           {/* Sticky glass header */}
-          <div className="sticky top-0 z-30 glass border-b border-gray-200/60">
+          <div className="sticky top-0 z-30 bg-[#E8F3FC]/90 backdrop-blur-md border-b border-blue-100/60">
             <div className="flex">
               <button onClick={() => setTab('marketplace')}
                 className={`flex-1 py-2.5 text-xs font-bold transition ${tab==='marketplace' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
@@ -1253,7 +1242,7 @@ EXPLORER_HTML = r"""
               </div>
             </div>
             {/* Glassmorphism category pills */}
-            <div className="px-2.5 pb-2 flex gap-2 overflow-x-auto no-scrollbar" style={{WebkitOverflowScrolling:'touch'}}>
+            <div className="px-1 pb-3 flex gap-2 overflow-x-auto no-scrollbar" style={{WebkitOverflowScrolling:'touch'}}>
               {[
                 {id:'', label:'✨ ሁሉም'},
                 {id:'መኪና', label:'🚗 መኪና'},
@@ -1262,10 +1251,10 @@ EXPLORER_HTML = r"""
               ].map(cat => (
                 <button key={cat.id || 'all'} type="button"
                   onClick={() => setFilters(f => ({...f, category: cat.id}))}
-                  className={`shrink-0 px-3.5 py-1.5 rounded-2xl text-[11px] font-medium transition-all whitespace-nowrap ${
+                  className={`shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full font-medium text-sm active:scale-95 transition-all whitespace-nowrap ${
                     filters.category === cat.id
-                      ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20 border border-transparent'
-                      : 'backdrop-blur-md bg-white/40 border border-white/60 shadow-sm text-gray-800'
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
+                      : 'bg-white text-slate-700 border border-blue-100 shadow-sm'
                   }`}>
                   {cat.label}
                 </button>
@@ -1274,7 +1263,7 @@ EXPLORER_HTML = r"""
           </div>
 
           {/* 2-col grid */}
-          <div className="p-2.5 grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-2 gap-3.5 mt-2 px-0.5">
             {loading && items.length === 0 && Array.from({length: 6}).map((_,i) => <SkeletonCard key={i} />)}
             {items.map(item => (
               <Card key={item.id} item={item} currentUid={currentUserId}
