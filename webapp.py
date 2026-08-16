@@ -1076,20 +1076,20 @@ EXPLORER_HTML = r"""
       const statusBadge = () => {
         const sold = status === 'sold' || status === 'rented';
         if (sold)
-          return <span className="block w-2.5 h-2.5 bg-rose-500 rounded-full shadow-[0_2px_6px_rgba(244,63,94,0.5)] drop-shadow-[0_4px_6px_rgba(0,0,0,0.15)]" title="Sold Out"></span>;
+          return <span className="block h-2 w-2 bg-rose-500 rounded-full shadow-[0_2px_6px_rgba(244,63,94,0.45)]" title="Sold Out"></span>;
         if (status === 'expired')
-          return <span className="block w-2.5 h-2.5 bg-gray-400 rounded-full drop-shadow-[0_4px_6px_rgba(0,0,0,0.15)]" title="Expired"></span>;
+          return <span className="block h-2 w-2 bg-gray-400 rounded-full" title="Expired"></span>;
         return (
-          <span className="relative flex h-2.5 w-2.5" title="Active">
+          <span className="relative flex h-2 w-2" title="Active">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70"></span>
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_2px_8px_rgba(16,185,129,0.65)] drop-shadow-[0_4px_6px_rgba(0,0,0,0.15)]"></span>
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_2px_6px_rgba(16,185,129,0.55)]"></span>
           </span>
         );
       };
 
       return (
         <div ref={cardRef}
-          className="bg-white rounded-2xl p-2.5 border-none shadow-[0_8px_20px_rgba(0,0,0,0.12)] hover:shadow-[0_12px_28px_rgba(0,0,0,0.16)] transition-all duration-200 flex flex-col justify-between relative active:scale-[0.98]">
+          className="bg-white rounded-2xl p-2.5 border-none shadow-[0_10px_25px_rgba(0,0,0,0.14)] hover:shadow-[0_14px_32px_rgba(0,0,0,0.18)] transition-all duration-200 flex flex-col justify-between relative active:scale-[0.98]">
           {/* Photo – opens modal */}
           <div className="relative w-full h-32 rounded-xl overflow-hidden bg-slate-100 cursor-pointer" onClick={() => onOpen(item)}>
             {photos.length > 0 ? (
