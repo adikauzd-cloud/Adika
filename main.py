@@ -110,8 +110,21 @@ def main():
             BUYER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_details), cancel_handler],
             BUYER_PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, buyer_phone), cancel_handler],
         },
-        fallbacks=[CommandHandler("start", start), cancel_handler],
+        fallbacks=[
+            CommandHandler("start", start),
+            cancel_handler,
+            MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), go_home),
+            MessageHandler(filters.Regex("^🛒 የገበያ ቦታ$"), marketplace_choice),
+            MessageHandler(filters.Regex("^📋 የፈላጊዎች ጥያቄዎች$"), requests_choice),
+            MessageHandler(filters.Regex("^👥 የደላሎች መድረክ$"), view_brokers_directory),
+            MessageHandler(filters.Regex("^📞 እገዛ / Support$"), help_command),
+            MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ማስተካከያ$"), notification_prefs_start),
+            MessageHandler(filters.Regex("^🔍 ለመግዛት / ለመከራየት$"), buyer_start),
+            MessageHandler(filters.Regex("^📢 ለመሸጥ / ለማከራየት$"), seller_start),
+            MessageHandler(filters.Regex("^✍️ የደላላ/አቅራቢ መመዝገቢያ$"), broker_reg_start),
+        ],
         allow_reentry=True,
+        per_message=False,
     )
 
     seller_conv = ConversationHandler(
@@ -140,8 +153,21 @@ def main():
                 cancel_handler,
             ],
         },
-        fallbacks=[CommandHandler("start", start), cancel_handler],
+        fallbacks=[
+            CommandHandler("start", start),
+            cancel_handler,
+            MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), go_home),
+            MessageHandler(filters.Regex("^🛒 የገበያ ቦታ$"), marketplace_choice),
+            MessageHandler(filters.Regex("^📋 የፈላጊዎች ጥያቄዎች$"), requests_choice),
+            MessageHandler(filters.Regex("^👥 የደላሎች መድረክ$"), view_brokers_directory),
+            MessageHandler(filters.Regex("^📞 እገዛ / Support$"), help_command),
+            MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ማስተካከያ$"), notification_prefs_start),
+            MessageHandler(filters.Regex("^🔍 ለመግዛት / ለመከራየት$"), buyer_start),
+            MessageHandler(filters.Regex("^📢 ለመሸጥ / ለማከራየት$"), seller_start),
+            MessageHandler(filters.Regex("^✍️ የደላላ/አቅራቢ መመዝገቢያ$"), broker_reg_start),
+        ],
         allow_reentry=True,
+        per_message=False,
     )
 
     broker_conv = ConversationHandler(
@@ -157,8 +183,21 @@ def main():
                 cancel_handler,
             ],
         },
-        fallbacks=[CommandHandler("start", start), cancel_handler],
+        fallbacks=[
+            CommandHandler("start", start),
+            cancel_handler,
+            MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), go_home),
+            MessageHandler(filters.Regex("^🛒 የገበያ ቦታ$"), marketplace_choice),
+            MessageHandler(filters.Regex("^📋 የፈላጊዎች ጥያቄዎች$"), requests_choice),
+            MessageHandler(filters.Regex("^👥 የደላሎች መድረክ$"), view_brokers_directory),
+            MessageHandler(filters.Regex("^📞 እገዛ / Support$"), help_command),
+            MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ማስተካከያ$"), notification_prefs_start),
+            MessageHandler(filters.Regex("^🔍 ለመግዛት / ለመከራየት$"), buyer_start),
+            MessageHandler(filters.Regex("^📢 ለመሸጥ / ለማከራየት$"), seller_start),
+            MessageHandler(filters.Regex("^✍️ የደላላ/አቅራቢ መመዝገቢያ$"), broker_reg_start),
+        ],
         allow_reentry=True,
+        per_message=False,
     )
 
     broker_response_conv = ConversationHandler(
@@ -171,8 +210,21 @@ def main():
                 cancel_handler,
             ],
         },
-        fallbacks=[CommandHandler("start", start), cancel_handler],
+        fallbacks=[
+            CommandHandler("start", start),
+            cancel_handler,
+            MessageHandler(filters.Regex("^🏠 ዋና ገጽ$"), go_home),
+            MessageHandler(filters.Regex("^🛒 የገበያ ቦታ$"), marketplace_choice),
+            MessageHandler(filters.Regex("^📋 የፈላጊዎች ጥያቄዎች$"), requests_choice),
+            MessageHandler(filters.Regex("^👥 የደላሎች መድረክ$"), view_brokers_directory),
+            MessageHandler(filters.Regex("^📞 እገዛ / Support$"), help_command),
+            MessageHandler(filters.Regex("^⚙️ የማሳወቂያ ማስተካከያ$"), notification_prefs_start),
+            MessageHandler(filters.Regex("^🔍 ለመግዛት / ለመከራየት$"), buyer_start),
+            MessageHandler(filters.Regex("^📢 ለመሸጥ / ለማከራየት$"), seller_start),
+            MessageHandler(filters.Regex("^✍️ የደላላ/አቅራቢ መመዝገቢያ$"), broker_reg_start),
+        ],
         allow_reentry=True,
+        per_message=False,
     )
 
     app.add_handler(CommandHandler("start", start))
