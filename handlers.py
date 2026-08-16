@@ -658,7 +658,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
             phone_line = f"📞 ስልክ: {phone}\n" if phone else "🔒 ስልክ: የተደበቀ (Telegram ብቻ)\n"
             tg_line = f"📱 Telegram: {telegram_user}\n" if telegram_user else ""
             await update.message.reply_text(
-                f"✅ <b>ጥያቄዎ ተመዝግቧል!</b> 🎉\n\n"
+                f"✅ <b>ማስታወቂያዎ በተሳካ ሁኔታ ተመዝግቧል! ለደላሎችም ተልኳል። ማስታወቂያዎን ማጥፋት ወይም ማስተካከል ሲፈልጉ በማንኛውም ጊዜ ወደ 'የገበያ ቦታ' በመሄድ ማስተካከል ይችላሉ።</b>\n\n"
                 f"🆔 #ADK-{req_id}\n"
                 f"📌 {main_category}\n"
                 f"{phone_line}{tg_line}\n"
@@ -1109,7 +1109,7 @@ async def save_seller_listing(update: Update, context: ContextTypes.DEFAULT_TYPE
         
         if req_id:
             await update.message.reply_text(
-                f"✅ <b>ማስታወቂያዎ በስኬት ተመዝግቧል!</b> 🎉\n\n"
+                f"✅ <b>ማስታወቂያዎ በተሳካ ሁኔታ ተመዝግቧል! ለደላሎችም ተልኳል። ማስታወቂያዎን ማጥፋት ወይም ማስተካከል ሲፈልጉ በማንኛውም ጊዜ ወደ 'የገበያ ቦታ' በመሄድ ማስተካከል ይችላሉ።</b>\n\n"
                 f"🆔 <b>የማስታወቂያ ቁጥር:</b> #ADK-{req_id}\n"
                 f"📞 <b>ስልክ:</b> {phone}\n"
                 + (f"📱 <b>Telegram:</b> {telegram_user}\n" if telegram_user else "") +
