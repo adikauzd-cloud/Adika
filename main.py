@@ -18,13 +18,7 @@ from telegram.ext import (
 from config import BOT_TOKEN, logger, MAIN_KEYBOARD
 from models import init_db, expire_old_listings
 import webapp as webapp_module
-try:
-    from webapp import run_flask
-except ImportError:
-    def run_flask():
-        port = int(__import__("os").environ.get("PORT", "8080"))
-        webapp_module.logger.info("Fallback run_flask on port %s", port) if hasattr(webapp_module, "logger") else None
-        webapp_module.web_app.run(host="0.0.0.0", port=port, use_reloader=False, threaded=True)
+from webapp import run_flask
 from handlers import (
     start, go_home, error_handler,
     buyer_start, buyer_category_chosen, buyer_action_chosen, buyer_sub_chosen,
@@ -80,6 +74,7 @@ def main():
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+
     init_db()
     threading.Thread(target=run_flask, daemon=True, name="flask").start()
     start_cleanup_scheduler()
