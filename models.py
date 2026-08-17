@@ -11,31 +11,33 @@ from psycopg2.extras import RealDictCursor, Json
 from config import DATABASE_URL, logger, VIEW_BASELINE_MIN, VIEW_BASELINE_MAX
 
 def get_db_connection():
-    """PostgreSQL only (Supabase / Render). SQLite is disabled permanently."""
+    """Connect to PostgreSQL via DATABASE_URL (Supabase / Render). No SQLite."""
     if not DATABASE_URL:
         raise RuntimeError(
-            "DATABASE_URL is required. Set a PostgreSQL or Supabase connection string "
-            "in the environment (DATABASE_URL or SUPABASE_DB_URL)."
+            "DATABASE_URL is required. Set PostgreSQL/Supabase URI in Environment."
         )
-    cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
-    if cleaned_url.startswith("postgres://"):
-        cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
-    conn = psycopg2.connect(cleaned_url, cursor_factory=RealDictCursor)
+    cleaned = DATABASE_URL.strip().strip('"').strip("'")
+    if cleaned.startswith("postgres://"):
+        cleaned = cleaned.replace("postgres://", "postgresql://", 1)
+    conn = psycopg2.connect(cleaned, cursor_factory=RealDictCursor)
     conn.autocommit = True
     return conn
 
 
 def get_placeholder():
+    """PostgreSQL parameter placeholder."""
     return "%s"
+
 
 def init_db():
     if not DATABASE_URL:
-        logger.error("init_db aborted: DATABASE_URL not set (SQLite disabled)")
+        logger.error("init_db aborted: DATABASE_URL not set")
         raise RuntimeError("DATABASE_URL required for init_db")
 
     conn = None
     try:
         conn = get_db_connection()
+        logger.info("Connected to PostgreSQL Database")
         cursor = conn.cursor()
         if DATABASE_URL:
             cursor.execute("""
