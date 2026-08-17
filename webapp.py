@@ -23,6 +23,26 @@ bot_loop = None  # set from main post_init
 
 web_app = Flask(__name__)
 
+def _json_safe(obj):
+    """Make DB rows JSON-serializable (datetime, Decimal, bytes)."""
+    from datetime import date, datetime
+    from decimal import Decimal
+    if obj is None:
+        return None
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, (bytes, bytearray)):
+        return obj.decode("utf-8", errors="replace")
+    if isinstance(obj, dict):
+        return {str(k): _json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_safe(x) for x in obj]
+    return obj
+
+
+
 SELLER_FORM_HTML = r"""
 <!DOCTYPE html>
 <html lang="am">
@@ -669,7 +689,7 @@ BUYER_FORM_HTML = r"""
 
 @web_app.route('/')
 def home():
-   return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
+    return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
 
 @web_app.route('/seller-form')
 def webapp_seller_form():
@@ -1214,6 +1234,7 @@ EXPLORER_HTML = r"""
       const [detailItem, setDetailItem] = useState(null);
       const cacheRef = useRef({}); // client-side tab/category cache
 
+      const [loadError, setLoadError] = useState('');
       const loadData = useCallback(async (pageNum = 1, append = false) => {
         const cacheKey = `${tab}|${filters.category}|${filters.q}|${pageNum}`;
         if (!append && cacheRef.current[cacheKey]) {
@@ -1222,9 +1243,11 @@ EXPLORER_HTML = r"""
           setHasMore(cached.has_more);
           setPage(pageNum);
           setLoading(false);
+          setLoadError('');
           return;
         }
         setLoading(true);
+        setLoadError('');
         try {
           const qs = new URLSearchParams({
             page: pageNum, limit: 12,
@@ -1233,16 +1256,27 @@ EXPLORER_HTML = r"""
             ...Object.fromEntries(Object.entries(filters).filter(([,v]) => v))
           });
           const res = await fetch(`/api/explorer/listings?${qs}`);
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           if (data.status === 'success') {
-            setItems(prev => append ? [...prev, ...data.items] : data.items);
-            setHasMore(data.has_more);
+            const list = Array.isArray(data.items) ? data.items : [];
+            setItems(prev => append ? [...prev, ...list] : list);
+            setHasMore(!!data.has_more);
             setPage(pageNum);
             if (!append) {
-              cacheRef.current[cacheKey] = { items: data.items, has_more: data.has_more };
+              cacheRef.current[cacheKey] = { items: list, has_more: !!data.has_more };
             }
+            if (data.db === 'sqlite') {
+              setLoadError('⚠️ DB: temporary (SQLite). Set DATABASE_URL on Render or data is lost on deploy.');
+            }
+          } else {
+            setLoadError(data.message || ('API error ' + res.status));
+            if (!append) setItems([]);
           }
-        } catch(e) { console.error(e); }
+        } catch(e) {
+          console.error(e);
+          setLoadError(String(e.message || e));
+          if (!append) setItems([]);
+        }
         finally { setLoading(false); }
       }, [tab, filters]);
 
@@ -1313,10 +1347,17 @@ EXPLORER_HTML = r"""
             ))}
           </div>
 
+          {loadError && (
+            <div className="mx-1 mb-2 p-2.5 rounded-xl bg-amber-50 text-amber-800 text-[11px] leading-snug border border-amber-200">
+              {loadError}
+            </div>
+          )}
           {!loading && items.length === 0 && (
             <div className="text-center py-16 text-gray-400">
               <div className="text-4xl mb-2">📭</div>
               <p className="text-sm">ምንም ንብረት አልተገኘም</p>
+              <button type="button" onClick={() => { cacheRef.current = {}; loadData(1, false); }}
+                className="mt-3 text-blue-600 text-xs font-bold underline">እንደገና ሞክር</button>
             </div>
           )}
           {hasMore && !loading && (
@@ -1349,6 +1390,36 @@ EXPLORER_HTML = r"""
 @web_app.route('/explorer')
 def explorer_page():
     return Response(EXPLORER_HTML, mimetype='text/html; charset=utf-8')
+
+
+
+
+@web_app.route('/api/health', methods=['GET'])
+def api_health():
+    """Diagnostics for Mini App blank-screen debugging."""
+    info = {
+        "ok": True,
+        "database": "postgres" if DATABASE_URL else "sqlite",
+        "persistent": bool(DATABASE_URL),
+        "webapp_url": WEBAPP_URL,
+    }
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*) AS cnt FROM listings")
+        row = cur.fetchone()
+        info["listings_count"] = row["cnt"] if isinstance(row, dict) else row[0]
+        cur.execute("SELECT COUNT(*) AS cnt FROM brokers")
+        row = cur.fetchone()
+        info["brokers_count"] = row["cnt"] if isinstance(row, dict) else row[0]
+        try:
+            conn.close()
+        except Exception:
+            pass
+    except Exception as e:
+        info["ok"] = False
+        info["error"] = str(e)
+    return jsonify(info)
 
 
 @web_app.route('/api/explorer/listings', methods=['GET'])
@@ -1429,13 +1500,15 @@ def api_explorer_listings():
             items.append(item)
 
         conn.close()
+        safe_items = [_json_safe(it) for it in items]
         return jsonify({
             "status": "success",
             "page": page,
             "limit": limit,
-            "total": total,
-            "has_more": offset + limit < total,
-            "items": items
+            "total": int(total or 0),
+            "has_more": bool(offset + limit < (total or 0)),
+            "items": safe_items,
+            "db": "postgres" if DATABASE_URL else "sqlite",
         })
     except Exception as e:
         logger.error(f"api_explorer_listings error: {e}", exc_info=True)
