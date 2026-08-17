@@ -74,13 +74,6 @@ def main():
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-
-    from config import DATABASE_URL
-    if not DATABASE_URL:
-        logger.error(
-            "FATAL: DATABASE_URL is not set. Add PostgreSQL/Supabase URI in Render Environment."
-        )
-        raise SystemExit(1)
     init_db()
     threading.Thread(target=run_flask, daemon=True, name="flask").start()
     start_cleanup_scheduler()
