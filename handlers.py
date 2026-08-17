@@ -2479,9 +2479,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     import traceback
     err = context.error
     if err is not None:
-        logger.error("Exception while handling an update: %s: %s", type(err).__name__, err)
         tb = "".join(traceback.format_exception(type(err), err, err.__traceback__))
-        logger.error("Traceback:\n%s", tb)
+        logger.error("Exception while handling an update:\n%s", tb)
     else:
         logger.error("Exception while handling an update: (no error object)")
     try:
