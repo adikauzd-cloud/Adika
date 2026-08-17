@@ -59,6 +59,8 @@ else:
 
 RENDER_EXTERNAL_HOSTNAME = (os.environ.get("RENDER_EXTERNAL_HOSTNAME", "") or "").strip()
 PORT = int(os.environ.get("PORT", "8080"))
+# Legacy name only — SQLite is disabled; kept so old imports do not crash
+DB_FILE = os.environ.get("DB_FILE", "adika_marketplace.db")
 
 if RENDER_EXTERNAL_HOSTNAME:
     WEBAPP_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}"
