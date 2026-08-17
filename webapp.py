@@ -1751,13 +1751,9 @@ def api_listings_alias():
     return api_explorer_listings()
 
 
+
 def run_flask():
-   port = PORT
-   web_app.run(host="0.0.0.0", port=port, use_reloader=False)
-
-
-
-# ==============================================================================
-# 3. DATABASE CONNECTION & INITIALIZATION
-# ==============================================================================
-
+    """Start Flask HTTP server (Mini App + REST API) on 0.0.0.0:PORT."""
+    port = int(PORT or 8080)
+    logger.info("Starting Flask on 0.0.0.0:%s", port)
+    web_app.run(host="0.0.0.0", port=port, use_reloader=False, threaded=True)
