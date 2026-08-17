@@ -1265,11 +1265,6 @@ EXPLORER_HTML = r"""
             if (!append) {
               cacheRef.current[cacheKey] = { items: list, has_more: !!data.has_more };
             }
-            if (data.isTemporaryDb || data.db === 'sqlite') {
-              setLoadError('⚠️ DB: temporary (SQLite). Set DATABASE_URL to Supabase pooler (port 6543) for permanent storage.');
-            } else {
-              setLoadError('');
-            }
           } else {
             setLoadError(data.message || ('API error ' + res.status));
             if (!append) setItems([]);
@@ -1398,15 +1393,11 @@ def explorer_page():
 
 @web_app.route('/api/health', methods=['GET'])
 def api_health():
-    """Diagnostics — reports postgres vs temporary sqlite."""
-    import config as app_config
-    from models import get_db_connection, _DB_BACKEND
-    backend = getattr(app_config, "DB_BACKEND", None) or _DB_BACKEND
+    """Diagnostics for Mini App blank-screen debugging."""
     info = {
         "ok": True,
-        "database": backend if backend != "unknown" else ("postgres" if DATABASE_URL else "sqlite"),
-        "persistent": backend == "postgres",
-        "isTemporaryDb": backend != "postgres",
+        "database": "postgres",
+        "persistent": True,
         "webapp_url": WEBAPP_URL,
     }
     try:
@@ -1414,19 +1405,14 @@ def api_health():
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*) AS cnt FROM listings")
         row = cur.fetchone()
-        info["listings_count"] = row["cnt"] if isinstance(row, dict) else (row[0] if row else 0)
+        info["listings_count"] = row["cnt"] if isinstance(row, dict) else row[0]
         cur.execute("SELECT COUNT(*) AS cnt FROM brokers")
         row = cur.fetchone()
-        info["brokers_count"] = row["cnt"] if isinstance(row, dict) else (row[0] if row else 0)
+        info["brokers_count"] = row["cnt"] if isinstance(row, dict) else row[0]
         try:
             conn.close()
         except Exception:
             pass
-        # refresh backend after connect
-        backend = getattr(app_config, "DB_BACKEND", None) or _DB_BACKEND
-        info["database"] = backend
-        info["persistent"] = backend == "postgres"
-        info["isTemporaryDb"] = backend != "postgres"
     except Exception as e:
         info["ok"] = False
         info["error"] = str(e)
@@ -1512,12 +1498,6 @@ def api_explorer_listings():
 
         conn.close()
         safe_items = [_json_safe(it) for it in items]
-        try:
-            import config as app_config
-            from models import _DB_BACKEND
-            backend = getattr(app_config, "DB_BACKEND", None) or _DB_BACKEND
-        except Exception:
-            backend = "postgres" if DATABASE_URL else "sqlite"
         return jsonify({
             "status": "success",
             "page": page,
@@ -1525,8 +1505,7 @@ def api_explorer_listings():
             "total": int(total or 0),
             "has_more": bool(offset + limit < (total or 0)),
             "items": safe_items,
-            "db": backend,
-            "isTemporaryDb": backend != "postgres",
+            "db": "postgres",
         })
     except Exception as e:
         logger.error(f"api_explorer_listings error: {e}", exc_info=True)
