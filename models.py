@@ -7,63 +7,30 @@ from typing import Optional, List, Dict, Any
 
 import psycopg2
 from psycopg2.extras import RealDictCursor, Json
+import sqlite3
 
-from config import DATABASE_URL, logger, VIEW_BASELINE_MIN, VIEW_BASELINE_MAX
+from config import DATABASE_URL, DB_FILE, logger, VIEW_BASELINE_MIN, VIEW_BASELINE_MAX
 
 def get_db_connection():
-    """
-    Connect to PostgreSQL via DATABASE_URL (Supabase / Render).
-    Prefer Supabase *Connection Pooler* URI (port 6543) on Render —
-    direct db.*.supabase.co:5432 often fails with "Network is unreachable" (IPv6).
-    """
-    if not DATABASE_URL:
-        raise RuntimeError(
-            "DATABASE_URL is required. Set PostgreSQL/Supabase URI in Environment."
-        )
-    cleaned = DATABASE_URL.strip().strip('"').strip("'")
-    if cleaned.startswith("postgres://"):
-        cleaned = cleaned.replace("postgres://", "postgresql://", 1)
-
-    # Ensure SSL (required by Supabase)
-    if "sslmode=" not in cleaned.lower():
-        sep = "&" if "?" in cleaned else "?"
-        cleaned = f"{cleaned}{sep}sslmode=require"
-
-    try:
-        conn = psycopg2.connect(
-            cleaned,
-            cursor_factory=RealDictCursor,
-            connect_timeout=15,
-        )
+    if DATABASE_URL:
+        cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
+        if cleaned_url.startswith("postgres://"):
+            cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
+        conn = psycopg2.connect(cleaned_url, cursor_factory=RealDictCursor)
         conn.autocommit = True
         return conn
-    except Exception as e:
-        err = str(e)
-        logger.error(f"PostgreSQL connection failed: {err}")
-        if "Network is unreachable" in err or "5432" in err or "timed out" in err.lower():
-            logger.error(
-                "HINT: On Render, use Supabase Connection POOLER (port 6543), not direct :5432. "
-                "Supabase Dashboard → Project Settings → Database → Connection string → "
-                "Mode: Transaction (or Session) → copy URI. Host looks like "
-                "aws-0-REGION.pooler.supabase.com"
-            )
-        raise
-
+    else:
+        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
 
 def get_placeholder():
-    """PostgreSQL parameter placeholder."""
-    return "%s"
-
+    return "%s" if DATABASE_URL else "?"
 
 def init_db():
-    if not DATABASE_URL:
-        logger.error("init_db aborted: DATABASE_URL not set")
-        raise RuntimeError("DATABASE_URL required for init_db")
-
     conn = None
     try:
         conn = get_db_connection()
-        logger.info("Connected to PostgreSQL Database")
         cursor = conn.cursor()
         if DATABASE_URL:
             cursor.execute("""
@@ -284,7 +251,8 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
         else:
             cursor.execute(query, params)
             req_id = cursor.lastrowid
-        # CRITICAL: commit so Mini App feed sees the row immediately
+            conn.commit()
+        logger.info(f"✅ Listing inserted with ID: {req_id}")
         if photos and req_id:
             logger.info(f"📸 Saving {len(photos)} photos for listing {req_id}")
             for photo in photos:
@@ -296,7 +264,8 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                     )
                 except Exception as pe:
                     logger.error(f"Failed to save photo for listing {req_id}: {pe}")
-        conn.commit()
+            if not DATABASE_URL:
+                conn.commit()
         logger.info(f"✅ Listing added successfully → #ADK-{req_id}")
         return req_id
     except Exception as e:
@@ -699,18 +668,11 @@ def update_broker_notification_prefs(chat_id: int, prefs: dict) -> bool:
                 pass
 
 def get_approved_brokers():
-    """Brokers eligible for notifications: ONLINE + approved (exclude rejected)."""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT * FROM brokers
-            WHERE status IS NULL
-               OR LOWER(CAST(status AS TEXT)) IN ('approved', 'online', 'pending')
-            """
-        )
+        cursor.execute("SELECT * FROM brokers WHERE status = 'approved'")
         rows = cursor.fetchall()
         results = []
         for row in rows:
