@@ -13,7 +13,7 @@ logger = logging.getLogger("adika")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "0")
 
-# Primary: PostgreSQL / Supabase (Session or Transaction pooler URL)
+# Accept common env names (Render PostgreSQL / Supabase)
 DATABASE_URL = (
     os.environ.get("DATABASE_URL")
     or os.environ.get("SUPABASE_DB_URL")
@@ -22,15 +22,26 @@ DATABASE_URL = (
     or ""
 )
 DATABASE_URL = str(DATABASE_URL).strip().strip('"').strip("'")
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 RENDER_EXTERNAL_HOSTNAME = (os.environ.get("RENDER_EXTERNAL_HOSTNAME", "") or "").strip()
 PORT = int(os.environ.get("PORT", "8080"))
 DB_FILE = os.environ.get("DB_FILE", "adika_marketplace.db")
 
-# Runtime flag set by models after successful connect (postgres | sqlite)
-DB_BACKEND = "unknown"
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+_IS_RENDER = bool(os.environ.get("RENDER") or RENDER_EXTERNAL_HOSTNAME)
+if DATABASE_URL:
+    logger.info("📦 Database: PostgreSQL (persistent)")
+elif _IS_RENDER:
+    # Do NOT crash the service — warn loudly so the operator can attach a DB
+    logger.error(
+        "❌ DATABASE_URL is not set on Render. "
+        "Attach PostgreSQL (or paste a Supabase URI) as env DATABASE_URL. "
+        "Falling back to SQLite (data will be LOST on every redeploy)."
+    )
+else:
+    logger.warning("⚠️ DATABASE_URL not set — local SQLite (dev only)")
 
 if RENDER_EXTERNAL_HOSTNAME:
     WEBAPP_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}"
@@ -65,12 +76,14 @@ SUB_CITIES = [
    "ቂርቆስ", "አዲስ ከተማ", "ንፋስ ስልክ ላፍቶ",
    "ኮልፌ ቀራኒዮ", "አቃቂ ቃሊቲ", "ጉሌሌ", "ላምበርት/የካ"
 ]
+
 CAR_SUB_CATEGORIES = ["🚗 የቤት መኪና", "🚚 የሥራ መኪና", "🚜 ከባድ ተሽከርካሪ/ማሽን"]
 HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየም", "🏢 ሪል እስቴት", "🏞️ መሬት/ቦታ"]
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
 FUEL_TYPES = ["⛽ ቤንዚን", "🛢️ ናፍጣ", "⚡ ኤሌክትሪክ", "🔋 ሀይብሪድ"]
 TRANSMISSION_TYPES = ["🕹️ ማንዋል", "🤖 ኦቶማቲክ"]
 CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈልግ"]
+
 BROKER_CATEGORIES = ["🚗 መኪና", "🏠 ቤትና ቦታ", "📦 አጠቃላይ ደላላ"]
 BROKER_REG_SUBCITIES = [
     "ቦሌ", "አራዳ", "ቂርቆስ", "ልደታ", "አዲስ ከተማ",
