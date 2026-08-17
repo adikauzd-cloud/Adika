@@ -7,28 +7,32 @@ from typing import Optional, List, Dict, Any
 
 import psycopg2
 from psycopg2.extras import RealDictCursor, Json
-import sqlite3
 
-from config import DATABASE_URL, DB_FILE, logger, VIEW_BASELINE_MIN, VIEW_BASELINE_MAX
+from config import DATABASE_URL, logger, VIEW_BASELINE_MIN, VIEW_BASELINE_MAX
 
 def get_db_connection():
-    if DATABASE_URL:
-        cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
-        if cleaned_url.startswith("postgres://"):
-            cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
-        conn = psycopg2.connect(cleaned_url, cursor_factory=RealDictCursor)
-        conn.autocommit = True
-        return conn
-    else:
-        logger.warning("SQLite fallback — data is NOT persistent across deploys. Set DATABASE_URL.")
-        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
+    """PostgreSQL only (Supabase / Render). SQLite is disabled permanently."""
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL is required. Set a PostgreSQL or Supabase connection string "
+            "in the environment (DATABASE_URL or SUPABASE_DB_URL)."
+        )
+    cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
+    if cleaned_url.startswith("postgres://"):
+        cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
+    conn = psycopg2.connect(cleaned_url, cursor_factory=RealDictCursor)
+    conn.autocommit = True
+    return conn
+
 
 def get_placeholder():
-    return "%s" if DATABASE_URL else "?"
+    return "%s"
 
 def init_db():
+    if not DATABASE_URL:
+        logger.error("init_db aborted: DATABASE_URL not set (SQLite disabled)")
+        raise RuntimeError("DATABASE_URL required for init_db")
+
     conn = None
     try:
         conn = get_db_connection()
