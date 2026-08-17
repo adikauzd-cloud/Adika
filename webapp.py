@@ -12,7 +12,6 @@ from config import (
     logger, PORT, MAX_IMAGE_BYTES, ADMIN_CHAT_ID_INT, DATABASE_URL, WEBAPP_URL,
 )
 from models import (
-    LAST_DB_ERROR,
     get_db_connection, get_placeholder, add_listing, get_listing_by_id,
     update_listing_status, save_search_alert, expire_old_listings,
     get_active_brokers, get_platform_stats, count_listings, count_brokers,
@@ -23,26 +22,6 @@ bot_app = None
 bot_loop = None  # set from main post_init
 
 web_app = Flask(__name__)
-
-def _json_safe(obj):
-    """Make DB rows JSON-serializable (datetime, Decimal, bytes)."""
-    from datetime import date, datetime
-    from decimal import Decimal
-    if obj is None:
-        return None
-    if isinstance(obj, (datetime, date)):
-        return obj.isoformat()
-    if isinstance(obj, Decimal):
-        return float(obj)
-    if isinstance(obj, (bytes, bytearray)):
-        return obj.decode("utf-8", errors="replace")
-    if isinstance(obj, dict):
-        return {str(k): _json_safe(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_json_safe(x) for x in obj]
-    return obj
-
-
 
 SELLER_FORM_HTML = r"""
 <!DOCTYPE html>
@@ -690,7 +669,7 @@ BUYER_FORM_HTML = r"""
 
 @web_app.route('/')
 def home():
-    return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
+   return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
 
 @web_app.route('/seller-form')
 def webapp_seller_form():
@@ -786,24 +765,8 @@ def submit_listing():
        full_desc += f"📝 መግለጫ: {description}\n"
        full_desc += f"📞 ስልክ: {phone}\n"
        if telegram_user: full_desc += f"📱 Telegram: {telegram_user}\n"
-       uid = int(user_id) if str(user_id).isdigit() else 0
-       extra = {
-               'fuel_type': fuel_type, 'transmission': transmission, 'mileage': mileage,
-               'condition': condition or house_condition, 'bedrooms': bedrooms,
-               'bathrooms': bathrooms, 'parking': parking, 'house_type': house_type,
-               'car_type': car_type, 'negotiable': negotiable, 'urgent_sale': urgent_sale,
-               'telegram_user': telegram_user
-       }
-       # Limit photos payload (max 3 compressed)
-       safe_photos = []
-       if isinstance(photos, list):
-           for ph in photos[:3]:
-               s = str(ph)
-               if len(s) > 350000:
-                   s = s[:350000]
-               safe_photos.append(s)
        req_id = add_listing(
-           user_chat_id=uid,
+           user_chat_id=int(user_id) if str(user_id).isdigit() else 0,
            user_name="WebApp User",
            req_type="SELL",
            main_category=category,
@@ -812,27 +775,16 @@ def submit_listing():
            property_type="",
            description=full_desc,
            price=str(price),
-           phone=str(phone or ""),
-           extra_data=extra,
-           photos=safe_photos
+           phone=str(phone),
+           extra_data={
+               'fuel_type': fuel_type, 'transmission': transmission, 'mileage': mileage,
+               'condition': condition or house_condition, 'bedrooms': bedrooms,
+               'bathrooms': bathrooms, 'parking': parking, 'house_type': house_type,
+               'car_type': car_type, 'negotiable': negotiable, 'urgent_sale': urgent_sale,
+               'telegram_user': telegram_user
+           },
+           photos=photos
        )
-       # Retry without photos if insert failed (photo size / type issues)
-       if not req_id and safe_photos:
-           logger.warning("Retry add_listing without photos")
-           req_id = add_listing(
-               user_chat_id=uid,
-               user_name="WebApp User",
-               req_type="SELL",
-               main_category=category,
-               sub_category=car_type if category == 'መኪና' else house_type,
-               action_type="መሸጥ",
-               property_type="",
-               description=full_desc,
-               price=str(price),
-               phone=str(phone or ""),
-               extra_data=extra,
-               photos=[]
-           )
        if req_id:
            logger.info(f"✅ Seller listing saved ID={req_id}")
            notification_text = (
@@ -842,13 +794,7 @@ def submit_listing():
            _send_notification_safe(notification_text, req_id, int(user_id))
            return jsonify({"status": "success", "req_id": req_id})
        else:
-           import models as _models
-           detail = getattr(_models, "LAST_DB_ERROR", "") or ""
-           msg = "Database ውስጥ ማስቀመጥ አልተቻለም።"
-           if detail:
-               msg = f"{msg} ({detail[:180]})"
-           logger.error("submit failed detail=%s backend=%s", detail, getattr(_models, "_DB_BACKEND", "?"))
-           return jsonify({"status": "error", "message": msg, "detail": detail}), 500
+           return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም።"}), 500
    except Exception as e:
        logger.error(f"❌ submit_listing error: {e}", exc_info=True)
        return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
@@ -902,13 +848,7 @@ def submit_request():
                save_search_alert(int(user_id), category, budget_min, budget_max)
            return jsonify({"status": "success", "req_id": req_id})
        else:
-           import models as _models
-           detail = getattr(_models, "LAST_DB_ERROR", "") or ""
-           msg = "Database ውስጥ ማስቀመጥ አልተቻለም።"
-           if detail:
-               msg = f"{msg} ({detail[:180]})"
-           logger.error("submit failed detail=%s backend=%s", detail, getattr(_models, "_DB_BACKEND", "?"))
-           return jsonify({"status": "error", "message": msg, "detail": detail}), 500
+           return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም።"}), 500
    except Exception as e:
        logger.error(f"❌ submit_request error: {e}", exc_info=True)
        return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
@@ -1274,7 +1214,6 @@ EXPLORER_HTML = r"""
       const [detailItem, setDetailItem] = useState(null);
       const cacheRef = useRef({}); // client-side tab/category cache
 
-      const [loadError, setLoadError] = useState('');
       const loadData = useCallback(async (pageNum = 1, append = false) => {
         const cacheKey = `${tab}|${filters.category}|${filters.q}|${pageNum}`;
         if (!append && cacheRef.current[cacheKey]) {
@@ -1283,11 +1222,9 @@ EXPLORER_HTML = r"""
           setHasMore(cached.has_more);
           setPage(pageNum);
           setLoading(false);
-          setLoadError('');
           return;
         }
         setLoading(true);
-        setLoadError('');
         try {
           const qs = new URLSearchParams({
             page: pageNum, limit: 12,
@@ -1296,29 +1233,16 @@ EXPLORER_HTML = r"""
             ...Object.fromEntries(Object.entries(filters).filter(([,v]) => v))
           });
           const res = await fetch(`/api/explorer/listings?${qs}`);
-          const data = await res.json().catch(() => ({}));
+          const data = await res.json();
           if (data.status === 'success') {
-            const list = Array.isArray(data.items) ? data.items : [];
-            setItems(prev => append ? [...prev, ...list] : list);
-            setHasMore(!!data.has_more);
+            setItems(prev => append ? [...prev, ...data.items] : data.items);
+            setHasMore(data.has_more);
             setPage(pageNum);
             if (!append) {
-              cacheRef.current[cacheKey] = { items: list, has_more: !!data.has_more };
+              cacheRef.current[cacheKey] = { items: data.items, has_more: data.has_more };
             }
-            if (data.isTemporaryDb || data.db === 'sqlite') {
-              setLoadError('⚠️ DB: temporary (SQLite). Set DATABASE_URL to Supabase pooler (port 6543) for permanent storage.');
-            } else {
-              setLoadError('');
-            }
-          } else {
-            setLoadError(data.message || ('API error ' + res.status));
-            if (!append) setItems([]);
           }
-        } catch(e) {
-          console.error(e);
-          setLoadError(String(e.message || e));
-          if (!append) setItems([]);
-        }
+        } catch(e) { console.error(e); }
         finally { setLoading(false); }
       }, [tab, filters]);
 
@@ -1389,17 +1313,10 @@ EXPLORER_HTML = r"""
             ))}
           </div>
 
-          {loadError && (
-            <div className="mx-1 mb-2 p-2.5 rounded-xl bg-amber-50 text-amber-800 text-[11px] leading-snug border border-amber-200">
-              {loadError}
-            </div>
-          )}
           {!loading && items.length === 0 && (
             <div className="text-center py-16 text-gray-400">
               <div className="text-4xl mb-2">📭</div>
               <p className="text-sm">ምንም ንብረት አልተገኘም</p>
-              <button type="button" onClick={() => { cacheRef.current = {}; loadData(1, false); }}
-                className="mt-3 text-blue-600 text-xs font-bold underline">እንደገና ሞክር</button>
             </div>
           )}
           {hasMore && !loading && (
@@ -1434,45 +1351,6 @@ def explorer_page():
     return Response(EXPLORER_HTML, mimetype='text/html; charset=utf-8')
 
 
-
-
-@web_app.route('/api/health', methods=['GET'])
-def api_health():
-    """Diagnostics — reports postgres vs temporary sqlite."""
-    import config as app_config
-    from models import get_db_connection, _DB_BACKEND
-    backend = getattr(app_config, "DB_BACKEND", None) or _DB_BACKEND
-    info = {
-        "ok": True,
-        "database": backend if backend != "unknown" else ("postgres" if DATABASE_URL else "sqlite"),
-        "persistent": backend == "postgres",
-        "isTemporaryDb": backend != "postgres",
-        "webapp_url": WEBAPP_URL,
-    }
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) AS cnt FROM listings")
-        row = cur.fetchone()
-        info["listings_count"] = row["cnt"] if isinstance(row, dict) else (row[0] if row else 0)
-        cur.execute("SELECT COUNT(*) AS cnt FROM brokers")
-        row = cur.fetchone()
-        info["brokers_count"] = row["cnt"] if isinstance(row, dict) else (row[0] if row else 0)
-        try:
-            conn.close()
-        except Exception:
-            pass
-        # refresh backend after connect
-        backend = getattr(app_config, "DB_BACKEND", None) or _DB_BACKEND
-        info["database"] = backend
-        info["persistent"] = backend == "postgres"
-        info["isTemporaryDb"] = backend != "postgres"
-    except Exception as e:
-        info["ok"] = False
-        info["error"] = str(e)
-    return jsonify(info)
-
-
 @web_app.route('/api/explorer/listings', methods=['GET'])
 def api_explorer_listings():
     """Fetch listings/requests with pagination, filters, relative-ready timestamps."""
@@ -1501,13 +1379,13 @@ def api_explorer_listings():
             where.append(f"UPPER(req_type) = UPPER({p})")
             params.append(req_type)
         if category:
-            where.append(f"(main_category = {p} OR category = {p})")
-            params.append(category)
+            where.append(f"main_category = {p}")
             params.append(category)
         if search:
-            from models import is_postgres
-            like = "ILIKE" if is_postgres() else "LIKE"
-            where.append(f"(description {like} {p} OR price {like} {p} OR phone {like} {p})")
+            if DATABASE_URL:
+                where.append(f"(description ILIKE {p} OR price ILIKE {p} OR phone ILIKE {p})")
+            else:
+                where.append(f"(description LIKE {p} OR price LIKE {p} OR phone LIKE {p})")
             params.extend([f'%{search}%'] * 3)
 
         where_sql = " AND ".join(where)
@@ -1551,22 +1429,13 @@ def api_explorer_listings():
             items.append(item)
 
         conn.close()
-        safe_items = [_json_safe(it) for it in items]
-        try:
-            import config as app_config
-            from models import _DB_BACKEND
-            backend = getattr(app_config, "DB_BACKEND", None) or _DB_BACKEND
-        except Exception:
-            backend = "postgres" if DATABASE_URL else "sqlite"
         return jsonify({
             "status": "success",
             "page": page,
             "limit": limit,
-            "total": int(total or 0),
-            "has_more": bool(offset + limit < (total or 0)),
-            "items": safe_items,
-            "db": backend,
-            "isTemporaryDb": backend != "postgres",
+            "total": total,
+            "has_more": offset + limit < total,
+            "items": items
         })
     except Exception as e:
         logger.error(f"api_explorer_listings error: {e}", exc_info=True)
@@ -1600,12 +1469,8 @@ def api_view_booster(listing_id):
         else:
             new_count = int(current) + boost
         cur.execute(f"UPDATE listings SET view_count = {p} WHERE id = {p}", (new_count, listing_id))
-        from models import is_postgres
-        if not is_postgres():
-            try:
-                conn.commit()
-            except Exception:
-                pass
+        if not DATABASE_URL:
+            conn.commit()
         conn.close()
         return jsonify({"status": "success", "view_count": new_count})
     except Exception as e:
@@ -1644,12 +1509,8 @@ def api_update_item_status(listing_id):
             return jsonify({"status": "error", "message": "Forbidden"}), 403
 
         cur.execute(f"UPDATE listings SET status = {p} WHERE id = {p}", (new_status, listing_id))
-        from models import is_postgres
-        if not is_postgres():
-            try:
-                conn.commit()
-            except Exception:
-                pass
+        if not DATABASE_URL:
+            conn.commit()
         conn.close()
         logger.info(f"✅ Listing #{listing_id} status → {new_status} by user {user_id}")
         return jsonify({"status": "success", "new_status": new_status})
@@ -1679,12 +1540,8 @@ def api_delete_item(listing_id):
             conn.close()
             return jsonify({"status": "error", "message": "Forbidden"}), 403
         cur.execute(f"UPDATE listings SET status = 'deleted' WHERE id = {p}", (listing_id,))
-        from models import is_postgres
-        if not is_postgres():
-            try:
-                conn.commit()
-            except Exception:
-                pass
+        if not DATABASE_URL:
+            conn.commit()
         conn.close()
         return jsonify({"status": "success"})
     except Exception as e:
@@ -1751,9 +1608,13 @@ def api_listings_alias():
     return api_explorer_listings()
 
 
-
 def run_flask():
-    """Start Flask HTTP server (Mini App + REST API) on 0.0.0.0:PORT."""
-    port = int(PORT or 8080)
-    logger.info("Starting Flask on 0.0.0.0:%s", port)
-    web_app.run(host="0.0.0.0", port=port, use_reloader=False, threaded=True)
+   port = PORT
+   web_app.run(host="0.0.0.0", port=port, use_reloader=False)
+
+
+
+# ==============================================================================
+# 3. DATABASE CONNECTION & INITIALIZATION
+# ==============================================================================
+
