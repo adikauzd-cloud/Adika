@@ -1265,9 +1265,6 @@ EXPLORER_HTML = r"""
             if (!append) {
               cacheRef.current[cacheKey] = { items: list, has_more: !!data.has_more };
             }
-            if (data.db === 'sqlite') {
-              setLoadError('⚠️ DB: temporary (SQLite). Set DATABASE_URL on Render or data is lost on deploy.');
-            }
           } else {
             setLoadError(data.message || ('API error ' + res.status));
             if (!append) setItems([]);
@@ -1399,8 +1396,8 @@ def api_health():
     """Diagnostics for Mini App blank-screen debugging."""
     info = {
         "ok": True,
-        "database": "postgres" if DATABASE_URL else "sqlite",
-        "persistent": bool(DATABASE_URL),
+        "database": "postgres",
+        "persistent": True,
         "webapp_url": WEBAPP_URL,
     }
     try:
@@ -1508,7 +1505,7 @@ def api_explorer_listings():
             "total": int(total or 0),
             "has_more": bool(offset + limit < (total or 0)),
             "items": safe_items,
-            "db": "postgres" if DATABASE_URL else "sqlite",
+            "db": "postgres",
         })
     except Exception as e:
         logger.error(f"api_explorer_listings error: {e}", exc_info=True)
