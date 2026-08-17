@@ -18,7 +18,13 @@ from telegram.ext import (
 from config import BOT_TOKEN, logger, MAIN_KEYBOARD
 from models import init_db, expire_old_listings
 import webapp as webapp_module
-from webapp import run_flask
+try:
+    from webapp import run_flask
+except ImportError:
+    def run_flask():
+        port = int(__import__("os").environ.get("PORT", "8080"))
+        webapp_module.logger.info("Fallback run_flask on port %s", port) if hasattr(webapp_module, "logger") else None
+        webapp_module.web_app.run(host="0.0.0.0", port=port, use_reloader=False, threaded=True)
 from handlers import (
     start, go_home, error_handler,
     buyer_start, buyer_category_chosen, buyer_action_chosen, buyer_sub_chosen,
