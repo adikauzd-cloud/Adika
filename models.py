@@ -5,34 +5,100 @@ import json
 import random
 from typing import Optional, List, Dict, Any
 
+import sqlite3
 import psycopg2
 from psycopg2.extras import RealDictCursor, Json
-import sqlite3
 
 from config import DATABASE_URL, DB_FILE, logger, VIEW_BASELINE_MIN, VIEW_BASELINE_MAX
+import config as _app_config
+
+
+_DB_BACKEND = "unknown"
+
+
+def _normalize_pg_url(url: str) -> str:
+    """Normalize postgres URL and ensure SSL for Supabase / cloud hosts."""
+    u = (url or "").strip().strip('"').strip("'")
+    if u.startswith("postgres://"):
+        u = u.replace("postgres://", "postgresql://", 1)
+    # Supabase + Render: require SSL (IPv4 pooler still needs sslmode)
+    if "sslmode=" not in u.lower():
+        sep = "&" if "?" in u else "?"
+        u = f"{u}{sep}sslmode=require"
+    return u
+
 
 def get_db_connection():
+    """
+    Hybrid connection:
+      1) PostgreSQL via DATABASE_URL (Supabase pooler 6543 or direct 5432) + SSL
+      2) Fallback SQLite if PG unavailable
+    """
+    global _DB_BACKEND
     if DATABASE_URL:
-        cleaned_url = DATABASE_URL.strip().strip('"').strip("'")
-        if cleaned_url.startswith("postgres://"):
-            cleaned_url = cleaned_url.replace("postgres://", "postgresql://", 1)
-        conn = psycopg2.connect(cleaned_url, cursor_factory=RealDictCursor)
-        conn.autocommit = True
-        return conn
-    else:
-        conn = sqlite3.connect(DB_FILE, check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            cleaned = _normalize_pg_url(DATABASE_URL)
+            # sslmode in URL is enough for psycopg2; also pass sslmode for safety
+            conn = psycopg2.connect(
+                cleaned,
+                cursor_factory=RealDictCursor,
+                connect_timeout=15,
+            )
+            conn.autocommit = True
+            _DB_BACKEND = "postgres"
+            try:
+                _app_config.DB_BACKEND = "postgres"
+            except Exception:
+                pass
+            return conn
+        except Exception as e:
+            logger.error(f"PostgreSQL connection failed ({e}); falling back to SQLite")
+    # SQLite fallback
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=30)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+    except Exception:
+        pass
+    _DB_BACKEND = "sqlite"
+    try:
+        _app_config.DB_BACKEND = "sqlite"
+    except Exception:
+        pass
+    return conn
+
 
 def get_placeholder():
+    if _DB_BACKEND == "postgres":
+        return "%s"
+    if _DB_BACKEND == "sqlite":
+        return "?"
     return "%s" if DATABASE_URL else "?"
+
+
+def is_postgres() -> bool:
+    return _DB_BACKEND == "postgres"
+
+
+def sql_like_op() -> str:
+    return "ILIKE" if is_postgres() else "LIKE"
+
+
+
+
+
 
 def init_db():
     conn = None
     try:
         conn = get_db_connection()
+        if _DB_BACKEND == "postgres":
+            logger.info("Successfully connected to Supabase PostgreSQL Pooler")
+            logger.info("Connected to PostgreSQL Database")
+        else:
+            logger.warning("Using SQLite fallback (temporary — set DATABASE_URL to Supabase pooler port 6543)")
         cursor = conn.cursor()
-        if DATABASE_URL:
+        if _DB_BACKEND == "postgres":
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS listings (
                     id SERIAL PRIMARY KEY,
@@ -174,7 +240,7 @@ def init_db():
             """)
             conn.commit()
         try:
-            if DATABASE_URL:
+            if is_postgres():
                 cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS extra_data JSONB DEFAULT '{}';")
                 cursor.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0;")
             else:
@@ -186,7 +252,7 @@ def init_db():
                     cursor.execute("ALTER TABLE listings ADD COLUMN view_count INTEGER DEFAULT 0;")
                 except:
                     pass
-            if not DATABASE_URL:
+            if not is_postgres():
                 conn.commit()
         except Exception as alter_err:
             logger.warning(f"ALTER TABLE warning: {alter_err}")
@@ -207,6 +273,7 @@ def init_db():
 def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                 action_type, property_type, description, price=None, phone=None, 
                 photo_id=None, extra_data=None, photos=None):
+    """Insert listing. Returns new id or None. Photos stored truncated if huge."""
     conn = None
     try:
         conn = get_db_connection()
@@ -214,20 +281,43 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
         p = get_placeholder()
         if extra_data is None:
             extra_data = {}
-        extra_json = json.dumps(extra_data, ensure_ascii=False) if not isinstance(extra_data, str) else extra_data
+        if isinstance(extra_data, str):
+            try:
+                extra_data = json.loads(extra_data)
+            except Exception:
+                extra_data = {"raw": extra_data}
+
+        # JSONB-safe value for Postgres; plain text JSON for SQLite
+        if is_postgres():
+            try:
+                from psycopg2.extras import Json as PgJson
+                extra_param = PgJson(extra_data)
+            except Exception:
+                extra_param = json.dumps(extra_data, ensure_ascii=False)
+        else:
+            extra_param = json.dumps(extra_data, ensure_ascii=False)
+
         user_chat_id = int(user_chat_id) if user_chat_id else 0
-        user_name = str(user_name or "User")
+        user_name = str(user_name or "User")[:200]
         req_type = str(req_type or "BUY").upper()
-        main_category = str(main_category or "መኪና")
-        sub_category = str(sub_category or "")
-        action_type = str(action_type or "")
-        property_type = str(property_type or "")
-        description = str(description or "")
-        price = str(price or "")
-        phone = str(phone or "")
+        main_category = str(main_category or "መኪና")[:100]
+        sub_category = str(sub_category or "")[:100]
+        action_type = str(action_type or "")[:100]
+        property_type = str(property_type or "")[:100]
+        description = str(description or "")[:8000]
+        price = str(price or "")[:100]
+        phone = str(phone or "")[:50]
         photo_id = str(photo_id) if photo_id else None
         import random as _rnd
-        baseline_views = _rnd.randint(35, 90)  # social-proof baseline
+        baseline_views = _rnd.randint(35, 90)
+
+        # First photo as photo_id if not provided (store short ref only)
+        photo_list = list(photos or [])[:5]
+        if not photo_id and photo_list:
+            first = str(photo_list[0])
+            # Prefer not to put multi-MB base64 in listings.photo_id
+            photo_id = first[:200] if first.startswith("http") else None
+
         query = f"""
             INSERT INTO listings 
             (user_chat_id, user_name, req_type, main_category, sub_category, 
@@ -238,10 +328,12 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
             user_chat_id, user_name, req_type, main_category, 
             sub_category, action_type, property_type, 
             description, price, phone, photo_id,
-            extra_json, baseline_views
+            extra_param, baseline_views
         )
-        logger.info(f"📝 Inserting listing: user={user_chat_id}, type={req_type}, cat={main_category}")
-        if DATABASE_URL:
+        logger.info(
+            f"📝 Inserting listing: user={user_chat_id}, type={req_type}, cat={main_category}, backend={_DB_BACKEND}"
+        )
+        if is_postgres():
             cursor.execute(query + " RETURNING id", params)
             row = cursor.fetchone()
             if row is None:
@@ -251,36 +343,50 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
         else:
             cursor.execute(query, params)
             req_id = cursor.lastrowid
-            conn.commit()
-        logger.info(f"✅ Listing inserted with ID: {req_id}")
-        if photos and req_id:
-            logger.info(f"📸 Saving {len(photos)} photos for listing {req_id}")
-            for photo in photos:
+
+        if photo_list and req_id:
+            logger.info(f"📸 Saving up to {len(photo_list)} photos for listing {req_id}")
+            for photo in photo_list:
                 try:
                     photo_str = str(photo)
+                    # Cap base64 length to avoid DB / packet failures (~300KB)
+                    if len(photo_str) > 350_000:
+                        logger.warning(f"Photo truncated for listing {req_id} (len={len(photo_str)})")
+                        photo_str = photo_str[:350_000]
                     cursor.execute(
                         f"INSERT INTO listing_photos (listing_id, photo_id) VALUES ({p}, {p})",
                         (req_id, photo_str)
                     )
                 except Exception as pe:
                     logger.error(f"Failed to save photo for listing {req_id}: {pe}")
-            if not DATABASE_URL:
+        try:
+            if not is_postgres():
                 conn.commit()
+            else:
+                # autocommit usually on; explicit commit is safe
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+        except Exception as ce:
+            logger.warning(f"commit warning: {ce}")
+
         logger.info(f"✅ Listing added successfully → #ADK-{req_id}")
         return req_id
     except Exception as e:
         logger.error(f"❌ Add listing error: {e}", exc_info=True)
-        if conn and not DATABASE_URL:
+        if conn:
             try:
-                conn.rollback()
-            except:
+                if not is_postgres():
+                    conn.rollback()
+            except Exception:
                 pass
         return None
     finally:
         if conn:
             try:
                 conn.close()
-            except:
+            except Exception:
                 pass
 
 def get_listing_by_id(listing_id: int):
@@ -344,7 +450,7 @@ def get_listings_by_category_ordered(limit=20, offset=0, req_type=None, order="D
             ORDER BY COALESCE(created_at, CURRENT_TIMESTAMP) {order_sql}, id {order_sql}
             LIMIT {p} OFFSET {p}
         """
-        if not DATABASE_URL:
+        if not is_postgres():
             # SQLite: no CURRENT_TIMESTAMP in COALESCE the same way for missing
             query = f"""
                 SELECT * FROM listings
@@ -436,7 +542,7 @@ def get_public_marketplace_items(limit: int = 20, offset: int = 0):
             return []
         cur = conn.cursor()
         p = get_placeholder()
-        if DATABASE_URL:
+        if is_postgres():
             cur.execute("""
                 SELECT * FROM listings 
                 WHERE UPPER(req_type) = 'SELL'
@@ -508,7 +614,7 @@ def add_broker(
 
         # Safe column migrations
         try:
-            if DATABASE_URL:
+            if is_postgres():
                 for stmt in (
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS username TEXT DEFAULT ''",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS specialty TEXT DEFAULT ''",
@@ -540,7 +646,7 @@ def add_broker(
         existing = cur.fetchone()
         existing_id = (existing["id"] if isinstance(existing, dict) else existing[0]) if existing else None
 
-        if DATABASE_URL:
+        if is_postgres():
             from psycopg2.extras import Json
             prefs_val = Json(prefs)
             if existing_id is not None:
@@ -633,7 +739,7 @@ def update_broker_status(chat_id: int, status: str) -> bool:
         cursor = conn.cursor()
         p = get_placeholder()
         cursor.execute(f"UPDATE brokers SET status = {p} WHERE chat_id = {p}", (status.lower(), chat_id))
-        if not DATABASE_URL:
+        if not is_postgres():
             conn.commit()
         return True
     except Exception as e:
@@ -654,7 +760,7 @@ def update_broker_notification_prefs(chat_id: int, prefs: dict) -> bool:
         p = get_placeholder()
         prefs_json = json.dumps(prefs, ensure_ascii=False)
         cursor.execute(f"UPDATE brokers SET notification_prefs = {p} WHERE chat_id = {p}", (prefs_json, chat_id))
-        if not DATABASE_URL:
+        if not is_postgres():
             conn.commit()
         return True
     except Exception as e:
@@ -668,11 +774,18 @@ def update_broker_notification_prefs(chat_id: int, prefs: dict) -> bool:
                 pass
 
 def get_approved_brokers():
+    """Brokers eligible for notifications: ONLINE + approved (exclude rejected)."""
     conn = None
     try:
         conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM brokers WHERE status = 'approved'")
+        cursor.execute(
+            """
+            SELECT * FROM brokers
+            WHERE status IS NULL
+               OR LOWER(CAST(status AS TEXT)) IN ('approved', 'online', 'pending')
+            """
+        )
         rows = cursor.fetchall()
         results = []
         for row in rows:
@@ -809,7 +922,7 @@ def delete_broker(chat_id: int) -> bool:
         cur = conn.cursor()
         p = get_placeholder()
         cur.execute(f"DELETE FROM brokers WHERE chat_id = {p}", (int(chat_id),))
-        if not DATABASE_URL:
+        if not is_postgres():
             conn.commit()
         return True
     except Exception as e:
@@ -861,7 +974,7 @@ def save_broker_offer(request_id: int, broker_id: int, description: str, photo_i
             INSERT INTO broker_offers (request_id, broker_id, description, photo_id)
             VALUES ({p}, {p}, {p}, {p})
         """, (request_id, broker_id, description, photo_id))
-        if not DATABASE_URL:
+        if not is_postgres():
             conn.commit()
         return True
     except Exception as e:
@@ -893,7 +1006,7 @@ def add_broker_rating(broker_chat_id, user_chat_id, stars) -> bool:
         p = get_placeholder()
 
         # --- Ensure schema ---
-        if DATABASE_URL:
+        if is_postgres():
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS ratings (
                     id SERIAL PRIMARY KEY,
@@ -1008,7 +1121,7 @@ def increment_listing_views(listing_id: int, amount: int = 1) -> int:
         p = get_placeholder()
         listing_id = int(listing_id)
         amount = int(amount)
-        if DATABASE_URL:
+        if is_postgres():
             cur.execute(
                 f"UPDATE listings SET view_count = COALESCE(view_count, 0) + {p} WHERE id = {p} RETURNING view_count",
                 (amount, listing_id),
@@ -1051,7 +1164,7 @@ def save_search_alert(user_chat_id: int, main_category: str, budget_min: str, bu
             INSERT INTO search_alerts (user_chat_id, main_category, budget_min, budget_max)
             VALUES ({p}, {p}, {p}, {p})
         """, (user_chat_id, main_category, budget_min or "", budget_max or ""))
-        if DATABASE_URL:
+        if is_postgres():
             cursor.execute("SELECT lastval()")
             row = cursor.fetchone()
             alert_id = row[0] if not isinstance(row, dict) else list(row.values())[0]
@@ -1123,7 +1236,7 @@ def expire_old_listings(days: int = 30) -> int:
     try:
         conn = get_db_connection()
         cur = conn.cursor()
-        if DATABASE_URL:
+        if is_postgres():
             # PostgreSQL
             cur.execute("""
                 UPDATE listings
