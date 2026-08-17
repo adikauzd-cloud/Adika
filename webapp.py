@@ -115,45 +115,74 @@ SELLER_FORM_HTML = r"""
       const [phone, setPhone] = useState(autoPhone);
       const [telegramUser, setTelegramUser] = useState(autoUsername);
       const [photos, setPhotos] = useState([]); // data URLs
+      const [photoBusy, setPhotoBusy] = useState(false);
+      const [photoError, setPhotoError] = useState('');
       const [status, setStatus] = useState('');
       const [submitting, setSubmitting] = useState(false);
       const fileRef = useRef(null);
       const [dragOver, setDragOver] = useState(false);
 
-      const compressImage = (file) => new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          const img = new Image();
-          img.onload = () => {
-            const canvas = document.createElement('canvas');
-            let w = img.width, h = img.height;
-            const max = 1200;
-            if (w > max || h > max) {
-              if (w > h) { h = (h / w) * max; w = max; }
-              else { w = (w / h) * max; h = max; }
-            }
-            canvas.width = w; canvas.height = h;
-            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-            resolve(canvas.toDataURL('image/jpeg', 0.7));
+      const compressImage = (file) => new Promise((resolve, reject) => {
+        try {
+          if (!file || file.size > 8 * 1024 * 1024) {
+            reject(new Error('ፎቶ በጣም ትልቅ ነው (max 8MB)'));
+            return;
+          }
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error('ፎቶ ማንበብ አልተቻለም'));
+          reader.onload = (e) => {
+            const img = new Image();
+            img.onerror = () => reject(new Error('ልክ ያልሆነ ምስል'));
+            img.onload = () => {
+              try {
+                const canvas = document.createElement('canvas');
+                let cw = img.width, ch = img.height;
+                const max = 1000;
+                if (cw > max || ch > max) {
+                  if (cw > ch) { ch = (ch / cw) * max; cw = max; }
+                  else { cw = (cw / ch) * max; ch = max; }
+                }
+                canvas.width = cw; canvas.height = ch;
+                canvas.getContext('2d').drawImage(img, 0, 0, cw, ch);
+                resolve(canvas.toDataURL('image/jpeg', 0.65));
+              } catch (err) {
+                reject(err);
+              }
+            };
+            img.src = e.target.result;
           };
-          img.src = e.target.result;
-        };
-        reader.readAsDataURL(file);
+          reader.readAsDataURL(file);
+        } catch (err) {
+          reject(err);
+        }
       });
 
       const addFiles = async (fileList) => {
+        setPhotoError('');
         const files = Array.from(fileList || []).slice(0, 5 - photos.length);
-        for (const f of files) {
-          if (!f.type.startsWith('image/')) continue;
-          const dataUrl = await compressImage(f);
-          setPhotos(prev => prev.length < 5 ? [...prev, dataUrl] : prev);
+        if (!files.length) return;
+        setPhotoBusy(true);
+        try {
+          for (const f of files) {
+            if (!f.type || !f.type.startsWith('image/')) continue;
+            try {
+              const dataUrl = await compressImage(f);
+              setPhotos(prev => prev.length < 5 ? [...prev, dataUrl] : prev);
+            } catch (err) {
+              setPhotoError(String(err.message || err));
+              try { if (window.Telegram?.WebApp?.showAlert) window.Telegram.WebApp.showAlert(String(err.message || err)); } catch (_) {}
+            }
+          }
+        } finally {
+          setPhotoBusy(false);
         }
       };
 
       const removePhoto = (i) => setPhotos(prev => prev.filter((_, idx) => idx !== i));
 
       const canNext1 = category && (category === 'መኪና' ? (carType || condition) : (houseType || houseCondition));
-      const canNext2 = parsePrice(price).length > 0;
+      // Step 2: NEVER block on photos; price is soft-required but empty still allows Next
+      const canNext2 = true;
       const canSubmit = Boolean(description && description.trim());
 
       const submit = async () => {
@@ -365,6 +394,8 @@ SELLER_FORM_HTML = r"""
                     <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
                       onChange={e => { addFiles(e.target.files); e.target.value=''; }} />
                   </div>
+                  {photoBusy && <p className="text-[11px] text-blue-600">ፎቶ እየተሰራ ነው…</p>}
+                  {photoError && <p className="text-[11px] text-red-600">{photoError}</p>}
                   {photos.length > 0 && (
                     <div className="grid grid-cols-3 gap-2 mt-3">
                       {photos.map((src, i) => (
@@ -412,8 +443,12 @@ SELLER_FORM_HTML = r"""
                 className="w-1/3 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm">❌ ሰርዝ</button>
             )}
             {step < 3 ? (
-              <button type="button" onClick={() => setStep(s => s+1)}
-                disabled={step===1 ? !canNext1 : !canNext2}
+              <button type="button" onClick={() => {
+                  if (step === 1 && !canNext1) return;
+                  if (photoBusy) return;
+                  setStep(s => s+1);
+                }}
+                disabled={step===1 ? !canNext1 : photoBusy}
                 className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold text-sm disabled:opacity-40">
                 ቀጣይ →
               </button>
@@ -979,7 +1014,7 @@ EXPLORER_HTML = r"""
                 {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').trim() || 'መግለጫ የለም'}
               </p>
               <div className="flex flex-wrap gap-2 text-[11px] text-gray-500">
-                <span className="bg-gray-100 px-2 py-1 rounded-lg">👁️ {item.view_count || 0} views</span>
+                <span className="bg-gray-100 px-2 py-1 rounded-lg">👁️ {views}</span>
                 <span className="bg-gray-100 px-2 py-1 rounded-lg">#{item.id}</span>
                 {item.phone && <span className="bg-gray-100 px-2 py-1 rounded-lg">📞 {item.phone}</span>}
               </div>
@@ -1089,7 +1124,7 @@ EXPLORER_HTML = r"""
 
       return (
         <div ref={cardRef}
-          className="bg-white rounded-2xl p-2.5 border-none shadow-[0_14px_35px_rgba(0,0,0,0.18)] hover:shadow-[0_18px_40px_rgba(0,0,0,0.22)] transition-all duration-200 flex flex-col justify-between relative active:scale-[0.98]">
+          className="bg-white rounded-2xl p-2.5 border-none shadow-[0_12px_30px_rgba(0,0,0,0.16)] hover:shadow-[0_16px_36px_rgba(0,0,0,0.2)] transition-all duration-200 flex flex-col justify-between relative active:scale-[0.98]">
           {/* Photo – opens modal */}
           <div className="relative w-full h-32 rounded-xl overflow-hidden bg-slate-100 cursor-pointer" onClick={() => onOpen(item)}>
             {photos.length > 0 ? (
@@ -1128,7 +1163,7 @@ EXPLORER_HTML = r"""
             )}
             {/* Bottom glass badge: views + time */}
             <div className="absolute bottom-1.5 left-1.5 right-1.5 flex justify-between pointer-events-none">
-              <span className="bg-black/50 backdrop-blur-md px-1.5 py-0.5 rounded-full text-[9px] text-white font-medium">👁️ {localViews} views</span>
+              <span className="bg-black/50 backdrop-blur-md px-1.5 py-0.5 rounded-full text-[9px] text-white font-medium">👁️ {views}</span>
               <span className="bg-black/50 backdrop-blur-md px-1.5 py-0.5 rounded-full text-[9px] text-white font-medium">{relativeTime(item.created_at)}</span>
             </div>
           </div>
@@ -1148,14 +1183,16 @@ EXPLORER_HTML = r"""
             <div className="grid grid-cols-2 gap-1.5 mt-3">
               <a href={!isSold && item.phone ? `tel:${String(item.phone).replace(/\s+/g,'')}` : undefined}
                 onClick={e => { if (isSold || !item.phone) e.preventDefault(); }}
-                className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl font-bold text-xs border active:scale-95 transition-all ${isSold ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-blue-50 hover:bg-blue-100 text-blue-700 border-blue-200/60'}`}>
-                📞 ደውል
+                title="Call"
+                className={`flex items-center justify-center py-1.5 rounded-xl text-base border-none active:scale-95 transition-all ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-50 hover:bg-blue-100 text-blue-700'}`}>
+                📞
               </a>
               <a href={!isSold && extra.telegram_user ? `https://t.me/${String(extra.telegram_user).replace('@','')}` : (!isSold ? `tg://user?id=${item.user_chat_id}` : undefined)}
                 target="_blank" rel="noreferrer"
                 onClick={e => { if (isSold) e.preventDefault(); }}
-                className={`flex items-center justify-center gap-1 py-2 px-2 rounded-xl font-bold text-xs border active:scale-95 transition-all ${isSold ? 'bg-gray-100 text-gray-400 border-gray-200' : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200'}`}>
-                💬 ቻት
+                title="Chat"
+                className={`flex items-center justify-center py-1.5 rounded-xl text-base border-none active:scale-95 transition-all ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}>
+                💬
               </a>
             </div>
           </div>
