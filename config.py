@@ -4,24 +4,38 @@
 import os
 import logging
 
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger("adika")
+
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "0")
-DATABASE_URL = (os.environ.get("DATABASE_URL", "") or "").strip().strip('"').strip("'")
+
+# Primary: PostgreSQL / Supabase (Session or Transaction pooler URL)
+DATABASE_URL = (
+    os.environ.get("DATABASE_URL")
+    or os.environ.get("SUPABASE_DB_URL")
+    or os.environ.get("POSTGRES_URL")
+    or os.environ.get("POSTGRES_CONNECTION_STRING")
+    or ""
+)
+DATABASE_URL = str(DATABASE_URL).strip().strip('"').strip("'")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
 RENDER_EXTERNAL_HOSTNAME = (os.environ.get("RENDER_EXTERNAL_HOSTNAME", "") or "").strip()
 PORT = int(os.environ.get("PORT", "8080"))
 DB_FILE = os.environ.get("DB_FILE", "adika_marketplace.db")
 
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# Runtime flag set by models after successful connect (postgres | sqlite)
+DB_BACKEND = "unknown"
 
 if RENDER_EXTERNAL_HOSTNAME:
     WEBAPP_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}"
 else:
     WEBAPP_URL = os.environ.get("WEBAPP_URL", "http://127.0.0.1:8080")
-
-if not BOT_TOKEN:
-    # Allow import for tooling; main() will re-check
-    pass
 
 try:
     ADMIN_CHAT_ID_INT = int(ADMIN_CHAT_ID) if ADMIN_CHAT_ID else 0
@@ -29,12 +43,6 @@ except ValueError:
     ADMIN_CHAT_ID_INT = 0
 
 ADMIN_IDS = {ADMIN_CHAT_ID_INT} if ADMIN_CHAT_ID_INT else set()
-
-logging.basicConfig(
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO,
-)
-logger = logging.getLogger("adika")
 
 TEXT_PAGE_SIZE = 4
 VIEW_INCREMENT = 1
@@ -57,21 +65,12 @@ SUB_CITIES = [
    "ቂርቆስ", "አዲስ ከተማ", "ንፋስ ስልክ ላፍቶ",
    "ኮልፌ ቀራኒዮ", "አቃቂ ቃሊቲ", "ጉሌሌ", "ላምበርት/የካ"
 ]
-
 CAR_SUB_CATEGORIES = ["🚗 የቤት መኪና", "🚚 የሥራ መኪና", "🚜 ከባድ ተሽከርካሪ/ማሽን"]
 HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየም", "🏢 ሪል እስቴት", "🏞️ መሬት/ቦታ"]
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
 FUEL_TYPES = ["⛽ ቤንዚን", "🛢️ ናፍጣ", "⚡ ኤሌክትሪክ", "🔋 ሀይብሪድ"]
 TRANSMISSION_TYPES = ["🕹️ ማንዋል", "🤖 ኦቶማቲክ"]
 CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈልግ"]
-
-
-# ==============================================================================
-# 6. HELPER FUNCTIONS (SINGLE DEFINITIONS ONLY)
-# ==============================================================================
-
-
-# Broker registration options
 BROKER_CATEGORIES = ["🚗 መኪና", "🏠 ቤትና ቦታ", "📦 አጠቃላይ ደላላ"]
 BROKER_REG_SUBCITIES = [
     "ቦሌ", "አራዳ", "ቂርቆስ", "ልደታ", "አዲስ ከተማ",
