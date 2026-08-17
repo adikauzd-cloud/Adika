@@ -5,101 +5,67 @@ import json
 import random
 from typing import Optional, List, Dict, Any
 
-import sqlite3
 import psycopg2
 from psycopg2.extras import RealDictCursor, Json
 
-from config import DATABASE_URL, DB_FILE, logger, VIEW_BASELINE_MIN, VIEW_BASELINE_MAX
-import config as _app_config
-
-
-_DB_BACKEND = "unknown"
-
-
-def _normalize_pg_url(url: str) -> str:
-    """Normalize postgres URL and ensure SSL for Supabase / cloud hosts."""
-    u = (url or "").strip().strip('"').strip("'")
-    if u.startswith("postgres://"):
-        u = u.replace("postgres://", "postgresql://", 1)
-    # Supabase + Render: require SSL (IPv4 pooler still needs sslmode)
-    if "sslmode=" not in u.lower():
-        sep = "&" if "?" in u else "?"
-        u = f"{u}{sep}sslmode=require"
-    return u
-
+from config import DATABASE_URL, logger, VIEW_BASELINE_MIN, VIEW_BASELINE_MAX
 
 def get_db_connection():
     """
-    Hybrid connection:
-      1) PostgreSQL via DATABASE_URL (Supabase pooler 6543 or direct 5432) + SSL
-      2) Fallback SQLite if PG unavailable
+    Connect to PostgreSQL via DATABASE_URL (Supabase / Render).
+    Prefer Supabase *Connection Pooler* URI (port 6543) on Render —
+    direct db.*.supabase.co:5432 often fails with "Network is unreachable" (IPv6).
     """
-    global _DB_BACKEND
-    if DATABASE_URL:
-        try:
-            cleaned = _normalize_pg_url(DATABASE_URL)
-            # sslmode in URL is enough for psycopg2; also pass sslmode for safety
-            conn = psycopg2.connect(
-                cleaned,
-                cursor_factory=RealDictCursor,
-                connect_timeout=15,
+    if not DATABASE_URL:
+        raise RuntimeError(
+            "DATABASE_URL is required. Set PostgreSQL/Supabase URI in Environment."
+        )
+    cleaned = DATABASE_URL.strip().strip('"').strip("'")
+    if cleaned.startswith("postgres://"):
+        cleaned = cleaned.replace("postgres://", "postgresql://", 1)
+
+    # Ensure SSL (required by Supabase)
+    if "sslmode=" not in cleaned.lower():
+        sep = "&" if "?" in cleaned else "?"
+        cleaned = f"{cleaned}{sep}sslmode=require"
+
+    try:
+        conn = psycopg2.connect(
+            cleaned,
+            cursor_factory=RealDictCursor,
+            connect_timeout=15,
+        )
+        conn.autocommit = True
+        return conn
+    except Exception as e:
+        err = str(e)
+        logger.error(f"PostgreSQL connection failed: {err}")
+        if "Network is unreachable" in err or "5432" in err or "timed out" in err.lower():
+            logger.error(
+                "HINT: On Render, use Supabase Connection POOLER (port 6543), not direct :5432. "
+                "Supabase Dashboard → Project Settings → Database → Connection string → "
+                "Mode: Transaction (or Session) → copy URI. Host looks like "
+                "aws-0-REGION.pooler.supabase.com"
             )
-            conn.autocommit = True
-            _DB_BACKEND = "postgres"
-            try:
-                _app_config.DB_BACKEND = "postgres"
-            except Exception:
-                pass
-            return conn
-        except Exception as e:
-            logger.error(f"PostgreSQL connection failed ({e}); falling back to SQLite")
-    # SQLite fallback
-    conn = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=30)
-    conn.row_factory = sqlite3.Row
-    try:
-        conn.execute("PRAGMA journal_mode=WAL;")
-    except Exception:
-        pass
-    _DB_BACKEND = "sqlite"
-    try:
-        _app_config.DB_BACKEND = "sqlite"
-    except Exception:
-        pass
-    return conn
+        raise
 
 
 def get_placeholder():
-    # After connect, _DB_BACKEND is authoritative
-    if _DB_BACKEND == "postgres":
-        return "%s"
-    if _DB_BACKEND == "sqlite":
-        return "?"
-    return "%s" if DATABASE_URL else "?"
-
-
-
-def is_postgres() -> bool:
-    return _DB_BACKEND == "postgres" or (
-        _DB_BACKEND == "unknown" and bool(DATABASE_URL)
-    )
-
-
-# Module-level backend flag (set on first successful connect)
-
-
+    """PostgreSQL parameter placeholder."""
+    return "%s"
 
 
 def init_db():
+    if not DATABASE_URL:
+        logger.error("init_db aborted: DATABASE_URL not set")
+        raise RuntimeError("DATABASE_URL required for init_db")
+
     conn = None
     try:
         conn = get_db_connection()
-        if _DB_BACKEND == "postgres":
-            logger.info("Successfully connected to Supabase PostgreSQL Pooler")
-            logger.info("Connected to PostgreSQL Database")
-        else:
-            logger.warning("Using SQLite fallback (temporary — set DATABASE_URL to Supabase pooler port 6543)")
+        logger.info("Connected to PostgreSQL Database")
         cursor = conn.cursor()
-        if _DB_BACKEND == "postgres":
+        if DATABASE_URL:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS listings (
                     id SERIAL PRIMARY KEY,
