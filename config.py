@@ -13,7 +13,13 @@ logger = logging.getLogger("adika")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "0")
 
-# Accept common env names (Render PostgreSQL / Supabase)
+# ---------------------------------------------------------------------------
+# Persistent DB: PostgreSQL connection string ONLY
+# Supabase: Project Settings → Database → Connection string → URI
+#   Example: postgresql://postgres.xxx:PASSWORD@aws-0-...pooler.supabase.com:6543/postgres
+# NOTE: SUPABASE_URL (https://xxx.supabase.co) and SUPABASE_ANON_KEY are REST API
+#       keys — they are NOT used for psycopg2. Use the Postgres URI as DATABASE_URL.
+# ---------------------------------------------------------------------------
 DATABASE_URL = (
     os.environ.get("DATABASE_URL")
     or os.environ.get("SUPABASE_DB_URL")
@@ -23,25 +29,36 @@ DATABASE_URL = (
 )
 DATABASE_URL = str(DATABASE_URL).strip().strip('"').strip("'")
 
-RENDER_EXTERNAL_HOSTNAME = (os.environ.get("RENDER_EXTERNAL_HOSTNAME", "") or "").strip()
-PORT = int(os.environ.get("PORT", "8080"))
-DB_FILE = os.environ.get("DB_FILE", "adika_marketplace.db")
-
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-_IS_RENDER = bool(os.environ.get("RENDER") or RENDER_EXTERNAL_HOSTNAME)
-if DATABASE_URL:
-    logger.info("📦 Database: PostgreSQL (persistent)")
-elif _IS_RENDER:
-    # Do NOT crash the service — warn loudly so the operator can attach a DB
+# Reject accidental REST URL pasted as DATABASE_URL
+if DATABASE_URL.startswith("http://") or DATABASE_URL.startswith("https://"):
     logger.error(
-        "❌ DATABASE_URL is not set on Render. "
-        "Attach PostgreSQL (or paste a Supabase URI) as env DATABASE_URL. "
-        "Falling back to SQLite (data will be LOST on every redeploy)."
+        "DATABASE_URL looks like an HTTP URL (SUPABASE_URL). "
+        "Use the PostgreSQL URI from Supabase → Settings → Database instead."
+    )
+    DATABASE_URL = ""
+
+if not DATABASE_URL:
+    logger.error(
+        "DATABASE_URL is not set. Set DATABASE_URL to your Supabase/Render "
+        "PostgreSQL URI. SQLite is permanently disabled."
     )
 else:
-    logger.warning("⚠️ DATABASE_URL not set — local SQLite (dev only)")
+    # Redact password in logs
+    _safe = DATABASE_URL
+    try:
+        if "@" in _safe and "://" in _safe:
+            _pre, _post = _safe.split("@", 1)
+            _scheme = _pre.split("://", 1)[0]
+            _safe = f"{_scheme}://***@{_post}"
+    except Exception:
+        _safe = "postgresql://***"
+    logger.info("Database: PostgreSQL persistent (%s)", _safe)
+
+RENDER_EXTERNAL_HOSTNAME = (os.environ.get("RENDER_EXTERNAL_HOSTNAME", "") or "").strip()
+PORT = int(os.environ.get("PORT", "8080"))
 
 if RENDER_EXTERNAL_HOSTNAME:
     WEBAPP_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}"
