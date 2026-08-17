@@ -1036,6 +1036,39 @@ def get_broker(chat_id: int):
             except:
                 pass
 
+
+def delete_broker(chat_id: int) -> bool:
+    """Delete a broker row by Telegram chat_id. Returns True on success."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        p = get_placeholder()
+        chat_id = int(chat_id)
+        cursor.execute(f"DELETE FROM brokers WHERE chat_id = {p}", (chat_id,))
+        try:
+            if not is_postgres():
+                conn.commit()
+            else:
+                try:
+                    conn.commit()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        logger.info("Deleted broker chat_id=%s", chat_id)
+        return True
+    except Exception as e:
+        logger.error(f"delete_broker error: {e}", exc_info=True)
+        return False
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def update_broker_status(chat_id: int, status: str) -> bool:
     conn = None
     try:
