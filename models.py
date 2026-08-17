@@ -1077,28 +1077,169 @@ def update_broker_notification_prefs(chat_id: int, prefs: dict) -> bool:
             except:
                 pass
 
-def get_approved_brokers():
-    """Brokers eligible for notifications: ONLINE + approved (exclude rejected)."""
+
+def ensure_brokers_columns():
+    """Ensure brokers table has status / is_approved columns used by the app."""
     conn = None
     try:
         conn = get_db_connection()
+        cur = conn.cursor()
+        if is_postgres():
+            for sql in [
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ONLINE'",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_approved BOOLEAN DEFAULT TRUE",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT TRUE",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS chat_id BIGINT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS full_name TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS phone TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS username TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS sub_city TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS specialty TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS notification_prefs JSONB DEFAULT '{}'::jsonb",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS rating REAL DEFAULT 5.0",
+            ]:
+                try:
+                    cur.execute(sql)
+                except Exception as e:
+                    logger.debug("brokers alter skip: %s", e)
+        else:
+            for col, typedef in [
+                ("status", "TEXT DEFAULT 'ONLINE'"),
+                ("is_approved", "INTEGER DEFAULT 1"),
+                ("is_online", "INTEGER DEFAULT 1"),
+                ("chat_id", "INTEGER"),
+                ("full_name", "TEXT"),
+                ("phone", "TEXT"),
+                ("username", "TEXT"),
+                ("sub_city", "TEXT"),
+                ("specialty", "TEXT"),
+                ("notification_prefs", "TEXT DEFAULT '{}'"),
+                ("rating", "REAL DEFAULT 5.0"),
+            ]:
+                try:
+                    cur.execute(f"ALTER TABLE brokers ADD COLUMN {col} {typedef}")
+                except Exception:
+                    pass
+            try:
+                conn.commit()
+            except Exception:
+                pass
+    except Exception as e:
+        logger.warning("ensure_brokers_columns: %s", e)
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def _broker_table_columns(cur) -> set:
+    cols = set()
+    try:
+        if is_postgres():
+            cur.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'brokers'
+            """)
+            for row in cur.fetchall() or []:
+                name = row["column_name"] if isinstance(row, dict) else row[0]
+                cols.add(str(name).lower())
+        else:
+            cur.execute("PRAGMA table_info(brokers)")
+            for row in cur.fetchall() or []:
+                if isinstance(row, dict):
+                    cols.add(str(row.get("name", "")).lower())
+                else:
+                    cols.add(str(row[1]).lower())
+    except Exception as e:
+        logger.warning("_broker_table_columns: %s", e)
+    return cols
+
+
+def _normalize_broker_row(broker: dict, cols_desc=None) -> dict:
+    if not isinstance(broker, dict):
+        broker = dict(zip([c[0] for c in (cols_desc or [])], broker)) if cols_desc else {}
+    if isinstance(broker.get("notification_prefs"), str):
+        try:
+            broker["notification_prefs"] = json.loads(broker["notification_prefs"])
+        except Exception:
+            broker["notification_prefs"] = {"car": True, "house": True, "enabled": True}
+    if not broker.get("notification_prefs"):
+        broker["notification_prefs"] = {"car": True, "house": True, "enabled": True}
+    # Status / approval fallbacks
+    st = broker.get("status")
+    if st is None or st == "":
+        if broker.get("is_approved") in (True, 1, "1", "true", "TRUE"):
+            st = "ONLINE"
+        elif broker.get("is_approved") in (False, 0, "0", "false"):
+            st = "rejected"
+        else:
+            st = "ONLINE"
+    broker["status"] = st
+    if broker.get("is_online") is None:
+        broker["is_online"] = str(st).lower() not in ("rejected", "deleted", "banned", "offline")
+    broker["phone"] = broker.get("phone") or ""
+    broker["username"] = broker.get("username") or ""
+    broker["full_name"] = broker.get("full_name") or broker.get("name") or "User"
+    broker["sub_city"] = broker.get("sub_city") or ""
+    broker["specialty"] = broker.get("specialty") or broker.get("role_type") or ""
+    if broker.get("chat_id") is not None:
+        try:
+            broker["chat_id"] = int(broker["chat_id"])
+        except Exception:
+            pass
+    return broker
+
+
+def get_approved_brokers():
+    """Brokers eligible for notifications. Safe if status column missing."""
+    conn = None
+    try:
+        try:
+            ensure_brokers_columns()
+        except Exception:
+            pass
+        conn = get_db_connection()
         cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT * FROM brokers
-            WHERE status IS NULL
-               OR LOWER(CAST(status AS TEXT)) IN ('approved', 'online', 'pending')
-            """
-        )
-        rows = cursor.fetchall()
+        cols = _broker_table_columns(cursor)
+        p = get_placeholder()
+        where_parts = []
+        if "status" in cols:
+            where_parts.append(
+                "(status IS NULL OR LOWER(CAST(status AS TEXT)) IN "
+                "('approved', 'online', 'pending', 'ONLINE', 'APPROVED', 'PENDING'))"
+            )
+        if "is_approved" in cols:
+            where_parts.append("(is_approved IS NULL OR is_approved = TRUE OR is_approved = 1)")
+        # If neither column exists, return all brokers
+        if where_parts:
+            # OR together: approved by status OR by flag; if only one exists use it
+            if "status" in cols and "is_approved" in cols:
+                sql = (
+                    "SELECT * FROM brokers WHERE "
+                    "(status IS NULL OR LOWER(CAST(status AS TEXT)) IN "
+                    "('approved','online','pending')) "
+                    "OR (is_approved IS NULL OR is_approved = TRUE OR is_approved = 1)"
+                )
+            else:
+                sql = "SELECT * FROM brokers WHERE " + where_parts[0]
+        else:
+            sql = "SELECT * FROM brokers"
+        try:
+            cursor.execute(sql)
+        except Exception as qe:
+            logger.warning("get_approved_brokers filtered query failed (%s); selecting all", qe)
+            cursor.execute("SELECT * FROM brokers")
+        rows = cursor.fetchall() or []
         results = []
         for row in rows:
             broker = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
-            if 'notification_prefs' in broker and isinstance(broker['notification_prefs'], str):
-                try:
-                    broker['notification_prefs'] = json.loads(broker['notification_prefs'])
-                except:
-                    broker['notification_prefs'] = {"car": True, "house": True, "enabled": True}
+            broker = _normalize_broker_row(broker, cursor.description)
+            # Skip clearly rejected
+            st = str(broker.get("status") or "").lower()
+            if st in ("rejected", "deleted", "banned"):
+                continue
             results.append(broker)
         return results
     except Exception as e:
@@ -1108,67 +1249,62 @@ def get_approved_brokers():
         if conn:
             try:
                 conn.close()
-            except:
+            except Exception:
                 pass
+
+
 
 def get_approved_brokers_directory(sub_city=None):
     return get_active_brokers(sub_city=sub_city, status="ONLINE")
 
 
 def get_active_brokers(sub_city=None, status="ONLINE", limit=50, offset=0):
-    """
-    Fetch brokers for directory.
-    Include every broker that is not rejected/deleted/banned.
-    """
+    """Directory list — works without status column."""
     conn = None
     try:
+        try:
+            ensure_brokers_columns()
+        except Exception:
+            pass
         conn = get_db_connection()
         cur = conn.cursor()
         p = get_placeholder()
+        cols = _broker_table_columns(cur)
 
-        # Simple inclusive filter — never hide pending/ONLINE/approved/NULL
-        where = [
-            "(status IS NULL OR LOWER(CAST(status AS TEXT)) NOT IN "
-            "('rejected', 'deleted', 'banned', 'rejected'))"
-        ]
+        where = []
         params = []
+        if "status" in cols:
+            where.append(
+                "(status IS NULL OR LOWER(CAST(status AS TEXT)) NOT IN "
+                "('rejected', 'deleted', 'banned'))"
+            )
+        elif "is_approved" in cols:
+            where.append("(is_approved IS NULL OR is_approved = TRUE OR is_approved = 1)")
 
         if sub_city and str(sub_city).strip() not in ("ሁሉም", "አዲስ አበባ (ሙሉ)", "", "None"):
-            where.append(f"sub_city = {p}")
-            params.append(str(sub_city).strip())
+            if "sub_city" in cols or not cols:
+                where.append(f"sub_city = {p}")
+                params.append(str(sub_city).strip())
 
-        where_sql = " AND ".join(where)
+        where_sql = (" WHERE " + " AND ".join(where)) if where else ""
         params += [int(limit), int(offset)]
-
-        # Avoid NULLS LAST (breaks SQLite)
-        sql = (
-            f"SELECT * FROM brokers WHERE {where_sql} "
-            f"ORDER BY id DESC LIMIT {p} OFFSET {p}"
-        )
-        logger.info(f"get_active_brokers SQL params={params} sub={sub_city!r}")
-        cur.execute(sql, params)
+        sql = f"SELECT * FROM brokers{where_sql} ORDER BY id DESC LIMIT {p} OFFSET {p}"
+        try:
+            cur.execute(sql, params)
+        except Exception as qe:
+            logger.warning("get_active_brokers query failed (%s); fallback all", qe)
+            cur.execute(f"SELECT * FROM brokers ORDER BY id DESC LIMIT {p} OFFSET {p}", [int(limit), int(offset)])
         rows = cur.fetchall() or []
-        cols = [col[0] for col in cur.description] if cur.description else []
         out = []
         for row in rows:
             try:
-                b = dict(row) if isinstance(row, dict) else dict(zip(cols, row))
+                b = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cur.description], row))
+                b = _normalize_broker_row(b, cur.description)
                 if b.get("chat_id") is None:
                     continue
-                b["chat_id"] = int(b["chat_id"])
-                b["phone"] = b.get("phone") or ""
-                b["username"] = b.get("username") or ""
-                b["full_name"] = b.get("full_name") or "User"
-                b["sub_city"] = b.get("sub_city") or ""
-                b["specialty"] = b.get("specialty") or b.get("role_type") or ""
-                b["status"] = b.get("status") or "ONLINE"
-                if b.get("is_online") is None:
-                    b["is_online"] = True
-                if isinstance(b.get("notification_prefs"), str):
-                    try:
-                        b["notification_prefs"] = json.loads(b["notification_prefs"])
-                    except Exception:
-                        b["notification_prefs"] = {}
+                st = str(b.get("status") or "").lower()
+                if st in ("rejected", "deleted", "banned"):
+                    continue
                 out.append(b)
             except Exception as row_err:
                 logger.warning(f"skip bad broker row: {row_err}")
@@ -1187,57 +1323,15 @@ def get_active_brokers(sub_city=None, status="ONLINE", limit=50, offset=0):
 
 
 
+
 def count_brokers(status="ONLINE") -> int:
-    conn = None
     try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        if status in (None, "", "all"):
-            cur.execute(
-                "SELECT COUNT(*) as cnt FROM brokers WHERE status IS NULL OR status NOT IN ('rejected','deleted','banned')"
-            )
-        elif status in ("ONLINE", "online", "approved", "pending"):
-            cur.execute(
-                """SELECT COUNT(*) as cnt FROM brokers
-                   WHERE status IS NULL
-                      OR UPPER(COALESCE(status,'ONLINE')) IN ('ONLINE','APPROVED','PENDING')"""
-            )
-        else:
-            p = get_placeholder()
-            cur.execute(f"SELECT COUNT(*) as cnt FROM brokers WHERE status = {p}", (status,))
-        row = cur.fetchone()
-        return int((row["cnt"] if isinstance(row, dict) else row[0]) or 0)
+        brokers = get_active_brokers(limit=500, offset=0)
+        return len(brokers or [])
     except Exception as e:
         logger.error(f"count_brokers: {e}")
         return 0
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
-
-
-def delete_broker(chat_id: int) -> bool:
-    conn = None
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        p = get_placeholder()
-        cur.execute(f"DELETE FROM brokers WHERE chat_id = {p}", (int(chat_id),))
-        if not is_postgres():
-            conn.commit()
-        return True
-    except Exception as e:
-        logger.error(f"delete_broker: {e}")
-        return False
-    finally:
-        if conn:
-            try:
-                conn.close()
-            except Exception:
-                pass
 
 
 def get_platform_stats() -> dict:
