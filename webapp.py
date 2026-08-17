@@ -12,6 +12,7 @@ from config import (
     logger, PORT, MAX_IMAGE_BYTES, ADMIN_CHAT_ID_INT, DATABASE_URL, WEBAPP_URL,
 )
 from models import (
+    LAST_DB_ERROR,
     get_db_connection, get_placeholder, add_listing, get_listing_by_id,
     update_listing_status, save_search_alert, expire_old_listings,
     get_active_brokers, get_platform_stats, count_listings, count_brokers,
@@ -841,7 +842,13 @@ def submit_listing():
            _send_notification_safe(notification_text, req_id, int(user_id))
            return jsonify({"status": "success", "req_id": req_id})
        else:
-           return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም። እባክዎ ፎቶ ባይኖርም እንደገና ይሞክሩ ወይም DATABASE_URL (Supabase pooler) ያረጋግጡ።"}), 500
+           import models as _models
+           detail = getattr(_models, "LAST_DB_ERROR", "") or ""
+           msg = "Database ውስጥ ማስቀመጥ አልተቻለም።"
+           if detail:
+               msg = f"{msg} ({detail[:180]})"
+           logger.error("submit failed detail=%s backend=%s", detail, getattr(_models, "_DB_BACKEND", "?"))
+           return jsonify({"status": "error", "message": msg, "detail": detail}), 500
    except Exception as e:
        logger.error(f"❌ submit_listing error: {e}", exc_info=True)
        return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
@@ -895,7 +902,13 @@ def submit_request():
                save_search_alert(int(user_id), category, budget_min, budget_max)
            return jsonify({"status": "success", "req_id": req_id})
        else:
-           return jsonify({"status": "error", "message": "Database ውስጥ ማስቀመጥ አልተቻለም። እባክዎ ፎቶ ባይኖርም እንደገና ይሞክሩ ወይም DATABASE_URL (Supabase pooler) ያረጋግጡ።"}), 500
+           import models as _models
+           detail = getattr(_models, "LAST_DB_ERROR", "") or ""
+           msg = "Database ውስጥ ማስቀመጥ አልተቻለም።"
+           if detail:
+               msg = f"{msg} ({detail[:180]})"
+           logger.error("submit failed detail=%s backend=%s", detail, getattr(_models, "_DB_BACKEND", "?"))
+           return jsonify({"status": "error", "message": msg, "detail": detail}), 500
    except Exception as e:
        logger.error(f"❌ submit_request error: {e}", exc_info=True)
        return jsonify({"status": "error", "message": f"Server Error: {str(e)}"}), 500
@@ -1488,7 +1501,8 @@ def api_explorer_listings():
             where.append(f"UPPER(req_type) = UPPER({p})")
             params.append(req_type)
         if category:
-            where.append(f"main_category = {p}")
+            where.append(f"(main_category = {p} OR category = {p})")
+            params.append(category)
             params.append(category)
         if search:
             from models import is_postgres
