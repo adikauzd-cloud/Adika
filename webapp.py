@@ -1089,7 +1089,7 @@ EXPLORER_HTML = r"""
 
       return (
         <div ref={cardRef}
-          className="bg-white rounded-2xl p-2.5 border-none shadow-[0_10px_25px_rgba(0,0,0,0.14)] hover:shadow-[0_14px_32px_rgba(0,0,0,0.18)] transition-all duration-200 flex flex-col justify-between relative active:scale-[0.98]">
+          className="bg-white rounded-2xl p-2.5 border-none shadow-[0_14px_35px_rgba(0,0,0,0.18)] hover:shadow-[0_18px_40px_rgba(0,0,0,0.22)] transition-all duration-200 flex flex-col justify-between relative active:scale-[0.98]">
           {/* Photo – opens modal */}
           <div className="relative w-full h-32 rounded-xl overflow-hidden bg-slate-100 cursor-pointer" onClick={() => onOpen(item)}>
             {photos.length > 0 ? (
@@ -1226,7 +1226,7 @@ EXPLORER_HTML = r"""
       return (
         <div className="w-full max-w-md mx-auto min-h-screen bg-[#E8F3FC] px-2.5 pb-16 text-slate-800">
           {/* Sticky glass header */}
-          <div className="sticky top-0 z-50 bg-[#D6EAF8]/95 backdrop-blur-md border-b border-blue-200/50">
+          <div className="sticky top-0 z-50 bg-[#D4E6F5] backdrop-blur-md shadow-sm border-b border-blue-200/60">
             <div className="flex gap-2 p-2">
               <button onClick={() => setTab('marketplace')}
                 className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${tab==='marketplace' ? 'bg-white/90 text-blue-700 shadow-sm' : 'bg-white/40 text-slate-600'} backdrop-blur-sm`}>
@@ -1247,7 +1247,7 @@ EXPLORER_HTML = r"""
               </div>
             </div>
             {/* Glassmorphism category pills */}
-            <div className="px-1 pb-3 flex gap-2 overflow-x-auto no-scrollbar" style={{WebkitOverflowScrolling:'touch'}}>
+            <div className="px-1 pb-2 flex gap-1.5 overflow-x-auto no-scrollbar" style={{WebkitOverflowScrolling:'touch'}}>
               {[
                 {id:'', label:'✨ ሁሉም'},
                 {id:'መኪና', label:'🚗 መኪና'},
@@ -1256,10 +1256,10 @@ EXPLORER_HTML = r"""
               ].map(cat => (
                 <button key={cat.id || 'all'} type="button"
                   onClick={() => setFilters(f => ({...f, category: cat.id}))}
-                  className={`shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full font-medium text-sm active:scale-95 transition-all whitespace-nowrap ${
+                  className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full font-medium text-[11px] active:scale-95 transition-all whitespace-nowrap ${
                     filters.category === cat.id
-                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-500/20'
-                      : 'bg-white text-slate-700 border border-blue-100 shadow-sm'
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm shadow-blue-500/20'
+                      : 'bg-white/90 text-slate-700 border border-blue-100/80 shadow-sm'
                   }`}>
                   {cat.label}
                 </button>
