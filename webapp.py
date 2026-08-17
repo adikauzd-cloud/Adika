@@ -23,26 +23,6 @@ bot_loop = None  # set from main post_init
 
 web_app = Flask(__name__)
 
-def _json_safe(obj):
-    """Make DB rows JSON-serializable (datetime, Decimal, bytes)."""
-    from datetime import date, datetime
-    from decimal import Decimal
-    if obj is None:
-        return None
-    if isinstance(obj, (datetime, date)):
-        return obj.isoformat()
-    if isinstance(obj, Decimal):
-        return float(obj)
-    if isinstance(obj, (bytes, bytearray)):
-        return obj.decode("utf-8", errors="replace")
-    if isinstance(obj, dict):
-        return {str(k): _json_safe(v) for k, v in obj.items()}
-    if isinstance(obj, (list, tuple)):
-        return [_json_safe(x) for x in obj]
-    return obj
-
-
-
 SELLER_FORM_HTML = r"""
 <!DOCTYPE html>
 <html lang="am">
@@ -62,13 +42,13 @@ SELLER_FORM_HTML = r"""
     input, textarea, select { font-size: 16px !important; } /* prevent iOS zoom */
   </style>
 </head>
-<body class="bg-[#E8F3FC]">
+<body>
   <div id="root"></div>
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
     const tg = window.Telegram.WebApp;
     tg.expand(); tg.ready();
-    tg.setHeaderColor('#2563eb'); tg.setBackgroundColor('#f8fafc');
+    tg.setHeaderColor('#1e40af'); tg.setBackgroundColor('#f8fafc');
 
     const user = tg.initDataUnsafe?.user || {};
     const autoUsername = user.username ? '@' + user.username : '';
@@ -135,74 +115,45 @@ SELLER_FORM_HTML = r"""
       const [phone, setPhone] = useState(autoPhone);
       const [telegramUser, setTelegramUser] = useState(autoUsername);
       const [photos, setPhotos] = useState([]); // data URLs
-      const [photoBusy, setPhotoBusy] = useState(false);
-      const [photoError, setPhotoError] = useState('');
       const [status, setStatus] = useState('');
       const [submitting, setSubmitting] = useState(false);
       const fileRef = useRef(null);
       const [dragOver, setDragOver] = useState(false);
 
-      const compressImage = (file) => new Promise((resolve, reject) => {
-        try {
-          if (!file || file.size > 8 * 1024 * 1024) {
-            reject(new Error('ፎቶ በጣም ትልቅ ነው (max 8MB)'));
-            return;
-          }
-          const reader = new FileReader();
-          reader.onerror = () => reject(new Error('ፎቶ ማንበብ አልተቻለም'));
-          reader.onload = (e) => {
-            const img = new Image();
-            img.onerror = () => reject(new Error('ልክ ያልሆነ ምስል'));
-            img.onload = () => {
-              try {
-                const canvas = document.createElement('canvas');
-                let cw = img.width, ch = img.height;
-                const max = 1000;
-                if (cw > max || ch > max) {
-                  if (cw > ch) { ch = (ch / cw) * max; cw = max; }
-                  else { cw = (cw / ch) * max; ch = max; }
-                }
-                canvas.width = cw; canvas.height = ch;
-                canvas.getContext('2d').drawImage(img, 0, 0, cw, ch);
-                resolve(canvas.toDataURL('image/jpeg', 0.65));
-              } catch (err) {
-                reject(err);
-              }
-            };
-            img.src = e.target.result;
+      const compressImage = (file) => new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let w = img.width, h = img.height;
+            const max = 1200;
+            if (w > max || h > max) {
+              if (w > h) { h = (h / w) * max; w = max; }
+              else { w = (w / h) * max; h = max; }
+            }
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL('image/jpeg', 0.7));
           };
-          reader.readAsDataURL(file);
-        } catch (err) {
-          reject(err);
-        }
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
       });
 
       const addFiles = async (fileList) => {
-        setPhotoError('');
         const files = Array.from(fileList || []).slice(0, 5 - photos.length);
-        if (!files.length) return;
-        setPhotoBusy(true);
-        try {
-          for (const f of files) {
-            if (!f.type || !f.type.startsWith('image/')) continue;
-            try {
-              const dataUrl = await compressImage(f);
-              setPhotos(prev => prev.length < 5 ? [...prev, dataUrl] : prev);
-            } catch (err) {
-              setPhotoError(String(err.message || err));
-              try { if (window.Telegram?.WebApp?.showAlert) window.Telegram.WebApp.showAlert(String(err.message || err)); } catch (_) {}
-            }
-          }
-        } finally {
-          setPhotoBusy(false);
+        for (const f of files) {
+          if (!f.type.startsWith('image/')) continue;
+          const dataUrl = await compressImage(f);
+          setPhotos(prev => prev.length < 5 ? [...prev, dataUrl] : prev);
         }
       };
 
       const removePhoto = (i) => setPhotos(prev => prev.filter((_, idx) => idx !== i));
 
       const canNext1 = category && (category === 'መኪና' ? (carType || condition) : (houseType || houseCondition));
-      // Step 2: NEVER block on photos; price is soft-required but empty still allows Next
-      const canNext2 = true;
+      const canNext2 = parsePrice(price).length > 0;
       const canSubmit = Boolean(description && description.trim());
 
       const submit = async () => {
@@ -254,7 +205,7 @@ SELLER_FORM_HTML = r"""
           <div className="min-h-screen flex items-center justify-center p-6">
             <div className="text-center space-y-3">
               <div className="text-5xl">✅</div>
-              <p className="font-bold text-base text-green-700 leading-snug px-2 text-center">ማስታወቂያዎ በተሳካ ሁኔታ ተመዝግቧል! ለደላሎችም ተልኳል። ማስታወቂያዎን ማጥፋት ወይም ማስተካከል ሲፈልጉ በማንኛውም ጊዜ ወደ 'የገበያ ቦታ' በመሄድ ማስተካከል ይችላሉ።</p>
+              <p className="font-bold text-lg text-green-700">ማስታወቂያዎ ተመዝግቧል!</p>
               <p className="text-sm text-gray-500">ለደላሎች ተልኳል…</p>
             </div>
           </div>
@@ -414,8 +365,6 @@ SELLER_FORM_HTML = r"""
                     <input ref={fileRef} type="file" accept="image/*" multiple className="hidden"
                       onChange={e => { addFiles(e.target.files); e.target.value=''; }} />
                   </div>
-                  {photoBusy && <p className="text-[11px] text-blue-600">ፎቶ እየተሰራ ነው…</p>}
-                  {photoError && <p className="text-[11px] text-red-600">{photoError}</p>}
                   {photos.length > 0 && (
                     <div className="grid grid-cols-3 gap-2 mt-3">
                       {photos.map((src, i) => (
@@ -463,12 +412,8 @@ SELLER_FORM_HTML = r"""
                 className="w-1/3 py-3 rounded-xl bg-gray-100 text-gray-600 font-bold text-sm">❌ ሰርዝ</button>
             )}
             {step < 3 ? (
-              <button type="button" onClick={() => {
-                  if (step === 1 && !canNext1) return;
-                  if (photoBusy) return;
-                  setStep(s => s+1);
-                }}
-                disabled={step===1 ? !canNext1 : photoBusy}
+              <button type="button" onClick={() => setStep(s => s+1)}
+                disabled={step===1 ? !canNext1 : !canNext2}
                 className="flex-1 py-3 rounded-xl bg-blue-600 text-white font-bold text-sm disabled:opacity-40">
                 ቀጣይ →
               </button>
@@ -515,7 +460,7 @@ BUYER_FORM_HTML = r"""
     const { useState } = React;
     const tg = window.Telegram.WebApp;
     tg.expand(); tg.ready();
-    tg.setHeaderColor('#2563eb'); tg.setBackgroundColor('#f8fafc');
+    tg.setHeaderColor('#1e40af'); tg.setBackgroundColor('#f8fafc');
 
     const user = tg.initDataUnsafe?.user || {};
     const autoUsername = user.username ? '@' + user.username : '';
@@ -588,7 +533,7 @@ BUYER_FORM_HTML = r"""
           <div className="min-h-screen flex items-center justify-center p-6">
             <div className="text-center space-y-3">
               <div className="text-5xl">✅</div>
-              <p className="font-bold text-base text-green-700 leading-snug px-2 text-center">ማስታወቂያዎ በተሳካ ሁኔታ ተመዝግቧል! ለደላሎችም ተልኳል። ማስታወቂያዎን ማጥፋት ወይም ማስተካከል ሲፈልጉ በማንኛውም ጊዜ ወደ 'የገበያ ቦታ' በመሄድ ማስተካከል ይችላሉ።</p>
+              <p className="font-bold text-lg text-green-700">ጥያቄዎ ተመዝግቧል!</p>
               <p className="text-sm text-gray-500">አቅራቢዎች መልስ ይሰጡዎታል…</p>
             </div>
           </div>
@@ -689,7 +634,7 @@ BUYER_FORM_HTML = r"""
 
 @web_app.route('/')
 def home():
-    return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
+   return "✅ Adika Marketplace Bot በስኬት እየሰራ ይገኛል!", 200
 
 @web_app.route('/seller-form')
 def webapp_seller_form():
@@ -915,8 +860,8 @@ EXPLORER_HTML = r"""
     const tg = window.Telegram.WebApp;
     tg.expand();
     tg.ready();
-    tg.setHeaderColor('#2563eb');
-    tg.setBackgroundColor('#E8F3FC');
+    tg.setHeaderColor('#1e40af');
+    tg.setBackgroundColor('#f1f5f9');
     const currentUserId = tg.initDataUnsafe?.user?.id || null;
 
     function relativeTime(iso) {
@@ -1034,7 +979,7 @@ EXPLORER_HTML = r"""
                 {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').trim() || 'መግለጫ የለም'}
               </p>
               <div className="flex flex-wrap gap-2 text-[11px] text-gray-500">
-                <span className="bg-gray-100 px-2 py-1 rounded-lg">👁️ {views}</span>
+                <span className="bg-gray-100 px-2 py-1 rounded-lg">👁️ {item.view_count || 0} views</span>
                 <span className="bg-gray-100 px-2 py-1 rounded-lg">#{item.id}</span>
                 {item.phone && <span className="bg-gray-100 px-2 py-1 rounded-lg">📞 {item.phone}</span>}
               </div>
@@ -1131,22 +1076,26 @@ EXPLORER_HTML = r"""
       const statusBadge = () => {
         const sold = status === 'sold' || status === 'rented';
         if (sold)
-          return <span className="block h-2 w-2 bg-rose-500 rounded-full shadow-[0_2px_6px_rgba(244,63,94,0.45)]" title="Sold Out"></span>;
+          return (
+            <span className="relative flex h-2.5 w-2.5" title="Sold Out">
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500 shadow-[0_2px_6px_rgba(244,63,94,0.55)]"></span>
+            </span>
+          );
         if (status === 'expired')
-          return <span className="block h-2 w-2 bg-gray-400 rounded-full" title="Expired"></span>;
+          return <span className="inline-flex rounded-full h-2.5 w-2.5 bg-gray-400 shadow-sm" title="Expired"></span>;
         return (
-          <span className="relative flex h-2 w-2" title="Active">
+          <span className="relative flex h-2.5 w-2.5 items-center" title="Active">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_2px_6px_rgba(16,185,129,0.55)]"></span>
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500 shadow-[0_2px_8px_rgba(16,185,129,0.65)]"></span>
           </span>
         );
       };
 
       return (
         <div ref={cardRef}
-          className="bg-white rounded-2xl p-2.5 border-none shadow-[0_12px_30px_rgba(0,0,0,0.16)] hover:shadow-[0_16px_36px_rgba(0,0,0,0.2)] transition-all duration-200 flex flex-col justify-between relative active:scale-[0.98]">
+          className="bg-white rounded-2xl border border-black/[0.08] shadow-sm hover:shadow-md transition-shadow overflow-hidden relative active:scale-[0.98]">
           {/* Photo – opens modal */}
-          <div className="relative w-full h-32 rounded-xl overflow-hidden bg-slate-100 cursor-pointer" onClick={() => onOpen(item)}>
+          <div className="relative aspect-4-3 bg-gradient-to-br from-slate-50 to-blue-50 cursor-pointer" onClick={() => onOpen(item)}>
             {photos.length > 0 ? (
               <img src={photos[0]} alt="" className="w-full h-full object-cover" loading="lazy"
                 onError={e => { e.target.style.display='none'; }} />
@@ -1162,7 +1111,7 @@ EXPLORER_HTML = r"""
                 </span>
               </div>
             )}
-            <div className="absolute top-2 left-2 z-10">{statusBadge()}</div>
+            <div className="absolute top-1.5 left-1.5">{statusBadge()}</div>
             {isOwner && (
               <div className="absolute top-1.5 right-1.5" onClick={e => e.stopPropagation()}>
                 <button onClick={() => setMenuOpen(!menuOpen)}
@@ -1183,37 +1132,37 @@ EXPLORER_HTML = r"""
             )}
             {/* Bottom glass badge: views + time */}
             <div className="absolute bottom-1.5 left-1.5 right-1.5 flex justify-between pointer-events-none">
-              <span className="bg-black/50 backdrop-blur-md px-1.5 py-0.5 rounded-full text-[9px] text-white font-medium">👁️ {views}</span>
-              <span className="bg-black/50 backdrop-blur-md px-1.5 py-0.5 rounded-full text-[9px] text-white font-medium">{relativeTime(item.created_at)}</span>
+              <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">👁️ {localViews} views</span>
+              <span className="glass-dark text-[9px] text-white px-1.5 py-0.5 rounded-full">{relativeTime(item.created_at)}</span>
             </div>
           </div>
 
           {/* Content */}
-          <div className="mt-2.5 px-1 space-y-1">
-            <h3 className="font-bold text-sm text-slate-900 truncate" onClick={() => onOpen(item)}>
+          <div className="p-2.5 space-y-1">
+            <h3 className="font-bold text-gray-900 text-[12px] line-clamp-1 leading-tight" onClick={() => onOpen(item)}>
               {item.main_category}{item.sub_category ? ` • ${String(item.sub_category).replace(/[🚗🚚🚜🏡🏢🏞️]/g,'').trim()}` : ''}
             </h3>
-            <p className="text-xs text-slate-500 truncate mt-0.5">
+            <p className="text-[10px] text-gray-500 line-clamp-1">
               {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').slice(0, 42)}
             </p>
-            <div className="mt-2 flex items-center gap-1 font-extrabold text-blue-600 text-sm">
+            <div className="text-[13px] font-bold text-blue-700">
               {isSell ? '💰 ዋጋ' : '💰 በጀት'}: {item.price || '—'}
               {extra.urgent_sale && <span className="text-red-500 text-[10px] ml-0.5">⚡</span>}
             </div>
-            <div className="grid grid-cols-2 gap-1.5 mt-3">
+            <div className="flex gap-1.5 pt-0.5">
               <a href={!isSold && item.phone ? `tel:${String(item.phone).replace(/\s+/g,'')}` : undefined}
                 onClick={e => { if (isSold || !item.phone) e.preventDefault(); }}
-                title="Call"
-                className={`flex items-center justify-center py-1.5 rounded-xl text-base border-none active:scale-95 transition-all ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-50 hover:bg-blue-100 text-blue-700'}`}>
-                📞
+                className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-500/15 text-blue-700 border border-blue-500/30'}`}>
+                📞 ደውል
               </a>
-              <a href={!isSold && extra.telegram_user ? `https://t.me/${String(extra.telegram_user).replace('@','')}` : (!isSold ? `tg://user?id=${item.user_chat_id}` : undefined)}
-                target="_blank" rel="noreferrer"
-                onClick={e => { if (isSold) e.preventDefault(); }}
-                title="Chat"
-                className={`flex items-center justify-center py-1.5 rounded-xl text-base border-none active:scale-95 transition-all ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}>
-                💬
-              </a>
+              {extra.telegram_user ? (
+                <a href={!isSold ? `https://t.me/${String(extra.telegram_user).replace('@','')}` : undefined}
+                  target="_blank" rel="noreferrer"
+                  onClick={e => { if (isSold) e.preventDefault(); }}
+                  className={`flex-1 py-2 rounded-xl text-[11px] font-bold flex items-center justify-center gap-0.5 ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-500/15 text-blue-700 border border-blue-500/30'}`}>
+                  💬 ቻት
+                </a>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1234,7 +1183,6 @@ EXPLORER_HTML = r"""
       const [detailItem, setDetailItem] = useState(null);
       const cacheRef = useRef({}); // client-side tab/category cache
 
-      const [loadError, setLoadError] = useState('');
       const loadData = useCallback(async (pageNum = 1, append = false) => {
         const cacheKey = `${tab}|${filters.category}|${filters.q}|${pageNum}`;
         if (!append && cacheRef.current[cacheKey]) {
@@ -1243,11 +1191,9 @@ EXPLORER_HTML = r"""
           setHasMore(cached.has_more);
           setPage(pageNum);
           setLoading(false);
-          setLoadError('');
           return;
         }
         setLoading(true);
-        setLoadError('');
         try {
           const qs = new URLSearchParams({
             page: pageNum, limit: 12,
@@ -1256,24 +1202,16 @@ EXPLORER_HTML = r"""
             ...Object.fromEntries(Object.entries(filters).filter(([,v]) => v))
           });
           const res = await fetch(`/api/explorer/listings?${qs}`);
-          const data = await res.json().catch(() => ({}));
+          const data = await res.json();
           if (data.status === 'success') {
-            const list = Array.isArray(data.items) ? data.items : [];
-            setItems(prev => append ? [...prev, ...list] : list);
-            setHasMore(!!data.has_more);
+            setItems(prev => append ? [...prev, ...data.items] : data.items);
+            setHasMore(data.has_more);
             setPage(pageNum);
             if (!append) {
-              cacheRef.current[cacheKey] = { items: list, has_more: !!data.has_more };
+              cacheRef.current[cacheKey] = { items: data.items, has_more: data.has_more };
             }
-          } else {
-            setLoadError(data.message || ('API error ' + res.status));
-            if (!append) setItems([]);
           }
-        } catch(e) {
-          console.error(e);
-          setLoadError(String(e.message || e));
-          if (!append) setItems([]);
-        }
+        } catch(e) { console.error(e); }
         finally { setLoading(false); }
       }, [tab, filters]);
 
@@ -1292,16 +1230,16 @@ EXPLORER_HTML = r"""
       const onDelete = (id) => setItems(prev => prev.filter(it => it.id !== id));
 
       return (
-        <div className="w-full max-w-md mx-auto min-h-screen bg-[#E8F3FC] px-2.5 pb-16 text-slate-800">
+        <div className="min-h-screen pb-16">
           {/* Sticky glass header */}
-          <div className="sticky top-0 z-50 bg-[#D4E6F5] backdrop-blur-md shadow-sm border-b border-blue-200/60">
-            <div className="flex gap-2 p-2">
+          <div className="sticky top-0 z-30 glass border-b border-gray-200/60">
+            <div className="flex">
               <button onClick={() => setTab('marketplace')}
-                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${tab==='marketplace' ? 'bg-white/90 text-blue-700 shadow-sm' : 'bg-white/40 text-slate-600'} backdrop-blur-sm`}>
+                className={`flex-1 py-2.5 text-xs font-bold transition ${tab==='marketplace' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
                 🛒 የገበያ ቦታ
               </button>
               <button onClick={() => setTab('requests')}
-                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${tab==='requests' ? 'bg-white/90 text-blue-700 shadow-sm' : 'bg-white/40 text-slate-600'} backdrop-blur-sm`}>
+                className={`flex-1 py-2.5 text-xs font-bold transition ${tab==='requests' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500'}`}>
                 📋 የፈላጊዎች
               </button>
             </div>
@@ -1315,7 +1253,7 @@ EXPLORER_HTML = r"""
               </div>
             </div>
             {/* Glassmorphism category pills */}
-            <div className="px-1 pb-2 flex gap-1.5 overflow-x-auto no-scrollbar" style={{WebkitOverflowScrolling:'touch'}}>
+            <div className="px-2.5 pb-2 flex gap-2 overflow-x-auto no-scrollbar" style={{WebkitOverflowScrolling:'touch'}}>
               {[
                 {id:'', label:'✨ ሁሉም'},
                 {id:'መኪና', label:'🚗 መኪና'},
@@ -1324,10 +1262,10 @@ EXPLORER_HTML = r"""
               ].map(cat => (
                 <button key={cat.id || 'all'} type="button"
                   onClick={() => setFilters(f => ({...f, category: cat.id}))}
-                  className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full font-medium text-[11px] active:scale-95 transition-all whitespace-nowrap ${
+                  className={`shrink-0 px-3.5 py-1.5 rounded-2xl text-[11px] font-medium transition-all whitespace-nowrap ${
                     filters.category === cat.id
-                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm shadow-blue-500/20'
-                      : 'bg-white/90 text-slate-700 border border-blue-100/80 shadow-sm'
+                      ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-500/20 border border-transparent'
+                      : 'backdrop-blur-md bg-white/40 border border-white/60 shadow-sm text-gray-800'
                   }`}>
                   {cat.label}
                 </button>
@@ -1336,7 +1274,7 @@ EXPLORER_HTML = r"""
           </div>
 
           {/* 2-col grid */}
-          <div className="grid grid-cols-2 gap-2.5 mt-2">
+          <div className="p-2.5 grid grid-cols-2 gap-2.5">
             {loading && items.length === 0 && Array.from({length: 6}).map((_,i) => <SkeletonCard key={i} />)}
             {items.map(item => (
               <Card key={item.id} item={item} currentUid={currentUserId}
@@ -1344,17 +1282,10 @@ EXPLORER_HTML = r"""
             ))}
           </div>
 
-          {loadError && (
-            <div className="mx-1 mb-2 p-2.5 rounded-xl bg-amber-50 text-amber-800 text-[11px] leading-snug border border-amber-200">
-              {loadError}
-            </div>
-          )}
           {!loading && items.length === 0 && (
             <div className="text-center py-16 text-gray-400">
               <div className="text-4xl mb-2">📭</div>
               <p className="text-sm">ምንም ንብረት አልተገኘም</p>
-              <button type="button" onClick={() => { cacheRef.current = {}; loadData(1, false); }}
-                className="mt-3 text-blue-600 text-xs font-bold underline">እንደገና ሞክር</button>
             </div>
           )}
           {hasMore && !loading && (
@@ -1387,36 +1318,6 @@ EXPLORER_HTML = r"""
 @web_app.route('/explorer')
 def explorer_page():
     return Response(EXPLORER_HTML, mimetype='text/html; charset=utf-8')
-
-
-
-
-@web_app.route('/api/health', methods=['GET'])
-def api_health():
-    """Diagnostics for Mini App blank-screen debugging."""
-    info = {
-        "ok": True,
-        "database": "postgres",
-        "persistent": True,
-        "webapp_url": WEBAPP_URL,
-    }
-    try:
-        conn = get_db_connection()
-        cur = conn.cursor()
-        cur.execute("SELECT COUNT(*) AS cnt FROM listings")
-        row = cur.fetchone()
-        info["listings_count"] = row["cnt"] if isinstance(row, dict) else row[0]
-        cur.execute("SELECT COUNT(*) AS cnt FROM brokers")
-        row = cur.fetchone()
-        info["brokers_count"] = row["cnt"] if isinstance(row, dict) else row[0]
-        try:
-            conn.close()
-        except Exception:
-            pass
-    except Exception as e:
-        info["ok"] = False
-        info["error"] = str(e)
-    return jsonify(info)
 
 
 @web_app.route('/api/explorer/listings', methods=['GET'])
@@ -1497,15 +1398,13 @@ def api_explorer_listings():
             items.append(item)
 
         conn.close()
-        safe_items = [_json_safe(it) for it in items]
         return jsonify({
             "status": "success",
             "page": page,
             "limit": limit,
-            "total": int(total or 0),
-            "has_more": bool(offset + limit < (total or 0)),
-            "items": safe_items,
-            "db": "postgres",
+            "total": total,
+            "has_more": offset + limit < total,
+            "items": items
         })
     except Exception as e:
         logger.error(f"api_explorer_listings error: {e}", exc_info=True)
