@@ -14,6 +14,7 @@ import config as _app_config
 
 
 _DB_BACKEND = "unknown"
+LAST_DB_ERROR = ""
 
 
 def _normalize_pg_url(url: str) -> str:
@@ -270,15 +271,268 @@ def init_db():
 # 4. DATABASE OPERATIONS
 # ==============================================================================
 
-def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
-                action_type, property_type, description, price=None, phone=None, 
-                photo_id=None, extra_data=None, photos=None):
-    """Insert listing. Returns new id or None. Photos stored truncated if huge."""
+
+def ensure_core_tables():
+    """Create minimal listings/brokers tables if missing (safe to call often)."""
     conn = None
     try:
         conn = get_db_connection()
+        cur = conn.cursor()
+        if is_postgres():
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS listings (
+                    id SERIAL PRIMARY KEY,
+                    user_chat_id BIGINT NOT NULL,
+                    user_name TEXT,
+                    req_type TEXT NOT NULL,
+                    main_category TEXT NOT NULL,
+                    sub_category TEXT,
+                    action_type TEXT,
+                    property_type TEXT,
+                    description TEXT NOT NULL DEFAULT '',
+                    price TEXT,
+                    phone TEXT,
+                    photo_id TEXT,
+                    extra_data JSONB DEFAULT '{}',
+                    status TEXT DEFAULT 'ONLINE',
+                    view_count INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS listing_photos (
+                    id SERIAL PRIMARY KEY,
+                    listing_id INTEGER NOT NULL,
+                    photo_id TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS brokers (
+                    id SERIAL PRIMARY KEY,
+                    chat_id BIGINT UNIQUE,
+                    full_name TEXT,
+                    phone TEXT,
+                    username TEXT,
+                    sub_city TEXT,
+                    specialty TEXT,
+                    status TEXT DEFAULT 'ONLINE',
+                    notification_prefs JSONB DEFAULT '{"car":true,"house":true,"enabled":true}',
+                    rating REAL DEFAULT 5.0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+        else:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS listings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_chat_id INTEGER NOT NULL,
+                    user_name TEXT,
+                    req_type TEXT NOT NULL,
+                    main_category TEXT NOT NULL,
+                    sub_category TEXT,
+                    action_type TEXT,
+                    property_type TEXT,
+                    description TEXT NOT NULL DEFAULT '',
+                    price TEXT,
+                    phone TEXT,
+                    photo_id TEXT,
+                    extra_data TEXT DEFAULT '{}',
+                    status TEXT DEFAULT 'ONLINE',
+                    view_count INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS listing_photos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    listing_id INTEGER NOT NULL,
+                    photo_id TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS brokers (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id INTEGER UNIQUE,
+                    full_name TEXT,
+                    phone TEXT,
+                    username TEXT,
+                    sub_city TEXT,
+                    specialty TEXT,
+                    status TEXT DEFAULT 'ONLINE',
+                    notification_prefs TEXT DEFAULT '{}',
+                    rating REAL DEFAULT 5.0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+        logger.info("ensure_core_tables ok backend=%s", _DB_BACKEND)
+    except Exception as e:
+        logger.error("ensure_core_tables: %s", e)
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+
+def ensure_listings_columns():
+    """Add any missing columns the app expects (Supabase may have older schema)."""
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        if is_postgres():
+            alters = [
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS user_chat_id BIGINT",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS user_name TEXT",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS req_type TEXT",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS main_category TEXT",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS category TEXT",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS sub_category TEXT",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS action_type TEXT",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS property_type TEXT",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS price TEXT",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS phone TEXT",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS photo_id TEXT",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS extra_data JSONB DEFAULT '{}'::jsonb",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ONLINE'",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS view_count INTEGER DEFAULT 0",
+                "ALTER TABLE listings ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
+            ]
+            for sql in alters:
+                try:
+                    cur.execute(sql)
+                except Exception as e:
+                    logger.debug("alter skip: %s (%s)", sql, e)
+            # Backfill main_category from category if needed
+            try:
+                cur.execute("""
+                    UPDATE listings
+                    SET main_category = category
+                    WHERE (main_category IS NULL OR main_category = '')
+                      AND category IS NOT NULL AND category <> ''
+                """)
+            except Exception:
+                pass
+            try:
+                cur.execute("""
+                    UPDATE listings
+                    SET category = main_category
+                    WHERE (category IS NULL OR category = '')
+                      AND main_category IS NOT NULL AND main_category <> ''
+                """)
+            except Exception:
+                pass
+        else:
+            # SQLite: try add columns (ignore if exist)
+            for col, typedef in [
+                ("main_category", "TEXT"),
+                ("category", "TEXT"),
+                ("sub_category", "TEXT"),
+                ("action_type", "TEXT"),
+                ("property_type", "TEXT"),
+                ("extra_data", "TEXT DEFAULT '{}'"),
+                ("view_count", "INTEGER DEFAULT 0"),
+                ("status", "TEXT DEFAULT 'ONLINE'"),
+                ("user_chat_id", "INTEGER"),
+                ("user_name", "TEXT"),
+                ("req_type", "TEXT"),
+                ("description", "TEXT"),
+                ("price", "TEXT"),
+                ("phone", "TEXT"),
+                ("photo_id", "TEXT"),
+            ]:
+                try:
+                    cur.execute(f"ALTER TABLE listings ADD COLUMN {col} {typedef}")
+                except Exception:
+                    pass
+            conn.commit()
+        logger.info("ensure_listings_columns done backend=%s", _DB_BACKEND)
+    except Exception as e:
+        logger.error("ensure_listings_columns: %s", e)
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
+def get_listings_column_set():
+    """Return set of column names on listings table."""
+    cols = set()
+    conn = None
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        if is_postgres():
+            cur.execute("""
+                SELECT column_name FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'listings'
+            """)
+            for row in cur.fetchall():
+                name = row["column_name"] if isinstance(row, dict) else row[0]
+                cols.add(str(name).lower())
+        else:
+            cur.execute("PRAGMA table_info(listings)")
+            for row in cur.fetchall():
+                # cid, name, type, ...
+                if isinstance(row, dict):
+                    cols.add(str(row.get("name", "")).lower())
+                else:
+                    cols.add(str(row[1]).lower())
+    except Exception as e:
+        logger.warning("get_listings_column_set: %s", e)
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return cols
+
+
+def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
+                action_type, property_type, description, price=None, phone=None, 
+                photo_id=None, extra_data=None, photos=None):
+    """Insert listing. Returns id or None. Sets LAST_DB_ERROR on failure."""
+    global LAST_DB_ERROR
+    LAST_DB_ERROR = ""
+    conn = None
+    try:
+        try:
+            ensure_core_tables()
+            ensure_listings_columns()
+        except Exception as _ee:
+            logger.warning("ensure before insert: %s", _ee)
+        conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
+        existing_cols = set()
+        try:
+            if is_postgres():
+                cursor.execute("""
+                    SELECT column_name FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'listings'
+                """)
+                for row in cursor.fetchall():
+                    name = row["column_name"] if isinstance(row, dict) else row[0]
+                    existing_cols.add(str(name).lower())
+            else:
+                cursor.execute("PRAGMA table_info(listings)")
+                for row in cursor.fetchall():
+                    if isinstance(row, dict):
+                        existing_cols.add(str(row.get("name", "")).lower())
+                    else:
+                        existing_cols.add(str(row[1]).lower())
+        except Exception as ce:
+            logger.warning("column introspect: %s", ce)
+
         if extra_data is None:
             extra_data = {}
         if isinstance(extra_data, str):
@@ -286,16 +540,6 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                 extra_data = json.loads(extra_data)
             except Exception:
                 extra_data = {"raw": extra_data}
-
-        # JSONB-safe value for Postgres; plain text JSON for SQLite
-        if is_postgres():
-            try:
-                from psycopg2.extras import Json as PgJson
-                extra_param = PgJson(extra_data)
-            except Exception:
-                extra_param = json.dumps(extra_data, ensure_ascii=False)
-        else:
-            extra_param = json.dumps(extra_data, ensure_ascii=False)
 
         user_chat_id = int(user_chat_id) if user_chat_id else 0
         user_name = str(user_name or "User")[:200]
@@ -309,72 +553,130 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
         phone = str(phone or "")[:50]
         photo_id = str(photo_id) if photo_id else None
         import random as _rnd
-        baseline_views = _rnd.randint(35, 90)
+        baseline_views = int(_rnd.randint(35, 90))
 
-        # First photo as photo_id if not provided (store short ref only)
-        photo_list = list(photos or [])[:5]
-        if not photo_id and photo_list:
-            first = str(photo_list[0])
-            # Prefer not to put multi-MB base64 in listings.photo_id
-            photo_id = first[:200] if first.startswith("http") else None
+        photo_list = []
+        if photos:
+            for ph in list(photos)[:3]:
+                s = str(ph)
+                if len(s) > 300000:
+                    s = s[:300000]
+                photo_list.append(s)
 
-        query = f"""
-            INSERT INTO listings 
-            (user_chat_id, user_name, req_type, main_category, sub_category, 
-             action_type, property_type, description, price, phone, photo_id, extra_data, status, view_count)
-            VALUES ({p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, {p}, 'ONLINE', {p})
-        """
-        params = (
-            user_chat_id, user_name, req_type, main_category, 
-            sub_category, action_type, property_type, 
-            description, price, phone, photo_id,
-            extra_param, baseline_views
-        )
-        logger.info(
-            f"📝 Inserting listing: user={user_chat_id}, type={req_type}, cat={main_category}, backend={_DB_BACKEND}"
-        )
+        # Build extra_data param safely
+        extra_text = json.dumps(extra_data, ensure_ascii=False)
         if is_postgres():
-            cursor.execute(query + " RETURNING id", params)
-            row = cursor.fetchone()
-            if row is None:
-                logger.error("RETURNING id returned None")
-                return None
-            req_id = row["id"] if isinstance(row, dict) else row[0]
+            try:
+                from psycopg2.extras import Json as PgJson
+                extra_param = PgJson(extra_data)
+            except Exception:
+                extra_param = extra_text
         else:
-            cursor.execute(query, params)
-            req_id = cursor.lastrowid
+            extra_param = extra_text
 
-        if photo_list and req_id:
-            logger.info(f"📸 Saving up to {len(photo_list)} photos for listing {req_id}")
-            for photo in photo_list:
+        logger.info(
+            "📝 Insert listing user=%s type=%s cat=%s backend=%s photos=%s",
+            user_chat_id, req_type, main_category, _DB_BACKEND, len(photo_list),
+        )
+
+        def _do_insert(with_extra=True, with_views=True):
+            # Candidate columns → values (dual-map category / main_category)
+            candidates = [
+                ("user_chat_id", user_chat_id),
+                ("user_name", user_name),
+                ("req_type", req_type),
+                ("main_category", main_category),
+                ("category", main_category),  # Supabase legacy column name
+                ("sub_category", sub_category),
+                ("action_type", action_type),
+                ("property_type", property_type),
+                ("description", description),
+                ("price", price),
+                ("phone", phone),
+                ("photo_id", photo_id),
+                ("status", "ONLINE"),
+            ]
+            if with_extra:
+                candidates.append(("extra_data", extra_param))
+            if with_views:
+                candidates.append(("view_count", baseline_views))
+
+            cols, vals = [], []
+            for col, val in candidates:
+                if existing_cols and col.lower() not in existing_cols:
+                    continue
+                # If we couldn't introspect, keep all (except skip duplicate category if main exists only)
+                cols.append(col)
+                vals.append(val)
+
+            # If introspection empty, prefer both category names
+            if not existing_cols:
+                cols = [c for c, _ in candidates]
+                vals = [v for _, v in candidates]
+
+            if not cols:
+                raise RuntimeError("No matching columns on listings table")
+
+            ph = ", ".join([p] * len(vals))
+            colsql = ", ".join(cols)
+            q = f"INSERT INTO listings ({colsql}) VALUES ({ph})"
+            logger.info("INSERT cols=%s", cols)
+            if is_postgres():
+                cursor.execute(q + " RETURNING id", tuple(vals))
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                return row["id"] if isinstance(row, dict) else row[0]
+            cursor.execute(q, tuple(vals))
+            return cursor.lastrowid
+
+        req_id = None
+        last_err = None
+        for with_extra, with_views in ((True, True), (False, True), (False, False)):
+            try:
+                req_id = _do_insert(with_extra=with_extra, with_views=with_views)
+                if req_id:
+                    break
+            except Exception as ie:
+                last_err = ie
+                logger.warning("insert attempt failed (extra=%s views=%s): %s", with_extra, with_views, ie)
                 try:
-                    photo_str = str(photo)
-                    # Cap base64 length to avoid DB / packet failures (~300KB)
-                    if len(photo_str) > 350_000:
-                        logger.warning(f"Photo truncated for listing {req_id} (len={len(photo_str)})")
-                        photo_str = photo_str[:350_000]
+                    if not is_postgres():
+                        conn.rollback()
+                except Exception:
+                    pass
+
+        if not req_id:
+            LAST_DB_ERROR = str(last_err or "insert returned no id")
+            logger.error("❌ Add listing failed: %s", LAST_DB_ERROR)
+            return None
+
+        if photo_list:
+            for photo_str in photo_list:
+                try:
                     cursor.execute(
                         f"INSERT INTO listing_photos (listing_id, photo_id) VALUES ({p}, {p})",
-                        (req_id, photo_str)
+                        (req_id, photo_str),
                     )
                 except Exception as pe:
-                    logger.error(f"Failed to save photo for listing {req_id}: {pe}")
+                    logger.error("photo save failed: %s", pe)
+
         try:
             if not is_postgres():
                 conn.commit()
             else:
-                # autocommit usually on; explicit commit is safe
                 try:
                     conn.commit()
                 except Exception:
                     pass
         except Exception as ce:
-            logger.warning(f"commit warning: {ce}")
+            logger.warning("commit: %s", ce)
 
-        logger.info(f"✅ Listing added successfully → #ADK-{req_id}")
+        logger.info("✅ Listing added → #ADK-%s", req_id)
         return req_id
     except Exception as e:
-        logger.error(f"❌ Add listing error: {e}", exc_info=True)
+        LAST_DB_ERROR = str(e)
+        logger.error("❌ Add listing error: %s", e, exc_info=True)
         if conn:
             try:
                 if not is_postgres():
@@ -388,6 +690,8 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                 conn.close()
             except Exception:
                 pass
+
+
 
 def get_listing_by_id(listing_id: int):
     conn = None
