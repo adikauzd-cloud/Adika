@@ -47,7 +47,17 @@ from models import (
     BROKER_OFFER_TEXT, BROKER_OFFER_PHOTO,
 ) = range(34)
 
+def mini_app_url(path: str = "") -> str:
+    """Build absolute HTTPS Mini App URL."""
+    base = (WEBAPP_URL or "").rstrip("/")
+    if base.startswith("http://") and "127.0.0.1" not in base and "localhost" not in base:
+        base = "https://" + base[len("http://"):]
+    path = path if path.startswith("/") else f"/{path}" if path else ""
+    return f"{base}{path}"
+
+
 def validate_phone(phone: str) -> bool:
+
     if not phone:
         return False
     phone = phone.replace(' ', '').replace('-', '').replace('+', '')
@@ -431,7 +441,7 @@ async def go_home(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def buyer_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     context.user_data["req_type"] = "BUY"
-    web_app_url = f"{WEBAPP_URL}/buyer-form"
+    web_app_url = mini_app_url("/buyer-form")
     keyboard = [
         [InlineKeyboardButton("⚡ በቅጽ መሙያ (Mini App)", web_app=WebAppInfo(url=web_app_url))],
         [InlineKeyboardButton("🚗 መኪና", callback_data="flow_buy_cat_car")],
@@ -708,7 +718,7 @@ async def buyer_phone(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def seller_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.clear()
     context.user_data["req_type"] = "SELL"
-    web_app_url = f"{WEBAPP_URL}/seller-form"
+    web_app_url = mini_app_url("/seller-form")
     keyboard = [
         [InlineKeyboardButton("⚡ በቅጽ መሙያ (Mini App)", web_app=WebAppInfo(url=web_app_url))],
         [InlineKeyboardButton("🚗 መኪና", callback_data="flow_sell_cat_car")],
@@ -1580,7 +1590,7 @@ TEXT_PAGE_SIZE = 5  # items per text-mode page
 
 
 async def marketplace_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    web_url = f"{WEBAPP_URL}/explorer"
+    web_url = mini_app_url("/explorer")
     keyboard = [
         [InlineKeyboardButton("🌐 በ Mini App ክፈት", web_app=WebAppInfo(url=web_url))],
         [InlineKeyboardButton("⚡ በጽሁፍ ተመልከት", callback_data="view_text_marketplace_1")],
@@ -1597,7 +1607,7 @@ async def marketplace_choice(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def requests_choice(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    web_url = f"{WEBAPP_URL}/explorer?tab=requests"
+    web_url = mini_app_url("/explorer?tab=requests")
     keyboard = [
         [InlineKeyboardButton("🌐 በ Mini App ክፈት", web_app=WebAppInfo(url=web_url))],
         [InlineKeyboardButton("⚡ በጽሁፍ ተመልከት", callback_data="view_text_requests_1")],
@@ -2479,8 +2489,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     import traceback
     err = context.error
     if err is not None:
+        logger.error("Exception while handling an update: %s: %s", type(err).__name__, err)
         tb = "".join(traceback.format_exception(type(err), err, err.__traceback__))
-        logger.error("Exception while handling an update:\n%s", tb)
+        logger.error("Traceback:\n%s", tb)
     else:
         logger.error("Exception while handling an update: (no error object)")
     try:
