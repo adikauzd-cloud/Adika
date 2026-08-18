@@ -991,14 +991,25 @@ def add_broker(
 ) -> Optional[int]:
     """
     Insert/update broker.
-    Strategy: minimal INSERT first (chat_id + full_name), then UPDATE optional fields.
-    is_approved always Python bool False for Postgres.
+    CRITICAL: Supabase schema uses user_chat_id (NOT NULL / PK-like).
+    Always write user_chat_id AND chat_id with the Telegram user id.
+    is_approved is Python bool False.
     """
     global LAST_BROKER_ERROR
     LAST_BROKER_ERROR = ""
     conn = None
     try:
+        # Never null — Telegram user id is required
+        if chat_id is None:
+            LAST_BROKER_ERROR = "chat_id is None"
+            logger.error(LAST_BROKER_ERROR)
+            return None
         chat_id = int(chat_id)
+        if chat_id <= 0:
+            LAST_BROKER_ERROR = f"invalid chat_id={chat_id}"
+            logger.error(LAST_BROKER_ERROR)
+            return None
+
         full_name = (str(full_name).strip() if full_name else "User")[:200]
         phone = (str(phone).strip() if phone else "")[:40]
         username = (str(username).strip() if username else "")[:120]
@@ -1018,15 +1029,17 @@ def add_broker(
         p = get_placeholder()
         pg = is_postgres()
 
-        # Ensure table exists (minimal)
+        # Migrations including user_chat_id
         try:
             if pg:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS brokers (
                         id SERIAL PRIMARY KEY,
-                        chat_id BIGINT UNIQUE,
+                        user_chat_id BIGINT,
+                        chat_id BIGINT,
                         full_name TEXT,
                         phone TEXT,
+                        phone_number TEXT,
                         username TEXT,
                         sub_city TEXT,
                         specialty TEXT,
@@ -1039,9 +1052,11 @@ def add_broker(
                     )
                 """)
                 for stmt in (
+                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS user_chat_id BIGINT",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS chat_id BIGINT",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS full_name TEXT",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS phone TEXT",
+                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS phone_number TEXT",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS username TEXT",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS sub_city TEXT",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS specialty TEXT",
@@ -1061,9 +1076,11 @@ def add_broker(
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS brokers (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        chat_id INTEGER UNIQUE,
+                        user_chat_id INTEGER,
+                        chat_id INTEGER,
                         full_name TEXT,
                         phone TEXT,
+                        phone_number TEXT,
                         username TEXT,
                         sub_city TEXT,
                         specialty TEXT,
@@ -1077,27 +1094,13 @@ def add_broker(
                 """)
                 conn.commit()
         except Exception as te:
-            logger.warning("brokers ensure table: %s", te)
+            logger.warning("brokers ensure: %s", te)
 
         cols = {c.lower() for c in _broker_table_columns(cur)}
-        logger.info("add_broker cols=%s pg=%s", sorted(cols), pg)
+        logger.info("add_broker cols=%s user_chat_id=%s", sorted(cols), chat_id)
 
-        # id column detection
-        id_col = "chat_id" if "chat_id" in cols else (
-            "telegram_id" if "telegram_id" in cols else (
-                "user_id" if "user_id" in cols else "chat_id"
-            )
-        )
-
-        # existing?
-        existing_id = None
-        try:
-            cur.execute(f"SELECT id FROM brokers WHERE {id_col} = {p}", (chat_id,))
-            row = cur.fetchone()
-            if row:
-                existing_id = row["id"] if isinstance(row, dict) else row[0]
-        except Exception as se:
-            logger.warning("select broker: %s", se)
+        approved_val = False if pg else 0
+        online_val = True if pg else 1
 
         def _commit():
             try:
@@ -1105,74 +1108,112 @@ def add_broker(
             except Exception:
                 pass
 
-        # Boolean False for PG only
-        approved_val = False if pg else 0
-        online_val = True if pg else 1
+        # Find existing by user_chat_id OR chat_id
+        existing_id = None
+        for key_col in ("user_chat_id", "chat_id", "telegram_id", "user_id"):
+            if key_col not in cols:
+                continue
+            try:
+                cur.execute(f"SELECT id FROM brokers WHERE {key_col} = {p}", (chat_id,))
+                row = cur.fetchone()
+                if row:
+                    existing_id = row["id"] if isinstance(row, dict) else row[0]
+                    break
+            except Exception as se:
+                logger.warning("select by %s: %s", key_col, se)
 
+        # ---- INSERT if new ----
         if existing_id is None:
-            # ---- minimal INSERT ----
+            # Always include user_chat_id when column exists (NOT NULL constraint)
+            ins = {}
+            if "user_chat_id" in cols:
+                ins["user_chat_id"] = chat_id
+            if "chat_id" in cols:
+                ins["chat_id"] = chat_id
+            if "telegram_id" in cols:
+                ins["telegram_id"] = chat_id
+            if "user_id" in cols:
+                ins["user_id"] = chat_id
+            # If schema unknown, force user_chat_id + chat_id
+            if not ins:
+                ins["user_chat_id"] = chat_id
+                ins["chat_id"] = chat_id
+
+            if "full_name" in cols or not cols:
+                ins["full_name"] = full_name
+            if "is_approved" in cols or not cols:
+                ins["is_approved"] = approved_val
+            if "phone" in cols:
+                ins["phone"] = phone
+            if "phone_number" in cols:
+                ins["phone_number"] = phone
+            if "status" in cols:
+                ins["status"] = "ONLINE"
+
+            col_list = list(ins.keys())
+            val_list = list(ins.values())
+            # SAFETY: user_chat_id must never be missing if column exists
+            if "user_chat_id" in cols and "user_chat_id" not in ins:
+                col_list.insert(0, "user_chat_id")
+                val_list.insert(0, chat_id)
+
+            ph = ", ".join([p] * len(val_list))
+            sql = f"INSERT INTO brokers ({', '.join(col_list)}) VALUES ({ph})"
+            logger.info("INSERT brokers cols=%s vals_id=%s", col_list, chat_id)
             try:
                 if pg:
-                    cur.execute(
-                        f"INSERT INTO brokers ({id_col}, full_name, is_approved) "
-                        f"VALUES ({p}, {p}, {p}) RETURNING id",
-                        (chat_id, full_name, approved_val),
-                    )
+                    cur.execute(sql + " RETURNING id", tuple(val_list))
                     row = cur.fetchone()
                     existing_id = row["id"] if isinstance(row, dict) else row[0]
                 else:
-                    cur.execute(
-                        f"INSERT INTO brokers ({id_col}, full_name, is_approved) VALUES ({p}, {p}, {p})",
-                        (chat_id, full_name, approved_val),
-                    )
+                    cur.execute(sql, tuple(val_list))
                     existing_id = cur.lastrowid
                 _commit()
-                logger.info("minimal INSERT ok id=%s", existing_id)
             except Exception as ie:
-                # maybe unique violation — fetch again
-                logger.warning("minimal INSERT failed: %s", ie)
                 LAST_BROKER_ERROR = str(ie)
+                logger.error("INSERT failed: %s", ie, exc_info=True)
                 try:
                     if not pg:
                         conn.rollback()
                 except Exception:
                     pass
+                # Retry ultra-minimal with only user_chat_id
                 try:
-                    cur.execute(f"SELECT id FROM brokers WHERE {id_col} = {p}", (chat_id,))
-                    row = cur.fetchone()
-                    if row:
-                        existing_id = row["id"] if isinstance(row, dict) else row[0]
-                        LAST_BROKER_ERROR = ""
-                except Exception:
-                    pass
-                if existing_id is None:
-                    # last resort: insert only id_col
-                    try:
+                    if "user_chat_id" in cols:
                         if pg:
                             cur.execute(
-                                f"INSERT INTO brokers ({id_col}) VALUES ({p}) RETURNING id",
-                                (chat_id,),
+                                f"INSERT INTO brokers (user_chat_id, full_name, is_approved) "
+                                f"VALUES ({p}, {p}, {p}) RETURNING id",
+                                (chat_id, full_name, approved_val),
                             )
                             row = cur.fetchone()
                             existing_id = row["id"] if isinstance(row, dict) else row[0]
                         else:
-                            cur.execute(f"INSERT INTO brokers ({id_col}) VALUES ({p})", (chat_id,))
+                            cur.execute(
+                                f"INSERT INTO brokers (user_chat_id, full_name, is_approved) VALUES ({p}, {p}, {p})",
+                                (chat_id, full_name, approved_val),
+                            )
                             existing_id = cur.lastrowid
                         _commit()
                         LAST_BROKER_ERROR = ""
-                    except Exception as ie2:
-                        LAST_BROKER_ERROR = str(ie2)
-                        logger.error("last-resort INSERT failed: %s", ie2, exc_info=True)
+                    else:
                         return None
+                except Exception as ie2:
+                    LAST_BROKER_ERROR = str(ie2)
+                    logger.error("retry INSERT failed: %s", ie2, exc_info=True)
+                    return None
 
         if existing_id is None:
-            LAST_BROKER_ERROR = LAST_BROKER_ERROR or "no broker id after insert"
+            LAST_BROKER_ERROR = LAST_BROKER_ERROR or "no id after insert"
             return None
 
-        # ---- UPDATE optional fields (ignore failures per column) ----
+        # ---- UPDATE remaining fields ----
         updates = {
+            "user_chat_id": chat_id,
+            "chat_id": chat_id,
             "full_name": full_name,
             "phone": phone,
+            "phone_number": phone,
             "username": username,
             "sub_city": sub_city,
             "specialty": specialty,
@@ -1185,11 +1226,7 @@ def add_broker(
             "national_id_photo": photo,
         }
         for col, val in updates.items():
-            if col not in cols and col not in ("full_name", "phone"):
-                # try anyway if common
-                if col not in cols:
-                    continue
-            if val is None and col not in ("fayda_id_url", "fayda_photo_id", "national_id_photo"):
+            if cols and col not in cols:
                 continue
             try:
                 cur.execute(
@@ -1198,14 +1235,14 @@ def add_broker(
                 )
                 _commit()
             except Exception as ue:
-                logger.debug("skip update %s: %s", col, ue)
+                logger.debug("update %s skip: %s", col, ue)
                 try:
                     if not pg:
                         conn.rollback()
                 except Exception:
                     pass
 
-        logger.info("✅ Broker saved id=%s chat_id=%s name=%r", existing_id, chat_id, full_name)
+        logger.info("✅ Broker saved id=%s user_chat_id=%s name=%r", existing_id, chat_id, full_name)
         return int(existing_id)
     except Exception as e:
         LAST_BROKER_ERROR = str(e)
@@ -1231,7 +1268,10 @@ def get_broker(chat_id: int):
         conn = get_db_connection()
         cursor = conn.cursor()
         p = get_placeholder()
-        cursor.execute(f"SELECT * FROM brokers WHERE chat_id = {p}", (chat_id,))
+        cursor.execute(
+            f"SELECT * FROM brokers WHERE chat_id = {p} OR user_chat_id = {p}",
+            (chat_id, chat_id),
+        )
         row = cursor.fetchone()
         if row:
             return dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
