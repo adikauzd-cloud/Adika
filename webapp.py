@@ -1057,11 +1057,11 @@ EXPLORER_HTML = r"""
       max-width: 100%;
       min-width: 0;
       box-sizing: border-box;
-      background: #ffffff;
-      border-radius: 14px;
+      background: #ffffff !important;
+      border-radius: 16px !important;
       border: none !important;
       outline: none !important;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08) !important;
       overflow: hidden;
       display: flex;
       flex-direction: column;
@@ -1075,12 +1075,29 @@ EXPLORER_HTML = r"""
     }
 
     .card-media, .img-wrap {
+      position: relative;
       width: 100%;
       height: 110px;
       border-radius: 10px;
       overflow: hidden;
-      position: relative;
       background: #e2e8f0;
+    }
+    .active-badge {
+      position: absolute;
+      top: 8px;
+      left: 8px;
+      width: 10px;
+      height: 10px;
+      background-color: #22c55e;
+      border-radius: 50%;
+      border: 2px solid #ffffff;
+      box-shadow: 0 0 6px rgba(34, 197, 94, 0.8);
+      z-index: 2;
+      display: block;
+    }
+    .active-badge.sold {
+      background-color: #ef4444;
+      box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
     }
     .card-media img, .img {
       width: 100%;
@@ -1231,8 +1248,13 @@ EXPLORER_HTML = r"""
           var user = extra.telegram_user ? String(extra.telegram_user).replace('@','') : '';
           var callHref = phone ? ('tel:' + phone) : '#';
           var chatHref = user ? ('https://t.me/' + user) : (item.user_chat_id ? ('tg://user?id=' + item.user_chat_id) : '#');
+          var st = String(item.status || '').toUpperCase();
+          var isSold = (st === 'SOLD' || st === 'RENTED' || st === 'EXPIRED' || item.is_sold === true);
+          var badgeCls = isSold ? 'active-badge sold' : 'active-badge';
           return '<div class="card listing-card">' +
-            '<div class="card-media">' + mediaInner +
+            '<div class="card-media">' +
+            '<span class="' + badgeCls + '"></span>' +
+            mediaInner +
             '<div class="meta">' +
             '<span class="badge">👁️ ' + esc(views) + '</span>' +
             '<span class="badge">' + esc(relativeTime(item.created_at)) + '</span></div></div>' +
