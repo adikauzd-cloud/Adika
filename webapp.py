@@ -981,7 +981,7 @@ EXPLORER_HTML = r"""
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>Adika Explorer</title>
+  <title>Adika Marketplace</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
@@ -1005,8 +1005,28 @@ EXPLORER_HTML = r"""
   </style>
 </head>
 <body>
-  <div id="root"></div>
+  <div id="root">
+    <div style="padding:24px;text-align:center;font-family:system-ui;color:#64748b">
+      <div style="font-size:28px;margin-bottom:8px">⏳</div>
+      <div>እየጫነ ነው…</div>
+      <div style="font-size:12px;margin-top:8px;color:#94a3b8">Adika Marketplace</div>
+    </div>
+  </div>
+  <script>
+    // CDN failure detection
+    window.__adikaBoot = function() {
+      if (!window.React || !window.ReactDOM) {
+        document.getElementById('root').innerHTML =
+          '<div style="padding:20px;font-family:system-ui;color:#b91c1c;line-height:1.5">' +
+          '<b>UI መጫን አልተቻለም</b><br/>React CDN አልደረሰም። ኢንተርኔት/VPN ይሞክሩ ወይም ከቦት «በጽሁፍ ተመልከት» ይጠቀሙ።' +
+          '</div>';
+        return false;
+      }
+      return true;
+    };
+  </script>
   <script type="text/babel">
+    if (!window.__adikaBoot || !window.__adikaBoot()) { throw new Error('CDN'); }
     const { useState, useEffect, useCallback, useRef } = React;
 
     const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : {
@@ -1484,7 +1504,14 @@ EXPLORER_HTML = r"""
           document.getElementById('root').innerHTML = '<div style="padding:20px;color:#b91c1c;font-family:system-ui">Failed to load React CDN</div>';
           return;
         }
-        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+        try {
+      if (window.__adikaBoot && !window.__adikaBoot()) throw new Error('CDN');
+      ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    } catch (e) {
+      document.getElementById('root').innerHTML =
+        '<div style="padding:20px;font-family:system-ui;color:#b91c1c">UI Error: ' + (e && e.message ? e.message : e) +
+        '<br/><br/>ከቦት <b>⚡ በጽሁፍ ተመልከት</b> ይጠቀሙ።</div>';
+    }
       } catch (e) {
         document.getElementById('root').innerHTML = '<div style="padding:20px;color:#b91c1c;font-family:system-ui">UI Error: '+e.message+'</div>';
       }
