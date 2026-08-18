@@ -14,6 +14,7 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     ConversationHandler, ContextTypes, filters,
 )
+from telegram.request import HTTPXRequest
 
 from config import BOT_TOKEN, logger, MAIN_KEYBOARD
 from models import init_db, expire_old_listings
@@ -89,9 +90,26 @@ def main():
         webapp_module.bot_loop = asyncio.get_running_loop()
         logger.info("Event loop captured for cross-thread notifications")
 
+    # Longer timeouts reduce get_updates errors on slow/unstable networks (e.g. Render)
+    request = HTTPXRequest(
+        connection_pool_size=8,
+        connect_timeout=30.0,
+        read_timeout=30.0,
+        write_timeout=30.0,
+        pool_timeout=30.0,
+    )
+    get_updates_request = HTTPXRequest(
+        connection_pool_size=4,
+        connect_timeout=30.0,
+        read_timeout=60.0,
+        write_timeout=30.0,
+        pool_timeout=30.0,
+    )
     app = (
         Application.builder()
         .token(BOT_TOKEN)
+        .request(request)
+        .get_updates_request(get_updates_request)
         .concurrent_updates(True)
         .post_init(_post_init)
         .build()
@@ -264,7 +282,11 @@ def main():
     app.add_error_handler(error_handler)
 
     logger.info("🚀 Adika Marketplace Bot started")
-    app.run_polling(drop_pending_updates=True)
+    app.run_polling(
+        drop_pending_updates=True,
+        close_loop=False,
+        stop_signals=None,
+    )
 
 
 if __name__ == "__main__":
