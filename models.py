@@ -1286,7 +1286,7 @@ def get_approved_brokers():
                 "('approved', 'online', 'pending', 'ONLINE', 'APPROVED', 'PENDING'))"
             )
         if "is_approved" in cols:
-            where_parts.append("(is_approved IS NULL OR is_approved = TRUE OR is_approved = 1)")
+            where_parts.append("(is_approved IS NULL OR is_approved IS TRUE OR is_approved = TRUE)")
         # If neither column exists, return all brokers
         if where_parts:
             # OR together: approved by status OR by flag; if only one exists use it
@@ -1295,7 +1295,7 @@ def get_approved_brokers():
                     "SELECT * FROM brokers WHERE "
                     "(status IS NULL OR LOWER(CAST(status AS TEXT)) IN "
                     "('approved','online','pending')) "
-                    "OR (is_approved IS NULL OR is_approved = TRUE OR is_approved = 1)"
+                    "OR (is_approved IS NULL OR is_approved IS TRUE OR is_approved = TRUE)"
                 )
             else:
                 sql = "SELECT * FROM brokers WHERE " + where_parts[0]
@@ -1354,7 +1354,7 @@ def get_active_brokers(sub_city=None, status="ONLINE", limit=50, offset=0):
                 "('rejected', 'deleted', 'banned'))"
             )
         elif "is_approved" in cols:
-            where.append("(is_approved IS NULL OR is_approved = TRUE OR is_approved = 1)")
+            where.append("(is_approved IS NULL OR is_approved IS TRUE OR is_approved = TRUE)")
 
         if sub_city and str(sub_city).strip() not in ("ሁሉም", "አዲስ አበባ (ሙሉ)", "", "None"):
             if "sub_city" in cols or not cols:
