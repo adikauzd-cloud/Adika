@@ -1276,7 +1276,7 @@ def _normalize_broker_row(broker: dict, cols_desc=None) -> dict:
 
 
 def get_approved_brokers():
-    """Brokers eligible for notifications. Safe if status column missing."""
+    """Brokers eligible for notifications. Boolean-safe for PostgreSQL."""
     conn = None
     try:
         try:
@@ -1286,40 +1286,44 @@ def get_approved_brokers():
         conn = get_db_connection()
         cursor = conn.cursor()
         cols = _broker_table_columns(cursor)
-        p = get_placeholder()
-        where_parts = []
-        if "status" in cols:
-            where_parts.append(
+
+        # IMPORTANT: never compare boolean column to integer (1/0)
+        if "status" in cols and "is_approved" in cols:
+            sql = (
+                "SELECT * FROM brokers WHERE "
                 "(status IS NULL OR LOWER(CAST(status AS TEXT)) IN "
-                "('approved', 'online', 'pending', 'ONLINE', 'APPROVED', 'PENDING'))"
+                "('approved','online','pending','ONLINE','APPROVED','PENDING')) "
+                "OR (is_approved IS NULL OR is_approved IS TRUE OR is_approved = TRUE)"
             )
-        if "is_approved" in cols:
-            where_parts.append("(is_approved IS NULL OR is_approved IS TRUE OR is_approved = TRUE)")
-        # If neither column exists, return all brokers
-        if where_parts:
-            # OR together: approved by status OR by flag; if only one exists use it
-            if "status" in cols and "is_approved" in cols:
-                sql = (
-                    "SELECT * FROM brokers WHERE "
-                    "(status IS NULL OR LOWER(CAST(status AS TEXT)) IN "
-                    "('approved','online','pending')) "
-                    "OR (is_approved IS NULL OR is_approved IS TRUE OR is_approved = TRUE)"
-                )
-            else:
-                sql = "SELECT * FROM brokers WHERE " + where_parts[0]
+        elif "is_approved" in cols:
+            sql = (
+                "SELECT * FROM brokers WHERE "
+                "(is_approved IS NULL OR is_approved IS TRUE OR is_approved = TRUE)"
+            )
+        elif "status" in cols:
+            sql = (
+                "SELECT * FROM brokers WHERE "
+                "(status IS NULL OR LOWER(CAST(status AS TEXT)) IN "
+                "('approved','online','pending','ONLINE','APPROVED','PENDING'))"
+            )
         else:
             sql = "SELECT * FROM brokers"
+
         try:
             cursor.execute(sql)
         except Exception as qe:
             logger.warning("get_approved_brokers filtered query failed (%s); selecting all", qe)
             cursor.execute("SELECT * FROM brokers")
+
         rows = cursor.fetchall() or []
         results = []
         for row in rows:
-            broker = dict(row) if isinstance(row, dict) else dict(zip([c[0] for c in cursor.description], row))
+            broker = (
+                dict(row)
+                if isinstance(row, dict)
+                else dict(zip([c[0] for c in cursor.description], row))
+            )
             broker = _normalize_broker_row(broker, cursor.description)
-            # Skip clearly rejected
             st = str(broker.get("status") or "").lower()
             if st in ("rejected", "deleted", "banned"):
                 continue
