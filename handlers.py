@@ -1326,70 +1326,110 @@ async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def broker_reg_fayda(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Receive Fayda photo → SAVE broker to DB."""
+    """Receive Fayda photo/document → SAVE broker to DB."""
     msg = update.message
-    if msg and msg.text == "🏠 ዋና ገጽ":
-        return await go_home(update, context)
-    if not msg or not msg.photo:
-        await msg.reply_text("🪪 እባክዎ የፋይዳ ፎቶ ይላኩ (እንደ ምስል)።")
-        return BROKER_FAYDA
+    try:
+        if msg and msg.text == "🏠 ዋና ገጽ":
+            return await go_home(update, context)
 
-    fayda_id = msg.photo[-1].file_id
-    user = update.effective_user
-    full_name = context.user_data.get("broker_name") or user.first_name or "User"
-    phone = context.user_data.get("broker_phone") or ""
-    category = context.user_data.get("broker_category") or "📦 አጠቃላይ ደላላ"
-    sub_city = context.user_data.get("broker_subcity") or ""
-    username = context.user_data.get("broker_username") or (
-        f"@{user.username}" if user.username else f"tg://user?id={user.id}"
-    )
+        fayda_id = None
+        if msg and msg.photo:
+            fayda_id = msg.photo[-1].file_id
+        elif msg and msg.document:
+            mime = (msg.document.mime_type or "").lower()
+            if mime.startswith("image/") or (msg.document.file_name or "").lower().endswith(
+                (".jpg", ".jpeg", ".png", ".webp")
+            ):
+                fayda_id = msg.document.file_id
+        elif msg and getattr(msg, "video", None):
+            # reject non-image
+            fayda_id = None
 
-    bid = add_broker(
-        chat_id=int(user.id),
-        full_name=full_name,
-        phone=phone,
-        role_type=category,
-        national_id_photo=fayda_id,
-        sub_city=sub_city,
-        specialty=category,
-        username=username,
-        fayda_photo_id=fayda_id,
-    )
-    if bid:
-        await msg.reply_text(
-            "✅ <b>ምዝገባዎ ተጠናቋል!</b>\n"
-            "⏳ አድሚን ካረጋገጠ በኋላ በመድረኩ ይታያሉ።",
-            parse_mode="HTML",
-            reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
-        )
-        if ADMIN_CHAT_ID_INT:
-            try:
-                await context.bot.send_photo(
-                    chat_id=ADMIN_CHAT_ID_INT,
-                    photo=fayda_id,
-                    caption=(
-                        f"🚨 አዲስ ደላላ + Fayda ID\n"
-                        f"👤 {full_name}\n"
-                        f"📞 {phone}\n"
-                        f"🔗 {username}\n"
-                        f"💼 {category} | 📍 {sub_city}\n"
-                        f"ID: `{user.id}`"
-                    ),
-                    parse_mode="Markdown",
-                    reply_markup=InlineKeyboardMarkup([[
-                        InlineKeyboardButton("✅ አጽድቅ", callback_data=f"admin_appr_{user.id}"),
-                        InlineKeyboardButton("❌ ሰርዝ", callback_data=f"admin_reje_{user.id}"),
-                    ]]),
+        if not fayda_id:
+            if msg:
+                await msg.reply_text(
+                    "🪪 እባክዎ የፋይዳ ፎቶ ይላኩ (እንደ ምስል ወይም image ፋይል)።"
                 )
-            except Exception as e:
-                logger.error(f"admin fayda notify: {e}")
-    else:
+            return BROKER_FAYDA
+
+        user = update.effective_user
+        full_name = context.user_data.get("broker_name") or (user.first_name if user else "User") or "User"
+        phone = context.user_data.get("broker_phone") or ""
+        category = context.user_data.get("broker_category") or "📦 አጠቃላይ ደላላ"
+        sub_city = context.user_data.get("broker_subcity") or ""
+        username = context.user_data.get("broker_username") or (
+            f"@{user.username}" if user and user.username else f"tg://user?id={user.id if user else 0}"
+        )
+
+        try:
+            bid = add_broker(
+                chat_id=int(user.id),
+                full_name=full_name,
+                phone=phone,
+                role_type=category,
+                national_id_photo=fayda_id,
+                sub_city=sub_city,
+                specialty=category,
+                username=username,
+                fayda_photo_id=fayda_id,
+            )
+        except Exception as db_err:
+            logger.error("broker_reg_fayda add_broker exception: %s", db_err, exc_info=True)
+            bid = None
+
+        if bid:
+            await msg.reply_text(
+                "✅ <b>ምዝገባዎ ተጠናቋል!</b>\n"
+                "⏳ አድሚን ካረጋገጠ በኋላ በመድረኩ ይታያሉ።",
+                parse_mode="HTML",
+                reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+            )
+            if ADMIN_CHAT_ID_INT:
+                try:
+                    await context.bot.send_photo(
+                        chat_id=ADMIN_CHAT_ID_INT,
+                        photo=fayda_id,
+                        caption=(
+                            f"🚨 አዲስ ደላላ + Fayda ID\n"
+                            f"👤 {full_name}\n"
+                            f"📞 {phone}\n"
+                            f"🔗 {username}\n"
+                            f"💼 {category} | 📍 {sub_city}\n"
+                            f"ID: `{user.id}`"
+                        ),
+                        parse_mode="Markdown",
+                        reply_markup=InlineKeyboardMarkup([[
+                            InlineKeyboardButton("✅ አጽድቅ", callback_data=f"admin_appr_{user.id}"),
+                            InlineKeyboardButton("❌ ሰርዝ", callback_data=f"admin_reje_{user.id}"),
+                        ]]),
+                    )
+                except Exception as e:
+                    logger.error(f"admin fayda notify: {e}")
+            context.user_data.clear()
+            return ConversationHandler.END
+
+        logger.error(
+            "broker_reg_fayda save failed user=%s name=%s phone=%s sub=%s",
+            getattr(user, "id", None), full_name, phone, sub_city,
+        )
         await msg.reply_text(
-            "❌ ምዝገባ አልተሳካም። /start ይጫኑ።",
+            "❌ ምዝገባ አልተሳካም። እባክዎ እንደገና ይሞክሩ ወይም /start ይጫኑ።",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
         )
-    context.user_data.clear()
-    return ConversationHandler.END
+        context.user_data.clear()
+        return ConversationHandler.END
+    except Exception as e:
+        logger.error("broker_reg_fayda crash: %s", e, exc_info=True)
+        try:
+            if update.message:
+                await update.message.reply_text(
+                    "❌ ምዝገባ አልተሳካም። /start ይጫኑ።",
+                    reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
+                )
+        except Exception:
+            pass
+        context.user_data.clear()
+        return ConversationHandler.END
 
 
 async def broker_have_item_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
