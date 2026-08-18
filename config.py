@@ -29,6 +29,17 @@ RENDER_EXTERNAL_HOSTNAME = (os.environ.get("RENDER_EXTERNAL_HOSTNAME", "") or ""
 PORT = int(os.environ.get("PORT", "8080"))
 DB_FILE = os.environ.get("DB_FILE", "adika_marketplace.db")
 
+# Supabase Storage (optional — for Fayda ID photo upload)
+SUPABASE_URL = (os.environ.get("SUPABASE_URL") or "").strip().rstrip("/")
+SUPABASE_KEY = (
+    os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    or os.environ.get("SUPABASE_KEY")
+    or os.environ.get("SUPABASE_ANON_KEY")
+    or ""
+).strip()
+SUPABASE_BUCKET = os.environ.get("SUPABASE_BUCKET", "broker-documents")
+
+
 # Runtime flag set by models after successful connect (postgres | sqlite)
 DB_BACKEND = "unknown"
 
