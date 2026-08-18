@@ -13,7 +13,7 @@ logger = logging.getLogger("adika")
 BOT_TOKEN = os.environ.get("BOT_TOKEN", "")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID", "0")
 
-# Accept common env names (Render PostgreSQL / Supabase)
+# Primary: PostgreSQL / Supabase (Session or Transaction pooler URL)
 DATABASE_URL = (
     os.environ.get("DATABASE_URL")
     or os.environ.get("SUPABASE_DB_URL")
@@ -22,31 +22,42 @@ DATABASE_URL = (
     or ""
 )
 DATABASE_URL = str(DATABASE_URL).strip().strip('"').strip("'")
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 RENDER_EXTERNAL_HOSTNAME = (os.environ.get("RENDER_EXTERNAL_HOSTNAME", "") or "").strip()
 PORT = int(os.environ.get("PORT", "8080"))
 DB_FILE = os.environ.get("DB_FILE", "adika_marketplace.db")
 
-if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# Runtime flag set by models after successful connect (postgres | sqlite)
+DB_BACKEND = "unknown"
 
-_IS_RENDER = bool(os.environ.get("RENDER") or RENDER_EXTERNAL_HOSTNAME)
-if DATABASE_URL:
-    logger.info("📦 Database: PostgreSQL (persistent)")
-elif _IS_RENDER:
-    # Do NOT crash the service — warn loudly so the operator can attach a DB
-    logger.error(
-        "❌ DATABASE_URL is not set on Render. "
-        "Attach PostgreSQL (or paste a Supabase URI) as env DATABASE_URL. "
-        "Falling back to SQLite (data will be LOST on every redeploy)."
-    )
-else:
-    logger.warning("⚠️ DATABASE_URL not set — local SQLite (dev only)")
-
+# Public HTTPS URL for Telegram Mini App (must be https://)
+_raw_web = (os.environ.get("WEBAPP_URL") or "").strip().rstrip("/")
 if RENDER_EXTERNAL_HOSTNAME:
-    WEBAPP_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}"
+    WEBAPP_URL = f"https://{RENDER_EXTERNAL_HOSTNAME}".rstrip("/")
+elif _raw_web:
+    if not _raw_web.startswith("http"):
+        _raw_web = "https://" + _raw_web
+    WEBAPP_URL = _raw_web.replace("http://", "https://").rstrip("/")
 else:
-    WEBAPP_URL = os.environ.get("WEBAPP_URL", "http://127.0.0.1:8080")
+    WEBAPP_URL = "http://127.0.0.1:8080"
+
+# Guard: SUPABASE_URL is NOT a Postgres connection string
+_supabase_api = (os.environ.get("SUPABASE_URL") or "").strip()
+if DATABASE_URL and DATABASE_URL.startswith("http"):
+    logger.error(
+        "DATABASE_URL looks like an HTTP URL (%s). "
+        "Use the Postgres URI (port 6543 pooler), not SUPABASE_URL.",
+        DATABASE_URL[:48],
+    )
+    DATABASE_URL = ""
+if not DATABASE_URL and _supabase_api:
+    logger.warning(
+        "SUPABASE_URL is set but DATABASE_URL is missing. "
+        "Mini App needs DATABASE_URL=postgresql://...@...pooler.supabase.com:6543/postgres"
+    )
+
 
 try:
     ADMIN_CHAT_ID_INT = int(ADMIN_CHAT_ID) if ADMIN_CHAT_ID else 0
@@ -76,14 +87,12 @@ SUB_CITIES = [
    "ቂርቆስ", "አዲስ ከተማ", "ንፋስ ስልክ ላፍቶ",
    "ኮልፌ ቀራኒዮ", "አቃቂ ቃሊቲ", "ጉሌሌ", "ላምበርት/የካ"
 ]
-
 CAR_SUB_CATEGORIES = ["🚗 የቤት መኪና", "🚚 የሥራ መኪና", "🚜 ከባድ ተሽከርካሪ/ማሽን"]
 HOUSE_TYPES = ["🏡 ቪላ", "🏢 አፓርታማ", "🏢 ኮንዶሚኒየም", "🏢 ሪል እስቴት", "🏞️ መሬት/ቦታ"]
 PROPERTY_TYPES = ["🏠 መኖሪያ ቤት", "🏢 የሥራ ቦታ / ንግድ"]
 FUEL_TYPES = ["⛽ ቤንዚን", "🛢️ ናፍጣ", "⚡ ኤሌክትሪክ", "🔋 ሀይብሪድ"]
 TRANSMISSION_TYPES = ["🕹️ ማንዋል", "🤖 ኦቶማቲክ"]
 CONDITIONS = ["🆕 አዲስ", "✅ ያገለገለ", "🔧 ጥገና የሚፈልግ"]
-
 BROKER_CATEGORIES = ["🚗 መኪና", "🏠 ቤትና ቦታ", "📦 አጠቃላይ ደላላ"]
 BROKER_REG_SUBCITIES = [
     "ቦሌ", "አራዳ", "ቂርቆስ", "ልደታ", "አዲስ ከተማ",
