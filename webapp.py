@@ -37,7 +37,7 @@ def _telegram_headers(resp):
     resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
     resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PATCH, DELETE, OPTIONS"
     # Allow embedding in Telegram WebView
-    resp.headers["X-Frame-Options"] = "ALLOWALL"
+    resp.headers.pop("X-Frame-Options", None)
     resp.headers.pop("X-Frame-Options", None)  # Telegram needs frames allowed
     resp.headers["Content-Security-Policy"] = "frame-ancestors 'self' https://web.telegram.org https://telegram.org"
     return resp
@@ -72,9 +72,10 @@ SELLER_FORM_HTML = r"""
   <title>ንብረት ለገበያ</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.0/babel.min.js"></script>
+
   <style>
     body { margin:0; background:#f8fafc; font-family:system-ui,-apple-system,sans-serif; -webkit-tap-highlight-color:transparent; }
     .chip-active { background:#2563eb; color:#fff; font-weight:700; box-shadow:0 1px 3px rgba(37,99,235,.3); }
@@ -86,9 +87,11 @@ SELLER_FORM_HTML = r"""
   <div id="root"></div>
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
-    const tg = window.Telegram.WebApp;
-    tg.expand(); tg.ready();
-    tg.setHeaderColor('#2563eb'); tg.setBackgroundColor('#f8fafc');
+    const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : {
+      expand(){}, ready(){}, close(){}, initDataUnsafe: {}, setHeaderColor(){}, setBackgroundColor(){}, showAlert: (m)=>alert(m)
+    };
+    try { tg.ready(); tg.expand(); } catch (e) { console.warn(e); }
+    try { tg.setHeaderColor('#2563eb'); tg.setBackgroundColor('#f8fafc'); } catch (e) {}
 
     const user = tg.initDataUnsafe?.user || {};
     const autoUsername = user.username ? '@' + user.username : '';
@@ -503,7 +506,17 @@ SELLER_FORM_HTML = r"""
       );
     }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<SellerForm />);
+    (function(){
+      try {
+        if (!window.React || !window.ReactDOM) {
+          document.getElementById('root').innerHTML = '<div style="padding:20px;color:#b91c1c;font-family:system-ui">Failed to load React CDN</div>';
+          return;
+        }
+        ReactDOM.createRoot(document.getElementById('root')).render(<SellerForm />);
+      } catch (e) {
+        document.getElementById('root').innerHTML = '<div style="padding:20px;color:#b91c1c;font-family:system-ui">UI Error: '+e.message+'</div>';
+      }
+    })();
   </script>
 </body>
 </html>
@@ -519,9 +532,10 @@ BUYER_FORM_HTML = r"""
   <title>ጥያቄ ያስገቡ</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.0/babel.min.js"></script>
+
   <style>
     body { margin:0; background:#f8fafc; font-family:system-ui,-apple-system,sans-serif; -webkit-tap-highlight-color:transparent; }
     .chip-active { background:#2563eb; color:#fff; font-weight:700; box-shadow:0 1px 3px rgba(37,99,235,.3); }
@@ -533,9 +547,11 @@ BUYER_FORM_HTML = r"""
   <div id="root"></div>
   <script type="text/babel">
     const { useState } = React;
-    const tg = window.Telegram.WebApp;
-    tg.expand(); tg.ready();
-    tg.setHeaderColor('#2563eb'); tg.setBackgroundColor('#f8fafc');
+    const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : {
+      expand(){}, ready(){}, close(){}, initDataUnsafe: {}, setHeaderColor(){}, setBackgroundColor(){}, showAlert: (m)=>alert(m)
+    };
+    try { tg.ready(); tg.expand(); } catch (e) { console.warn(e); }
+    try { tg.setHeaderColor('#2563eb'); tg.setBackgroundColor('#f8fafc'); } catch (e) {}
 
     const user = tg.initDataUnsafe?.user || {};
     const autoUsername = user.username ? '@' + user.username : '';
@@ -699,7 +715,17 @@ BUYER_FORM_HTML = r"""
       );
     }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<BuyerForm />);
+    (function(){
+      try {
+        if (!window.React || !window.ReactDOM) {
+          document.getElementById('root').innerHTML = '<div style="padding:20px;color:#b91c1c;font-family:system-ui">Failed to load React CDN</div>';
+          return;
+        }
+        ReactDOM.createRoot(document.getElementById('root')).render(<BuyerForm />);
+      } catch (e) {
+        document.getElementById('root').innerHTML = '<div style="padding:20px;color:#b91c1c;font-family:system-ui">UI Error: '+e.message+'</div>';
+      }
+    })();
   </script>
 </body>
 </html>
@@ -958,9 +984,10 @@ EXPLORER_HTML = r"""
   <title>Adika Explorer</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.0/babel.min.js"></script>
+
   <style>
     body { background: #f1f5f9; margin: 0; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
     .glass { background: rgba(255,255,255,0.88); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
@@ -982,11 +1009,11 @@ EXPLORER_HTML = r"""
   <script type="text/babel">
     const { useState, useEffect, useCallback, useRef } = React;
 
-    const tg = window.Telegram.WebApp;
-    tg.expand();
-    tg.ready();
-    tg.setHeaderColor('#2563eb');
-    tg.setBackgroundColor('#E8F3FC');
+    const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : {
+      expand(){}, ready(){}, close(){}, initDataUnsafe: {}, setHeaderColor(){}, setBackgroundColor(){}, showAlert: (m)=>alert(m)
+    };
+    try { tg.ready(); tg.expand(); } catch (e) { console.warn(e); }
+    try { tg.setHeaderColor('#2563eb'); tg.setBackgroundColor('#E8F3FC'); } catch (e) {}
     const currentUserId = tg.initDataUnsafe?.user?.id || null;
 
     function relativeTime(iso) {
@@ -1451,7 +1478,17 @@ EXPLORER_HTML = r"""
       );
     }
 
-    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    (function(){
+      try {
+        if (!window.React || !window.ReactDOM) {
+          document.getElementById('root').innerHTML = '<div style="padding:20px;color:#b91c1c;font-family:system-ui">Failed to load React CDN</div>';
+          return;
+        }
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+      } catch (e) {
+        document.getElementById('root').innerHTML = '<div style="padding:20px;color:#b91c1c;font-family:system-ui">UI Error: '+e.message+'</div>';
+      }
+    })();
   </script>
 </body>
 </html>
