@@ -34,6 +34,7 @@ def _webapp_url(path: str) -> str:
 
 from models import (
     LAST_BROKER_ERROR,
+    upload_broker_document,
     add_listing, get_listing_by_id, get_listings_by_category_ordered,
     count_listings, update_listing_status, get_public_marketplace_items,
     add_broker, get_broker, update_broker_status, update_broker_notification_prefs,
@@ -1327,7 +1328,7 @@ async def broker_reg_subcity(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def broker_reg_fayda(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Receive Fayda photo/document → SAVE broker to DB."""
+    """Receive Fayda photo/document → upload to Supabase → SAVE broker."""
     msg = update.message
     try:
         if msg and msg.text == "🏠 ዋና ገጽ":
@@ -1338,13 +1339,9 @@ async def broker_reg_fayda(update: Update, context: ContextTypes.DEFAULT_TYPE):
             fayda_id = msg.photo[-1].file_id
         elif msg and msg.document:
             mime = (msg.document.mime_type or "").lower()
-            if mime.startswith("image/") or (msg.document.file_name or "").lower().endswith(
-                (".jpg", ".jpeg", ".png", ".webp")
-            ):
+            fname = (msg.document.file_name or "").lower()
+            if mime.startswith("image/") or fname.endswith((".jpg", ".jpeg", ".png", ".webp")):
                 fayda_id = msg.document.file_id
-        elif msg and getattr(msg, "video", None):
-            # reject non-image
-            fayda_id = None
 
         if not fayda_id:
             if msg:
@@ -1362,17 +1359,35 @@ async def broker_reg_fayda(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"@{user.username}" if user and user.username else f"tg://user?id={user.id if user else 0}"
         )
 
+        # Download photo bytes from Telegram
+        fayda_url = ""
+        try:
+            tg_file = await context.bot.get_file(fayda_id)
+            bio = await tg_file.download_as_bytearray()
+            file_bytes = bytes(bio)
+            filename = f"fayda_{user.id}_{fayda_id[:16]}.jpg"
+            fayda_url = upload_broker_document(file_bytes, filename, "image/jpeg")
+            if not fayda_url:
+                logger.warning("Storage upload empty — storing Telegram file_id only")
+        except Exception as up_err:
+            logger.error("Fayda download/upload failed: %s", up_err, exc_info=True)
+            fayda_url = ""
+
+        # Prefer public URL; fallback to Telegram file_id so registration still works
+        photo_ref = fayda_url or fayda_id
+
         try:
             bid = add_broker(
                 chat_id=int(user.id),
                 full_name=full_name,
                 phone=phone,
                 role_type=category,
-                national_id_photo=fayda_id,
+                national_id_photo=photo_ref,
                 sub_city=sub_city,
                 specialty=category,
                 username=username,
-                fayda_photo_id=fayda_id,
+                fayda_photo_id=photo_ref,
+                fayda_id_url=fayda_url or None,
             )
         except Exception as db_err:
             logger.error("broker_reg_fayda add_broker exception: %s", db_err, exc_info=True)
@@ -1380,24 +1395,25 @@ async def broker_reg_fayda(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if bid:
             await msg.reply_text(
-                "✅ <b>ምዝገባዎ ተጠናቋል!</b>\n"
-                "⏳ አድሚን ካረጋገጠ በኋላ በመድረኩ ይታያሉ።",
-                parse_mode="HTML",
+                "✅ ምዝገባዎ በተሳካ ሁኔታ ተልኳል። ከአስተዳዳሪው ማረጋገጫ በኋላ ይበራልዎታል።",
                 reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
             )
             if ADMIN_CHAT_ID_INT:
                 try:
+                    cap = (
+                        f"🚨 አዲስ ደላላ + Fayda ID\n"
+                        f"👤 {full_name}\n"
+                        f"📞 {phone}\n"
+                        f"🔗 {username}\n"
+                        f"💼 {category} | 📍 {sub_city}\n"
+                        f"ID: `{user.id}`"
+                    )
+                    if fayda_url:
+                        cap += f"\n📎 {fayda_url}"
                     await context.bot.send_photo(
                         chat_id=ADMIN_CHAT_ID_INT,
                         photo=fayda_id,
-                        caption=(
-                            f"🚨 አዲስ ደላላ + Fayda ID\n"
-                            f"👤 {full_name}\n"
-                            f"📞 {phone}\n"
-                            f"🔗 {username}\n"
-                            f"💼 {category} | 📍 {sub_city}\n"
-                            f"ID: `{user.id}`"
-                        ),
+                        caption=cap,
                         parse_mode="Markdown",
                         reply_markup=InlineKeyboardMarkup([[
                             InlineKeyboardButton("✅ አጽድቅ", callback_data=f"admin_appr_{user.id}"),
@@ -1409,10 +1425,6 @@ async def broker_reg_fayda(update: Update, context: ContextTypes.DEFAULT_TYPE):
             context.user_data.clear()
             return ConversationHandler.END
 
-        logger.error(
-            "broker_reg_fayda save failed user=%s name=%s phone=%s sub=%s",
-            getattr(user, "id", None), full_name, phone, sub_city,
-        )
         detail = ""
         try:
             import models as _m
