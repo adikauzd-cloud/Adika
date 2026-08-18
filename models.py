@@ -589,10 +589,9 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
             if not str(desc_val).strip():
                 desc_val = cat_val
 
-            # Dual-map: Supabase may use category and/or main_category (both NOT NULL possible)
             candidates = [
                 ("user_chat_id", user_chat_id),
-                ("user_id", user_chat_id),  # alternate schema
+                ("user_id", user_chat_id),
                 ("user_name", user_name or "User"),
                 ("req_type", req_val),
                 ("main_category", cat_val),
@@ -603,7 +602,7 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                 ("description", desc_val),
                 ("price", price or ""),
                 ("phone", phone or ""),
-                ("photo_id", photo_id),  # nullable OK
+                ("photo_id", photo_id),
                 ("status", "ONLINE"),
             ]
             if with_extra:
@@ -616,15 +615,19 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                 cl = col.lower()
                 if existing_cols and cl not in existing_cols:
                     continue
-                # Never bind Python None into NOT NULL text fields
                 if val is None and cl in (
                     "category", "main_category", "req_type", "description",
                     "user_name", "status", "sub_category", "action_type",
                     "property_type", "price", "phone",
                 ):
-                    val = cat_val if cl in ("category", "main_category", "sub_category") else (
-                        req_val if cl == "req_type" else (desc_val if cl == "description" else "")
-                    )
+                    if cl in ("category", "main_category", "sub_category"):
+                        val = cat_val
+                    elif cl == "req_type":
+                        val = req_val
+                    elif cl == "description":
+                        val = desc_val
+                    else:
+                        val = ""
                 cols.append(col)
                 vals.append(val)
 
@@ -632,29 +635,33 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                 cols = [c for c, _ in candidates]
                 vals = [v if v is not None else "" for _, v in candidates]
 
-            # Force category / main_category if table has them but filter dropped them
             force_map = {
                 "category": cat_val,
                 "main_category": cat_val,
                 "req_type": req_val,
                 "description": desc_val,
             }
+            lower_cols = [c.lower() for c in cols]
             for fcol, fval in force_map.items():
                 if existing_cols and fcol not in existing_cols:
+                    # still force category/main_category even if introspect missed them
+                    if fcol in ("category", "main_category") and fcol not in lower_cols:
+                        cols.append(fcol)
+                        vals.append(fval)
+                        lower_cols.append(fcol)
                     continue
-                if fcol not in [c.lower() for c in cols]:
+                if fcol not in lower_cols:
                     cols.append(fcol)
                     vals.append(fval)
+                    lower_cols.append(fcol)
                 else:
-                    # overwrite any accidental None
                     for i, c in enumerate(cols):
-                        if c.lower() == fcol and (vals[i] is None or vals[i] == ""):
+                        if c.lower() == fcol and (vals[i] is None or str(vals[i]).strip() == ""):
                             vals[i] = fval
 
             if not cols:
                 raise RuntimeError("No matching columns on listings table")
 
-            # Final safety: no None for category
             for i, c in enumerate(cols):
                 if c.lower() in ("category", "main_category") and not vals[i]:
                     vals[i] = cat_val
@@ -671,6 +678,7 @@ def add_listing(user_chat_id, user_name, req_type, main_category, sub_category,
                 return row["id"] if isinstance(row, dict) else row[0]
             cursor.execute(q, tuple(vals))
             return cursor.lastrowid
+
 
         req_id = None
         last_err = None
