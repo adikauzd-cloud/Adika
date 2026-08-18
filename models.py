@@ -14,7 +14,9 @@ import config as _app_config
 
 
 _DB_BACKEND = "unknown"
+LAST_BROKER_ERROR = ""
 LAST_DB_ERROR = ""
+LAST_BROKER_ERROR = ""
 
 
 def _normalize_pg_url(url: str) -> str:
@@ -948,7 +950,9 @@ def add_broker(
     username="",
     fayda_photo_id=None,
 ) -> Optional[int]:
-    """Insert or update broker. Column-safe for varied Supabase schemas."""
+    """Insert/update broker with multi-fallback for Supabase schema differences."""
+    global LAST_BROKER_ERROR
+    LAST_BROKER_ERROR = ""
     conn = None
     try:
         chat_id = int(chat_id)
@@ -960,8 +964,11 @@ def add_broker(
         specialty = (str(specialty).strip() if specialty else role_type)[:120]
         photo = str(national_id_photo) if national_id_photo else None
         fayda = str(fayda_photo_id) if fayda_photo_id else photo
-        prefs = {"car": True, "house": True, "enabled": True}
 
+        try:
+            ensure_core_tables()
+        except Exception:
+            pass
         try:
             ensure_brokers_columns()
         except Exception:
@@ -971,56 +978,104 @@ def add_broker(
         cur = conn.cursor()
         p = get_placeholder()
 
-        # Extra migrations
+        # Create brokers table if completely missing
         try:
             if is_postgres():
-                for stmt in (
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS username TEXT DEFAULT ''",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS specialty TEXT DEFAULT ''",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS role_type TEXT DEFAULT ''",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS national_id_photo TEXT",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS fayda_photo_id TEXT",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_verified BOOLEAN DEFAULT FALSE",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT TRUE",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_approved BOOLEAN DEFAULT TRUE",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ONLINE'",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS notification_prefs JSONB DEFAULT '{}'::jsonb",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS full_name TEXT",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS phone TEXT",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS sub_city TEXT",
-                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS chat_id BIGINT",
-                ):
-                    try:
-                        cur.execute(stmt)
-                    except Exception:
-                        pass
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS brokers (
+                        id SERIAL PRIMARY KEY,
+                        chat_id BIGINT UNIQUE,
+                        full_name TEXT,
+                        phone TEXT,
+                        username TEXT,
+                        sub_city TEXT,
+                        specialty TEXT,
+                        status TEXT DEFAULT 'ONLINE',
+                        is_approved BOOLEAN DEFAULT TRUE,
+                        is_online BOOLEAN DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
             else:
-                for stmt in (
-                    "ALTER TABLE brokers ADD COLUMN username TEXT DEFAULT ''",
-                    "ALTER TABLE brokers ADD COLUMN specialty TEXT DEFAULT ''",
-                    "ALTER TABLE brokers ADD COLUMN role_type TEXT DEFAULT ''",
-                    "ALTER TABLE brokers ADD COLUMN national_id_photo TEXT",
-                    "ALTER TABLE brokers ADD COLUMN fayda_photo_id TEXT",
-                    "ALTER TABLE brokers ADD COLUMN is_verified INTEGER DEFAULT 0",
-                    "ALTER TABLE brokers ADD COLUMN is_online INTEGER DEFAULT 1",
-                    "ALTER TABLE brokers ADD COLUMN is_approved INTEGER DEFAULT 1",
-                    "ALTER TABLE brokers ADD COLUMN status TEXT DEFAULT 'ONLINE'",
-                    "ALTER TABLE brokers ADD COLUMN notification_prefs TEXT DEFAULT '{}'",
-                ):
-                    try:
-                        cur.execute(stmt)
-                        conn.commit()
-                    except Exception:
-                        pass
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS brokers (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        chat_id INTEGER UNIQUE,
+                        full_name TEXT,
+                        phone TEXT,
+                        username TEXT,
+                        sub_city TEXT,
+                        specialty TEXT,
+                        status TEXT DEFAULT 'ONLINE',
+                        is_approved INTEGER DEFAULT 1,
+                        is_online INTEGER DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.commit()
+        except Exception as ce:
+            logger.warning("create brokers: %s", ce)
+
+        # Migrate common columns
+        if is_postgres():
+            for stmt in (
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS chat_id BIGINT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS telegram_id BIGINT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS user_id BIGINT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS full_name TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS name TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS phone TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS username TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS sub_city TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS specialty TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS role_type TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS national_id_photo TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS fayda_photo_id TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ONLINE'",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_approved BOOLEAN DEFAULT TRUE",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT TRUE",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS notification_prefs JSONB DEFAULT '{}'::jsonb",
+            ):
+                try:
+                    cur.execute(stmt)
+                except Exception:
+                    pass
+
+        cols = {c.lower() for c in _broker_table_columns(cur)}
+        logger.info("add_broker columns=%s backend=%s", sorted(cols), _DB_BACKEND)
+
+        # Resolve which ID column exists
+        id_col = None
+        for candidate in ("chat_id", "telegram_id", "user_id", "tg_id"):
+            if candidate in cols:
+                id_col = candidate
+                break
+        if not id_col:
+            # force-add chat_id
+            try:
+                if is_postgres():
+                    cur.execute("ALTER TABLE brokers ADD COLUMN IF NOT EXISTS chat_id BIGINT")
+                else:
+                    cur.execute("ALTER TABLE brokers ADD COLUMN chat_id INTEGER")
+                    conn.commit()
+                id_col = "chat_id"
+                cols.add("chat_id")
+            except Exception as e:
+                LAST_BROKER_ERROR = f"no id column: {e}"
+                logger.error(LAST_BROKER_ERROR)
+                return None
+
+        # Find existing
+        existing_id = None
+        try:
+            cur.execute(f"SELECT id FROM brokers WHERE {id_col} = {p}", (chat_id,))
+            existing = cur.fetchone()
+            if existing:
+                existing_id = existing["id"] if isinstance(existing, dict) else existing[0]
         except Exception as e:
-            logger.warning(f"broker col migrate: {e}")
+            logger.warning("select existing broker: %s", e)
 
-        cols = _broker_table_columns(cur)
-
-        cur.execute(f"SELECT id FROM brokers WHERE chat_id = {p}", (chat_id,))
-        existing = cur.fetchone()
-        existing_id = (existing["id"] if isinstance(existing, dict) else existing[0]) if existing else None
-
+        prefs = {"car": True, "house": True, "enabled": True}
         if is_postgres():
             try:
                 from psycopg2.extras import Json
@@ -1030,78 +1085,132 @@ def add_broker(
         else:
             prefs_val = json.dumps(prefs, ensure_ascii=False)
 
-        field_map = {
+        # Value map with alternate names
+        value_by_col = {
+            id_col: chat_id,
             "chat_id": chat_id,
+            "telegram_id": chat_id,
+            "user_id": chat_id,
             "full_name": full_name,
+            "name": full_name,
             "phone": phone,
             "username": username,
+            "sub_city": sub_city,
+            "specialty": specialty,
             "role_type": role_type,
             "national_id_photo": photo,
             "fayda_photo_id": fayda,
-            "sub_city": sub_city,
-            "specialty": specialty,
-            "notification_prefs": prefs_val,
             "status": "ONLINE",
             "is_online": True if is_postgres() else 1,
             "is_approved": True if is_postgres() else 1,
+            "notification_prefs": prefs_val,
         }
 
-        if existing_id is not None:
-            set_cols, vals = [], []
-            for col, val in field_map.items():
-                if col == "chat_id":
+        def _commit():
+            try:
+                if not is_postgres():
+                    conn.commit()
+                else:
+                    try:
+                        conn.commit()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        def _run_update():
+            set_parts, vals = [], []
+            for col, val in value_by_col.items():
+                if col == id_col:
                     continue
-                if cols and col not in cols:
+                if col not in cols:
                     continue
-                set_cols.append(f"{col} = {p}")
+                set_parts.append(f"{col} = {p}")
                 vals.append(val)
-            if not set_cols:
-                logger.error("add_broker UPDATE: no matching columns")
+            if not set_parts:
                 return existing_id
             vals.append(chat_id)
-            sql = f"UPDATE brokers SET {', '.join(set_cols)} WHERE chat_id = {p}"
+            sql = f"UPDATE brokers SET {', '.join(set_parts)} WHERE {id_col} = {p}"
             if is_postgres():
                 cur.execute(sql + " RETURNING id", tuple(vals))
                 row = cur.fetchone()
-                broker_id = (row["id"] if isinstance(row, dict) else row[0]) if row else existing_id
-            else:
-                cur.execute(sql, tuple(vals))
-                broker_id = existing_id
-                conn.commit()
-        else:
+                _commit()
+                return (row["id"] if isinstance(row, dict) else row[0]) if row else existing_id
+            cur.execute(sql, tuple(vals))
+            _commit()
+            return existing_id
+
+        def _run_insert(use_cols):
             ins_cols, vals = [], []
-            for col, val in field_map.items():
-                if cols and col not in cols:
+            seen = set()
+            for col in use_cols:
+                if col not in cols or col in seen:
                     continue
+                if col not in value_by_col:
+                    continue
+                seen.add(col)
                 ins_cols.append(col)
-                vals.append(val)
-            # Minimal required fallback
+                vals.append(value_by_col[col])
+            if id_col not in seen and id_col in cols:
+                ins_cols.insert(0, id_col)
+                vals.insert(0, chat_id)
             if not ins_cols:
-                ins_cols = ["chat_id", "full_name"]
-                vals = [chat_id, full_name]
+                raise RuntimeError("no insertable columns")
             ph = ", ".join([p] * len(vals))
             sql = f"INSERT INTO brokers ({', '.join(ins_cols)}) VALUES ({ph})"
+            logger.info("add_broker INSERT cols=%s", ins_cols)
             if is_postgres():
                 cur.execute(sql + " RETURNING id", tuple(vals))
                 row = cur.fetchone()
-                broker_id = (row["id"] if isinstance(row, dict) else row[0]) if row else None
-            else:
-                cur.execute(sql, tuple(vals))
-                broker_id = cur.lastrowid
-                conn.commit()
+                _commit()
+                return (row["id"] if isinstance(row, dict) else row[0]) if row else None
+            cur.execute(sql, tuple(vals))
+            _commit()
+            return cur.lastrowid
 
-        try:
-            if is_postgres():
+        broker_id = None
+        last_err = None
+
+        if existing_id is not None:
+            try:
+                broker_id = _run_update()
+            except Exception as e:
+                last_err = e
+                logger.warning("broker update failed: %s", e)
+
+        if broker_id is None and existing_id is None:
+            attempts = [
+                [id_col, "full_name", "phone", "username", "sub_city", "specialty",
+                 "status", "is_online", "is_approved", "fayda_photo_id", "national_id_photo",
+                 "role_type", "notification_prefs", "name"],
+                [id_col, "full_name", "phone", "username", "sub_city", "specialty", "status"],
+                [id_col, "full_name", "phone", "status"],
+                [id_col, "full_name"],
+                [id_col],
+            ]
+            for attempt in attempts:
                 try:
-                    conn.commit()
-                except Exception:
-                    pass
-        except Exception:
-            pass
+                    broker_id = _run_insert(attempt)
+                    if broker_id is not None:
+                        break
+                except Exception as e:
+                    last_err = e
+                    logger.warning("broker insert attempt %s failed: %s", attempt, e)
+                    try:
+                        if not is_postgres():
+                            conn.rollback()
+                    except Exception:
+                        pass
 
-        logger.info(f"✅ Broker saved id={broker_id} chat_id={chat_id} name={full_name!r}")
-        return int(broker_id) if broker_id is not None else None
+        if broker_id is None:
+            LAST_BROKER_ERROR = str(last_err or "insert returned no id")
+            logger.error("add_broker FAILED final: %s", LAST_BROKER_ERROR)
+            return None
+
+        logger.info("✅ Broker saved id=%s chat_id=%s name=%r", broker_id, chat_id, full_name)
+        return int(broker_id)
     except Exception as e:
+        LAST_BROKER_ERROR = str(e)
         logger.error(f"add_broker FAILED: {e}", exc_info=True)
         if conn:
             try:
