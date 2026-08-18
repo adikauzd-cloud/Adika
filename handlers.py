@@ -25,6 +25,13 @@ from config import (
     FUEL_TYPES, TRANSMISSION_TYPES, CONDITIONS,
     BROKER_CATEGORIES, BROKER_REG_SUBCITIES,
 )
+def _webapp_url(path: str) -> str:
+    base = (WEBAPP_URL or "").rstrip("/")
+    if not path.startswith("/"):
+        path = "/" + path
+    return base + path
+
+
 from models import (
     add_listing, get_listing_by_id, get_listings_by_category_ordered,
     count_listings, update_listing_status, get_public_marketplace_items,
