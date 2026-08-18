@@ -980,548 +980,241 @@ EXPLORER_HTML = r"""
 <html lang="am">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
   <title>Adika Marketplace</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
-  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
-  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.24.0/babel.min.js"></script>
-
   <style>
-    body { background: #f1f5f9; margin: 0; font-family: system-ui, -apple-system, sans-serif; -webkit-tap-highlight-color: transparent; }
-    .glass { background: rgba(255,255,255,0.88); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
-    .glass-dark { background: rgba(0,0,0,0.48); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-    .line-clamp-1 { display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
-    .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-    .aspect-4-3 { aspect-ratio: 4/3; }
-    .sold-overlay { background: rgba(0,0,0,0.55); }
-    @keyframes pulse-skel { 0%,100%{opacity:1} 50%{opacity:.45} }
-    .skel { animation: pulse-skel 1.4s ease-in-out infinite; background: #e2e8f0; }
-    .no-scrollbar::-webkit-scrollbar { display: none; }
-    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    .modal-enter { animation: fadeIn 0.2s ease; }
-    @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #E8F3FC; color: #0f172a; }
+    .wrap { max-width: 480px; margin: 0 auto; padding: 10px 10px 40px; min-height: 100vh; }
+    .hdr { position: sticky; top: 0; z-index: 20; background: #D4E6F5; border-bottom: 1px solid #bfdbfe; padding: 8px; border-radius: 0 0 12px 12px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+    .tab { flex: 1; border: none; padding: 10px; border-radius: 12px; font-weight: 700; font-size: 12px; background: rgba(255,255,255,0.45); color: #475569; }
+    .tab.on { background: #fff; color: #1d4ed8; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .search { width: 100%; padding: 10px 12px 10px 32px; border-radius: 12px; border: 1px solid #e2e8f0; background: #fff; font-size: 13px; }
+    .search-wrap { position: relative; margin-bottom: 8px; }
+    .search-wrap span { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: .5; }
+    .cats { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; }
+    .cat { flex: 0 0 auto; border: 1px solid #dbeafe; background: #fff; border-radius: 999px; padding: 6px 12px; font-size: 11px; font-weight: 600; color: #334155; }
+    .cat.on { background: linear-gradient(90deg,#2563eb,#4f46e5); color: #fff; border-color: transparent; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+    .card { background: #fff; border-radius: 16px; padding: 8px; box-shadow: 0 12px 30px rgba(0,0,0,.14); display: flex; flex-direction: column; }
+    .img { width: 100%; height: 110px; border-radius: 12px; object-fit: cover; background: #e2e8f0; }
+    .ph { height: 110px; border-radius: 12px; background: #e2e8f0; display:flex;align-items:center;justify-content:center;font-size:32px; }
+    .title { font-weight: 700; font-size: 13px; margin-top: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sub { font-size: 11px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .price { font-weight: 800; color: #2563eb; font-size: 13px; margin-top: 6px; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
+    .btn { border: none; border-radius: 12px; padding: 8px; font-size: 16px; text-decoration: none; text-align: center; }
+    .btn.call { background: #eff6ff; color: #1d4ed8; }
+    .btn.chat { background: #f8fafc; color: #334155; }
+    .meta { display: flex; justify-content: space-between; gap: 4px; margin-top: 4px; }
+    .badge { font-size: 9px; background: rgba(0,0,0,.5); color: #fff; padding: 2px 6px; border-radius: 999px; }
+    .empty, .err, .load { text-align: center; padding: 40px 16px; color: #64748b; font-size: 14px; }
+    .err { color: #b91c1c; background: #fef2f2; border-radius: 12px; margin-top: 12px; }
+    .more { display:block; margin: 16px auto; border: 1px solid #bfdbfe; background: #fff; color: #2563eb; border-radius: 999px; padding: 8px 18px; font-weight: 600; font-size: 12px; }
   </style>
 </head>
 <body>
-  <div id="root">
-    <div style="padding:24px;text-align:center;font-family:system-ui;color:#64748b">
-      <div style="font-size:28px;margin-bottom:8px">⏳</div>
-      <div>እየጫነ ነው…</div>
-      <div style="font-size:12px;margin-top:8px;color:#94a3b8">Adika Marketplace</div>
+  <div class="wrap">
+    <div class="hdr">
+      <div class="tabs">
+        <button class="tab on" id="tabSell" type="button">🛒 የገበያ ቦታ</button>
+        <button class="tab" id="tabBuy" type="button">📋 የፈላጊዎች</button>
+      </div>
+      <div class="search-wrap">
+        <span>🔍</span>
+        <input class="search" id="q" placeholder="ፈልግ..." />
+      </div>
+      <div class="cats" id="cats"></div>
     </div>
+    <div id="status" class="load">እየጫነ ነው…</div>
+    <div class="grid" id="grid"></div>
+    <button class="more" id="more" type="button" style="display:none">ተጨማሪ ይመልከቱ</button>
   </div>
   <script>
-    // CDN failure detection
-    window.__adikaBoot = function() {
-      if (!window.React || !window.ReactDOM) {
-        document.getElementById('root').innerHTML =
-          '<div style="padding:20px;font-family:system-ui;color:#b91c1c;line-height:1.5">' +
-          '<b>UI መጫን አልተቻለም</b><br/>React CDN አልደረሰም። ኢንተርኔት/VPN ይሞክሩ ወይም ከቦት «በጽሁፍ ተመልከት» ይጠቀሙ።' +
-          '</div>';
-        return false;
+  (function () {
+    try {
+      var tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : null;
+      if (tg) {
+        try { tg.ready(); } catch (e) {}
+        try { tg.expand(); } catch (e) {}
+        try { tg.setHeaderColor('#2563eb'); } catch (e) {}
+        try { tg.setBackgroundColor('#E8F3FC'); } catch (e) {}
       }
-      return true;
-    };
-  </script>
-  <script type="text/babel">
-    if (!window.__adikaBoot || !window.__adikaBoot()) { throw new Error('CDN'); }
-    const { useState, useEffect, useCallback, useRef } = React;
 
-    const tg = (window.Telegram && window.Telegram.WebApp) ? window.Telegram.WebApp : {
-      expand(){}, ready(){}, close(){}, initDataUnsafe: {}, setHeaderColor(){}, setBackgroundColor(){}, showAlert: (m)=>alert(m)
-    };
-    try { tg.ready(); tg.expand(); } catch (e) { console.warn(e); }
-    try { tg.setHeaderColor('#2563eb'); tg.setBackgroundColor('#E8F3FC'); } catch (e) {}
-    const currentUserId = tg.initDataUnsafe?.user?.id || null;
-
-    function relativeTime(iso) {
-      if (!iso) return '';
-      try {
-        const d = new Date(iso);
-        const secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
-        if (secs < 60) return 'Just now';
-        if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
-        if (secs < 86400) {
-          const h = Math.floor(secs / 3600);
-          return h + (h === 1 ? ' hr ago' : ' hrs ago');
-        }
-        if (secs < 172800) return 'Yesterday';
-        const days = Math.floor(secs / 86400);
-        if (days < 30) return days + 'd ago';
-        const months = Math.floor(days / 30);
-        if (months < 12) return months + ' mo ago';
-        return Math.floor(days / 365) + 'y ago';
-      } catch (e) { return ''; }
-    }
-
-    const viewedThisSession = new Set();
-
-    function SkeletonCard() {
-      return (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="aspect-4-3 skel" />
-          <div className="p-2.5 space-y-2">
-            <div className="h-3 w-3/4 skel rounded" />
-            <div className="h-2.5 w-1/2 skel rounded" />
-            <div className="h-4 w-2/3 skel rounded" />
-            <div className="flex gap-1.5"><div className="h-8 flex-1 skel rounded-xl" /><div className="h-8 flex-1 skel rounded-xl" /></div>
-          </div>
-        </div>
-      );
-    }
-
-    /* ---------- Item Detail Modal ---------- */
-    function ItemDetailModal({ item, onClose, onStatusChange, onDelete, currentUid }) {
-      const extra = item.extra_data || {};
-      const isSell = (item.req_type || '').toUpperCase() === 'SELL';
-      const photos = item.photos || [];
-      const status = (item.status || 'pending').toLowerCase();
-      const isSold = ['sold','rented','expired'].includes(status);
-      const isOwner = currentUid && String(item.user_chat_id) === String(currentUid);
-      const [photoIdx, setPhotoIdx] = useState(0);
-      const [confirmDel, setConfirmDel] = useState(false);
-
-      const markStatus = async (s) => {
-        try {
-          const res = await fetch(`/api/items/${item.id}/status`, {
-            method: 'PATCH', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ status: s, user_id: currentUid })
-          });
-          const d = await res.json();
-          if (d.status === 'success') { onStatusChange(item.id, s); onClose(); }
-        } catch(e) {}
-      };
-      const doDelete = async () => {
-        try {
-          const res = await fetch(`/api/items/${item.id}`, {
-            method: 'DELETE', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ user_id: currentUid })
-          });
-          const d = await res.json();
-          if (d.status === 'success') { onDelete(item.id); onClose(); }
-        } catch(e) {}
+      var state = {
+        tab: (new URLSearchParams(location.search).get('tab') === 'requests') ? 'requests' : 'marketplace',
+        category: '',
+        q: '',
+        page: 1,
+        hasMore: false,
+        loading: false
       };
 
-      return (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-end sm:items-center justify-center modal-enter" onClick={onClose}>
-          <div className="bg-white w-full max-w-md max-h-[92vh] rounded-t-3xl sm:rounded-3xl overflow-hidden flex flex-col shadow-2xl" onClick={e => e.stopPropagation()}>
-            {/* Image carousel */}
-            <div className="relative aspect-4-3 bg-gray-900/5 shrink-0 flex items-center justify-center overflow-hidden border-b border-black/[0.06]">
-              {photos.length > 0 ? (
-                <img src={photos[photoIdx]} className="max-w-full max-h-full w-full h-full object-contain" alt=""
-                  onError={e => e.target.style.display='none'} />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-5xl">
-                  {item.main_category === 'መኪና' ? '🚗' : '🏠'}
-                </div>
-              )}
-              {photos.length > 1 && (
-                <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-1.5">
-                  {photos.map((_, i) => (
-                    <button key={i} onClick={() => setPhotoIdx(i)}
-                      className={`w-2 h-2 rounded-full ${i===photoIdx ? 'bg-white' : 'bg-white/40'}`} />
-                  ))}
-                </div>
-              )}
-              <button onClick={onClose} className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/40 text-white flex items-center justify-center text-lg">×</button>
-              {isSold && (
-                <div className="absolute inset-0 sold-overlay flex items-center justify-center">
-                  <span className="text-white font-bold px-4 py-1.5 rounded-full bg-black/60 text-sm">
-                    {status==='rented' ? '●' : status==='expired' ? '●' : '●'}
-                  </span>
-                </div>
-              )}
-            </div>
+      var cats = [
+        { id: '', label: '✨ ሁሉም' },
+        { id: 'መኪና', label: '🚗 መኪና' },
+        { id: 'ቤት', label: '🏠 ቤት / ቦታ' },
+        { id: 'ንግድ', label: '🏢 የሥራ ቦታ' }
+      ];
 
-            <div className="p-4 overflow-y-auto flex-1 space-y-3">
-              <div className="flex items-start justify-between gap-2">
-                <h2 className="font-bold text-base text-gray-900 leading-snug">
-                  {item.main_category}{item.sub_category ? ` • ${String(item.sub_category).replace(/[🚗🚚🚜🏡🏢🏞️]/g,'').trim()}` : ''}
-                </h2>
-                <span className="text-[10px] text-gray-400 shrink-0">{relativeTime(item.created_at)}</span>
-              </div>
-              <div className="text-lg font-bold text-blue-700">
-                {isSell ? '💰 ዋጋ' : '💰 በጀት'}: {item.price || '—'} ብር
-                {extra.negotiable && <span className="text-xs font-normal text-green-600 ml-1">(የሚደራደር)</span>}
-                {extra.urgent_sale && <span className="text-xs text-red-500 ml-1">⚡ አስቸኳይ</span>}
-              </div>
-              <p className="text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">
-                {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').trim() || 'መግለጫ የለም'}
-              </p>
-              <div className="flex flex-wrap gap-2 text-[11px] text-gray-500">
-                <span className="bg-gray-100 px-2 py-1 rounded-lg">👁️ {views}</span>
-                <span className="bg-gray-100 px-2 py-1 rounded-lg">#{item.id}</span>
-                {item.phone && <span className="bg-gray-100 px-2 py-1 rounded-lg">📞 {item.phone}</span>}
-              </div>
+      var catsEl = document.getElementById('cats');
+      var grid = document.getElementById('grid');
+      var statusEl = document.getElementById('status');
+      var moreBtn = document.getElementById('more');
+      var tabSell = document.getElementById('tabSell');
+      var tabBuy = document.getElementById('tabBuy');
+      var qInput = document.getElementById('q');
 
-              {/* Contact actions */}
-              {!isSold && (
-                <div className="flex gap-2 pt-1">
-                  <a href={item.phone ? `tel:${String(item.phone).replace(/\s+/g,'')}` : '#'}
-                    className="flex-1 py-3 rounded-xl bg-blue-500/15 text-blue-700 border border-blue-500/30 text-sm font-bold text-center">📞 ደውል</a>
-                  {extra.telegram_user && (
-                    <a href={`https://t.me/${String(extra.telegram_user).replace('@','')}`} target="_blank" rel="noreferrer"
-                      className="flex-1 py-3 rounded-xl bg-blue-500/15 text-blue-700 border border-blue-500/30 text-sm font-bold text-center">💬 ቻት</a>
-                  )}
-                </div>
-              )}
+      function esc(s) {
+        return String(s == null ? '' : s)
+          .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      }
 
-              {/* Owner controls */}
-              {isOwner && (
-                <div className="border-t pt-3 space-y-2">
-                  <p className="text-xs font-medium text-gray-500">የባለቤት ቁጥጥር</p>
-                  <div className="flex flex-wrap gap-2">
-                    {!isSold && (
-                      <>
-                        <button onClick={() => markStatus('sold')} className="px-3 py-2 rounded-xl bg-red-50 text-red-600 text-xs font-bold border border-red-100">✅ ተሸጧል</button>
-                        <button onClick={() => markStatus('rented')} className="px-3 py-2 rounded-xl bg-orange-50 text-orange-600 text-xs font-bold border border-orange-100">🔑 ተከራይቷል</button>
-                      </>
-                    )}
-                    {isSold && (
-                      <button onClick={() => markStatus('pending')} className="px-3 py-2 rounded-xl bg-green-50 text-green-700 text-xs font-bold border border-green-100">🔄 እንደገና ንቁ</button>
-                    )}
-                    <button onClick={() => setConfirmDel(true)} className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-bold">🗑️ አጥፋ</button>
-                  </div>
-                </div>
-              )}
-            </div>
+      function relativeTime(iso) {
+        if (!iso) return '';
+        try {
+          var d = new Date(iso);
+          var secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
+          if (secs < 60) return 'Just now';
+          if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
+          if (secs < 86400) return Math.floor(secs / 3600) + ' hrs ago';
+          if (secs < 172800) return 'Yesterday';
+          return Math.floor(secs / 86400) + 'd ago';
+        } catch (e) { return ''; }
+      }
 
-            {confirmDel && (
-              <div className="absolute inset-0 bg-black/40 flex items-center justify-center p-6 z-10">
-                <div className="bg-white rounded-2xl p-5 w-full max-w-xs shadow-xl">
-                  <p className="font-bold text-center mb-1">እርግጠኛ ነዎት?</p>
-                  <p className="text-sm text-gray-500 text-center mb-4">#{item.id} ይጠፋል።</p>
-                  <div className="flex gap-2">
-                    <button onClick={() => setConfirmDel(false)} className="flex-1 py-2.5 rounded-xl bg-gray-100 text-sm font-medium">ሰርዝ</button>
-                    <button onClick={doDelete} className="flex-1 py-2.5 rounded-xl bg-red-600 text-white text-sm font-medium">አጥፋ</button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      );
-    }
+      function renderCats() {
+        catsEl.innerHTML = cats.map(function (c) {
+          return '<button type="button" class="cat' + (state.category === c.id ? ' on' : '') +
+            '" data-id="' + esc(c.id) + '">' + esc(c.label) + '</button>';
+        }).join('');
+      }
 
-    /* ---------- Card ---------- */
-    function Card({ item, onOpen, onStatusChange, onDelete, currentUid }) {
-      const cardRef = useRef(null);
-      const extra = item.extra_data || {};
-      const isSell = (item.req_type || '').toUpperCase() === 'SELL';
-      const photos = item.photos || [];
-      const status = (item.status || 'pending').toLowerCase();
-      const isSold = ['sold','rented','expired'].includes(status);
-      const isOwner = currentUid && String(item.user_chat_id) === String(currentUid);
-      const [menuOpen, setMenuOpen] = useState(false);
-      const [localViews, setLocalViews] = useState(item.view_count || 0);
-
-      useEffect(() => {
-        if (!cardRef.current || viewedThisSession.has(item.id) || isSold) return;
-        const obs = new IntersectionObserver(([entry]) => {
-          if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
-            viewedThisSession.add(item.id);
-            fetch(`/api/views/${item.id}`, { method: 'POST' })
-              .then(r => r.json())
-              .then(d => { if (d.view_count) setLocalViews(d.view_count); })
-              .catch(() => {});
-            obs.disconnect();
+      function cardHtml(item) {
+        try {
+          var extra = item.extra_data || {};
+          if (typeof extra === 'string') {
+            try { extra = JSON.parse(extra); } catch (e) { extra = {}; }
           }
-        }, { threshold: 0.5 });
-        obs.observe(cardRef.current);
-        return () => obs.disconnect();
-      }, [item.id, isSold]);
-
-      const markStatus = async (s) => {
-        setMenuOpen(false);
-        try {
-          const res = await fetch(`/api/items/${item.id}/status`, {
-            method: 'PATCH', headers: {'Content-Type':'application/json'},
-            body: JSON.stringify({ status: s, user_id: currentUid })
-          });
-          const d = await res.json();
-          if (d.status === 'success') onStatusChange(item.id, s);
-        } catch(e) {}
-      };
-
-      const statusBadge = () => {
-        const sold = status === 'sold' || status === 'rented';
-        if (sold)
-          return <span className="block h-2 w-2 bg-rose-500 rounded-full shadow-[0_2px_6px_rgba(244,63,94,0.45)]" title="Sold Out"></span>;
-        if (status === 'expired')
-          return <span className="block h-2 w-2 bg-gray-400 rounded-full" title="Expired"></span>;
-        return (
-          <span className="relative flex h-2 w-2" title="Active">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-70"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-[0_2px_6px_rgba(16,185,129,0.55)]"></span>
-          </span>
-        );
-      };
-
-      return (
-        <div ref={cardRef}
-          className="bg-white rounded-2xl p-2.5 border-none shadow-[0_12px_30px_rgba(0,0,0,0.16)] hover:shadow-[0_16px_36px_rgba(0,0,0,0.2)] transition-all duration-200 flex flex-col justify-between relative active:scale-[0.98]">
-          {/* Photo – opens modal */}
-          <div className="relative w-full h-32 rounded-xl overflow-hidden bg-slate-100 cursor-pointer" onClick={() => onOpen(item)}>
-            {photos.length > 0 ? (
-              <img src={photos[0]} alt="" className="w-full h-full object-cover" loading="lazy"
-                onError={e => { e.target.style.display='none'; }} />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-3xl opacity-70">
-                {item.main_category === 'መኪና' ? '🚗' : '🏠'}
-              </div>
-            )}
-            {isSold && (
-              <div className="absolute inset-0 sold-overlay flex items-center justify-center pointer-events-none">
-                <span className="text-white font-bold text-[11px] px-2.5 py-1 rounded-full bg-black/55">
-                  {status==='rented' ? '●' : status==='expired' ? '●' : '●'}
-                </span>
-              </div>
-            )}
-            <div className="absolute top-2 left-2 z-10">{statusBadge()}</div>
-            {isOwner && (
-              <div className="absolute top-1.5 right-1.5" onClick={e => e.stopPropagation()}>
-                <button onClick={() => setMenuOpen(!menuOpen)}
-                  className="w-7 h-7 rounded-full glass-dark text-white text-sm flex items-center justify-center">⋮</button>
-                {menuOpen && (
-                  <div className="absolute right-0 mt-1 w-32 bg-white rounded-xl shadow-lg border border-gray-100 text-[11px] z-20 overflow-hidden">
-                    {!isSold && (
-                      <>
-                        <button onClick={() => markStatus('sold')} className="w-full text-left px-3 py-2 hover:bg-gray-50">✅ ተሸጧል</button>
-                        <button onClick={() => markStatus('rented')} className="w-full text-left px-3 py-2 hover:bg-gray-50">🔑 ተከራይቷል</button>
-                      </>
-                    )}
-                    {isSold && <button onClick={() => markStatus('pending')} className="w-full text-left px-3 py-2 hover:bg-gray-50">🔄 ንቁ አድርግ</button>}
-                    <button onClick={() => { setMenuOpen(false); onOpen(item); }} className="w-full text-left px-3 py-2 hover:bg-gray-50 text-blue-600">📋 ዝርዝር</button>
-                  </div>
-                )}
-              </div>
-            )}
-            {/* Bottom glass badge: views + time */}
-            <div className="absolute bottom-1.5 left-1.5 right-1.5 flex justify-between pointer-events-none">
-              <span className="bg-black/50 backdrop-blur-md px-1.5 py-0.5 rounded-full text-[9px] text-white font-medium">👁️ {views}</span>
-              <span className="bg-black/50 backdrop-blur-md px-1.5 py-0.5 rounded-full text-[9px] text-white font-medium">{relativeTime(item.created_at)}</span>
-            </div>
-          </div>
-
-          {/* Content */}
-          <div className="mt-2.5 px-1 space-y-1">
-            <h3 className="font-bold text-sm text-slate-900 truncate" onClick={() => onOpen(item)}>
-              {item.main_category}{item.sub_category ? ` • ${String(item.sub_category).replace(/[🚗🚚🚜🏡🏢🏞️]/g,'').trim()}` : ''}
-            </h3>
-            <p className="text-xs text-slate-500 truncate mt-0.5">
-              {(item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').slice(0, 42)}
-            </p>
-            <div className="mt-2 flex items-center gap-1 font-extrabold text-blue-600 text-sm">
-              {isSell ? '💰 ዋጋ' : '💰 በጀት'}: {item.price || '—'}
-              {extra.urgent_sale && <span className="text-red-500 text-[10px] ml-0.5">⚡</span>}
-            </div>
-            <div className="grid grid-cols-2 gap-1.5 mt-3">
-              <a href={!isSold && item.phone ? `tel:${String(item.phone).replace(/\s+/g,'')}` : undefined}
-                onClick={e => { if (isSold || !item.phone) e.preventDefault(); }}
-                title="Call"
-                className={`flex items-center justify-center py-1.5 rounded-xl text-base border-none active:scale-95 transition-all ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-blue-50 hover:bg-blue-100 text-blue-700'}`}>
-                📞
-              </a>
-              <a href={!isSold && extra.telegram_user ? `https://t.me/${String(extra.telegram_user).replace('@','')}` : (!isSold ? `tg://user?id=${item.user_chat_id}` : undefined)}
-                target="_blank" rel="noreferrer"
-                onClick={e => { if (isSold) e.preventDefault(); }}
-                title="Chat"
-                className={`flex items-center justify-center py-1.5 rounded-xl text-base border-none active:scale-95 transition-all ${isSold ? 'bg-gray-100 text-gray-400' : 'bg-slate-50 hover:bg-slate-100 text-slate-700'}`}>
-                💬
-              </a>
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    /* ---------- App ---------- */
-    function App() {
-      const params = new URLSearchParams(window.location.search);
-      const initialTab = params.get('tab') === 'requests' ? 'requests' : 'marketplace';
-      const [tab, setTab] = useState(initialTab);
-      const [items, setItems] = useState([]);
-      const [page, setPage] = useState(1);
-      const [hasMore, setHasMore] = useState(false);
-      const [loading, setLoading] = useState(true);
-      const [filters, setFilters] = useState({ q: '', category: '' });
-      const [searchInput, setSearchInput] = useState('');
-      const [detailItem, setDetailItem] = useState(null);
-      const cacheRef = useRef({}); // client-side tab/category cache
-
-      const [loadError, setLoadError] = useState('');
-      const loadData = useCallback(async (pageNum = 1, append = false) => {
-        const cacheKey = `${tab}|${filters.category}|${filters.q}|${pageNum}`;
-        if (!append && cacheRef.current[cacheKey]) {
-          const cached = cacheRef.current[cacheKey];
-          setItems(cached.items);
-          setHasMore(cached.has_more);
-          setPage(pageNum);
-          setLoading(false);
-          setLoadError('');
-          return;
+          var photos = item.photos || [];
+          var img = photos.length ? '<img class="img" src="' + esc(photos[0]) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' :
+            '<div class="ph">' + (item.main_category === 'መኪና' || item.category === 'መኪና' ? '🚗' : '🏠') + '</div>';
+          var title = (item.main_category || item.category || '') + (item.sub_category ? ' • ' + item.sub_category : '');
+          var desc = (item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').slice(0, 42);
+          var isSell = String(item.req_type || '').toUpperCase() === 'SELL';
+          var price = (isSell ? '💰 ዋጋ: ' : '💰 በጀት: ') + (item.price || '—');
+          var views = item.view_count || item.views_count || 0;
+          var phone = item.phone ? String(item.phone).replace(/\s+/g,'') : '';
+          var user = extra.telegram_user ? String(extra.telegram_user).replace('@','') : '';
+          var callHref = phone ? ('tel:' + phone) : '#';
+          var chatHref = user ? ('https://t.me/' + user) : (item.user_chat_id ? ('tg://user?id=' + item.user_chat_id) : '#');
+          return '<div class="card">' +
+            '<div style="position:relative">' + img +
+            '<div class="meta" style="position:absolute;left:6px;right:6px;bottom:6px">' +
+            '<span class="badge">👁️ ' + esc(views) + '</span>' +
+            '<span class="badge">' + esc(relativeTime(item.created_at)) + '</span></div></div>' +
+            '<div class="title">' + esc(title) + '</div>' +
+            '<div class="sub">' + esc(desc) + '</div>' +
+            '<div class="price">' + esc(price) + '</div>' +
+            '<div class="actions">' +
+            '<a class="btn call" href="' + esc(callHref) + '">📞</a>' +
+            '<a class="btn chat" href="' + esc(chatHref) + '" target="_blank" rel="noreferrer">💬</a>' +
+            '</div></div>';
+        } catch (e) {
+          return '<div class="card"><div class="sub">Card error</div></div>';
         }
-        setLoading(true);
-        setLoadError('');
+      }
+
+      function setTabs() {
+        tabSell.className = 'tab' + (state.tab === 'marketplace' ? ' on' : '');
+        tabBuy.className = 'tab' + (state.tab === 'requests' ? ' on' : '');
+      }
+
+      async function load(append) {
+        if (state.loading) return;
+        state.loading = true;
+        if (!append) {
+          statusEl.style.display = 'block';
+          statusEl.className = 'load';
+          statusEl.textContent = 'እየጫነ ነው…';
+          grid.innerHTML = '';
+        }
         try {
-          const qs = new URLSearchParams({
-            page: pageNum, limit: 12,
-            type: tab === 'marketplace' ? 'SELL' : 'BUY',
-            order: 'DESC', active_only: '1',
-            ...Object.fromEntries(Object.entries(filters).filter(([,v]) => v))
+          var page = append ? state.page + 1 : 1;
+          var qs = new URLSearchParams({
+            page: String(page),
+            limit: '12',
+            type: state.tab === 'marketplace' ? 'SELL' : 'BUY',
+            order: 'DESC',
+            active_only: '1'
           });
-          const res = await fetch(`/api/explorer/listings?${qs}`);
-          const data = await res.json().catch(() => ({}));
-          if (data.status === 'success') {
-            const list = Array.isArray(data.items) ? data.items : [];
-            setItems(prev => append ? [...prev, ...list] : list);
-            setHasMore(!!data.has_more);
-            setPage(pageNum);
-            if (!append) {
-              cacheRef.current[cacheKey] = { items: list, has_more: !!data.has_more };
-            }
-            if (data.isTemporaryDb || data.db === 'sqlite') {
-              setLoadError('⚠️ DB: temporary (SQLite). Set DATABASE_URL to Supabase pooler (port 6543) for permanent storage.');
-            } else {
-              setLoadError('');
-            }
+          if (state.category) qs.set('category', state.category);
+          if (state.q) qs.set('q', state.q);
+          var res = await fetch('/api/explorer/listings?' + qs.toString());
+          var data = {};
+          try { data = await res.json(); } catch (e) { data = {}; }
+          if (!res.ok || data.status !== 'success') {
+            statusEl.style.display = 'block';
+            statusEl.className = 'err';
+            statusEl.textContent = (data && data.message) ? data.message : ('API error ' + res.status);
+            moreBtn.style.display = 'none';
+            return;
+          }
+          var items = Array.isArray(data.items) ? data.items : [];
+          if (!append) grid.innerHTML = '';
+          if (!items.length && !append) {
+            statusEl.style.display = 'block';
+            statusEl.className = 'empty';
+            statusEl.textContent = 'ምንም ንብረት አልተገኘም';
           } else {
-            setLoadError(data.message || ('API error ' + res.status));
-            if (!append) setItems([]);
+            statusEl.style.display = 'none';
+            grid.innerHTML += items.map(cardHtml).join('');
           }
-        } catch(e) {
-          console.error(e);
-          setLoadError(String(e.message || e));
-          if (!append) setItems([]);
+          state.page = page;
+          state.hasMore = !!data.has_more;
+          moreBtn.style.display = state.hasMore ? 'block' : 'none';
+        } catch (e) {
+          statusEl.style.display = 'block';
+          statusEl.className = 'err';
+          statusEl.textContent = 'Network error: ' + (e && e.message ? e.message : e);
+        } finally {
+          state.loading = false;
         }
-        finally { setLoading(false); }
-      }, [tab, filters]);
-
-      // Reload on tab / category change
-      useEffect(() => { loadData(1, false); }, [tab, filters.category, filters.q]);
-
-      // Debounce search input → filters.q (300ms)
-      useEffect(() => {
-        const t = setTimeout(() => {
-          setFilters(f => f.q === searchInput ? f : {...f, q: searchInput});
-        }, 300);
-        return () => clearTimeout(t);
-      }, [searchInput]);
-
-      const onStatusChange = (id, s) => setItems(prev => prev.map(it => it.id === id ? {...it, status: s} : it));
-      const onDelete = (id) => setItems(prev => prev.filter(it => it.id !== id));
-
-      return (
-        <div className="w-full max-w-md mx-auto min-h-screen bg-[#E8F3FC] px-2.5 pb-16 text-slate-800">
-          {/* Sticky glass header */}
-          <div className="sticky top-0 z-50 bg-[#D4E6F5] backdrop-blur-md shadow-sm border-b border-blue-200/60">
-            <div className="flex gap-2 p-2">
-              <button onClick={() => setTab('marketplace')}
-                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${tab==='marketplace' ? 'bg-white/90 text-blue-700 shadow-sm' : 'bg-white/40 text-slate-600'} backdrop-blur-sm`}>
-                🛒 የገበያ ቦታ
-              </button>
-              <button onClick={() => setTab('requests')}
-                className={`flex-1 py-2.5 text-xs font-bold rounded-xl transition ${tab==='requests' ? 'bg-white/90 text-blue-700 shadow-sm' : 'bg-white/40 text-slate-600'} backdrop-blur-sm`}>
-                📋 የፈላጊዎች
-              </button>
-            </div>
-            {/* Search with icon */}
-            <div className="px-2.5 pt-2 pb-1.5">
-              <div className="relative">
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none">🔍</span>
-                <input type="search" placeholder="ፈልግ..." value={searchInput}
-                  onChange={e => setSearchInput(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 bg-gray-50/80 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-200 focus:bg-white" />
-              </div>
-            </div>
-            {/* Glassmorphism category pills */}
-            <div className="px-1 pb-2 flex gap-1.5 overflow-x-auto no-scrollbar" style={{WebkitOverflowScrolling:'touch'}}>
-              {[
-                {id:'', label:'✨ ሁሉም'},
-                {id:'መኪና', label:'🚗 መኪና'},
-                {id:'ቤት', label:'🏠 ቤት / ቦታ'},
-                {id:'ንግድ', label:'🏢 የሥራ ቦታ / ንግድ'},
-              ].map(cat => (
-                <button key={cat.id || 'all'} type="button"
-                  onClick={() => setFilters(f => ({...f, category: cat.id}))}
-                  className={`shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-full font-medium text-[11px] active:scale-95 transition-all whitespace-nowrap ${
-                    filters.category === cat.id
-                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-sm shadow-blue-500/20'
-                      : 'bg-white/90 text-slate-700 border border-blue-100/80 shadow-sm'
-                  }`}>
-                  {cat.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* 2-col grid */}
-          <div className="grid grid-cols-2 gap-2.5 mt-2">
-            {loading && items.length === 0 && Array.from({length: 6}).map((_,i) => <SkeletonCard key={i} />)}
-            {items.map(item => (
-              <Card key={item.id} item={item} currentUid={currentUserId}
-                onOpen={setDetailItem} onStatusChange={onStatusChange} onDelete={onDelete} />
-            ))}
-          </div>
-
-          {loadError && (
-            <div className="mx-1 mb-2 p-2.5 rounded-xl bg-amber-50 text-amber-800 text-[11px] leading-snug border border-amber-200">
-              {loadError}
-            </div>
-          )}
-          {!loading && items.length === 0 && (
-            <div className="text-center py-16 text-gray-400">
-              <div className="text-4xl mb-2">📭</div>
-              <p className="text-sm">ምንም ንብረት አልተገኘም</p>
-              <button type="button" onClick={() => { cacheRef.current = {}; loadData(1, false); }}
-                className="mt-3 text-blue-600 text-xs font-bold underline">እንደገና ሞክር</button>
-            </div>
-          )}
-          {hasMore && !loading && (
-            <div className="text-center pb-6">
-              <button onClick={() => loadData(page+1, true)}
-                className="bg-white border border-blue-200 text-blue-600 px-5 py-2 rounded-full text-xs font-medium shadow-sm">
-                ተጨማሪ ይመልከቱ
-              </button>
-            </div>
-          )}
-          {loading && items.length > 0 && <div className="text-center py-3 text-xs text-gray-400">እየጫነ ነው...</div>}
-
-          {detailItem && (
-            <ItemDetailModal item={detailItem} currentUid={currentUserId}
-              onClose={() => setDetailItem(null)}
-              onStatusChange={onStatusChange} onDelete={onDelete} />
-          )}
-        </div>
-      );
-    }
-
-    (function(){
-      try {
-        if (!window.React || !window.ReactDOM) {
-          document.getElementById('root').innerHTML = '<div style="padding:20px;color:#b91c1c;font-family:system-ui">Failed to load React CDN</div>';
-          return;
-        }
-        try {
-      if (window.__adikaBoot && !window.__adikaBoot()) throw new Error('CDN');
-      ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-    } catch (e) {
-      document.getElementById('root').innerHTML =
-        '<div style="padding:20px;font-family:system-ui;color:#b91c1c">UI Error: ' + (e && e.message ? e.message : e) +
-        '<br/><br/>ከቦት <b>⚡ በጽሁፍ ተመልከት</b> ይጠቀሙ።</div>';
-    }
-      } catch (e) {
-        document.getElementById('root').innerHTML = '<div style="padding:20px;color:#b91c1c;font-family:system-ui">UI Error: '+e.message+'</div>';
       }
-    })();
+
+      tabSell.onclick = function () { state.tab = 'marketplace'; setTabs(); load(false); };
+      tabBuy.onclick = function () { state.tab = 'requests'; setTabs(); load(false); };
+      catsEl.onclick = function (ev) {
+        var t = ev.target.closest('[data-id]');
+        if (!t) return;
+        state.category = t.getAttribute('data-id') || '';
+        renderCats();
+        load(false);
+      };
+      moreBtn.onclick = function () { load(true); };
+      var t = null;
+      qInput.oninput = function () {
+        clearTimeout(t);
+        t = setTimeout(function () {
+          state.q = qInput.value.trim();
+          load(false);
+        }, 300);
+      };
+
+      renderCats();
+      setTabs();
+      load(false);
+    } catch (e) {
+      document.body.innerHTML = '<div class="err" style="margin:20px">UI Error: ' +
+        (e && e.message ? e.message : e) + '</div>';
+    }
+  })();
   </script>
 </body>
 </html>
 """
-
-
 
 @web_app.route('/explorer')
 def explorer_page():
