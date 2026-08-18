@@ -984,62 +984,155 @@ EXPLORER_HTML = r"""
   <title>Adika Marketplace</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #E8F3FC; color: #0f172a; }
-    .wrap { max-width: 480px; margin: 0 auto; padding: 10px 10px 40px; min-height: 100vh; }
-    .hdr { position: sticky; top: 0; z-index: 20; background: #D4E6F5; border-bottom: 1px solid #bfdbfe; padding: 8px; border-radius: 0 0 12px 12px; }
-    .tabs { display: flex; gap: 8px; margin-bottom: 8px; }
-    .tab { flex: 1; border: none; padding: 10px; border-radius: 12px; font-weight: 700; font-size: 12px; background: rgba(255,255,255,0.45); color: #475569; }
-    .tab.on { background: #fff; color: #1d4ed8; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-    .search { width: 100%; padding: 10px 12px 10px 32px; border-radius: 12px; border: 1px solid #e2e8f0; background: #fff; font-size: 13px; }
-    .search-wrap { position: relative; margin-bottom: 8px; }
-    .search-wrap span { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: .5; }
-    .cats { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; -ms-overflow-style: none; scrollbar-width: none; }
-    .cats::-webkit-scrollbar { display: none; }
-    .cat { flex: 0 0 auto; border: 1px solid #dbeafe; background: #fff; border-radius: 999px; padding: 6px 12px; font-size: 11px; font-weight: 600; color: #334155; }
-    .cat.on { background: linear-gradient(90deg,#2563eb,#4f46e5); color: #fff; border-color: transparent; }
-    /* 2-column frameless grid */
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 10px;
-      margin-top: 12px;
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      max-width: 100vw;
+      overflow-x: hidden !important;
+      box-sizing: border-box;
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #E8F3FC;
+      color: #0f172a;
+      -webkit-text-size-adjust: 100%;
     }
-    .card {
+    *, *::before, *::after { box-sizing: border-box; }
+    .wrap {
+      width: 100%;
+      max-width: 100%;
+      margin: 0 auto;
+      padding: 0 0 40px;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+    .hdr {
+      position: sticky; top: 0; z-index: 20;
+      background: #D4E6F5;
+      border-bottom: 1px solid #bfdbfe;
+      padding: 8px 10px;
+      width: 100%;
+    }
+    .tabs { display: flex; gap: 8px; margin-bottom: 8px; width: 100%; }
+    .tab {
+      flex: 1; min-width: 0; border: none; padding: 10px 6px;
+      border-radius: 12px; font-weight: 700; font-size: 12px;
+      background: rgba(255,255,255,0.45); color: #475569;
+    }
+    .tab.on { background: #fff; color: #1d4ed8; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .search-wrap { position: relative; margin-bottom: 8px; width: 100%; }
+    .search-wrap span { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: .5; }
+    .search {
+      width: 100%; max-width: 100%;
+      padding: 10px 12px 10px 32px; border-radius: 12px;
+      border: 1px solid #e2e8f0; background: #fff; font-size: 13px;
+    }
+    .cats {
+      display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px;
+      width: 100%; max-width: 100%;
+      -ms-overflow-style: none; scrollbar-width: none;
+    }
+    .cats::-webkit-scrollbar { display: none; }
+    .cat {
+      flex: 0 0 auto; border: 1px solid #dbeafe; background: #fff;
+      border-radius: 999px; padding: 6px 12px; font-size: 11px; font-weight: 600; color: #334155;
+    }
+    .cat.on { background: linear-gradient(90deg,#2563eb,#4f46e5); color: #fff; border-color: transparent; }
+
+    /* Strict 2-column screen-fit grid */
+    .grid, .listings-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      padding: 10px;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      margin: 0;
+      overflow-x: hidden;
+    }
+
+    /* Frameless soft-shadow cards */
+    .card, .listing-card {
+      width: 100%;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
       background: #ffffff;
+      border-radius: 14px;
       border: none !important;
-      border-radius: 16px;
-      padding: 8px;
+      outline: none !important;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
+      padding: 8px;
       transition: transform 0.15s ease, box-shadow 0.15s ease;
       -webkit-tap-highlight-color: transparent;
     }
-    .card:active {
+    .card:active, .listing-card:active {
       transform: translateY(-2px);
       box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12) !important;
     }
-    .img, .ph {
+
+    .card-media, .img-wrap {
       width: 100%;
-      height: 120px;
+      height: 110px;
       border-radius: 10px;
-      object-fit: cover;
+      overflow: hidden;
+      position: relative;
       background: #e2e8f0;
     }
-    .ph { display: flex; align-items: center; justify-content: center; font-size: 32px; }
-    .title { font-weight: 700; font-size: 13px; margin-top: 8px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .sub { font-size: 11px; color: #64748b; margin-top: 2px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card-media img, .img {
+      width: 100%;
+      height: 110px;
+      max-width: 100%;
+      object-fit: cover;
+      border-radius: 10px;
+      display: block;
+      border: none !important;
+    }
+    .ph {
+      width: 100%;
+      height: 110px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 32px;
+      background: #e2e8f0;
+      border: none !important;
+    }
+    .title {
+      font-weight: 700; font-size: 13px; margin-top: 8px; line-height: 1.25;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+    }
+    .sub {
+      font-size: 11px; color: #64748b; margin-top: 2px; line-height: 1.3;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+    }
     .price { font-weight: 800; color: #2563eb; font-size: 13px; margin-top: 6px; line-height: 1.2; }
-    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; }
-    .btn { border: none; border-radius: 12px; padding: 8px; font-size: 16px; text-decoration: none; text-align: center; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; width: 100%; }
+    .btn {
+      border: none !important; border-radius: 12px; padding: 8px;
+      font-size: 16px; text-decoration: none; text-align: center; min-width: 0;
+    }
     .btn.call { background: #eff6ff; color: #1d4ed8; }
     .btn.chat { background: #f8fafc; color: #334155; }
-    .meta { display: flex; justify-content: space-between; gap: 4px; margin-top: 4px; }
-    .badge { font-size: 9px; background: rgba(0,0,0,.5); color: #fff; padding: 2px 6px; border-radius: 999px; }
+    .meta {
+      display: flex; justify-content: space-between; gap: 4px;
+      position: absolute; left: 6px; right: 6px; bottom: 6px;
+    }
+    .badge {
+      font-size: 9px; background: rgba(0,0,0,.5); color: #fff;
+      padding: 2px 6px; border-radius: 999px; max-width: 48%;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     .empty, .err, .load { text-align: center; padding: 40px 16px; color: #64748b; font-size: 14px; }
-    .err { color: #b91c1c; background: #fef2f2; border-radius: 12px; margin-top: 12px; }
-    .more { display:block; margin: 16px auto; border: 1px solid #bfdbfe; background: #fff; color: #2563eb; border-radius: 999px; padding: 8px 18px; font-weight: 600; font-size: 12px; }
+    .err { color: #b91c1c; background: #fef2f2; border-radius: 12px; margin: 12px 10px; }
+    .more {
+      display: block; margin: 16px auto; border: 1px solid #bfdbfe; background: #fff;
+      color: #2563eb; border-radius: 999px; padding: 8px 18px; font-weight: 600; font-size: 12px;
+    }
   </style>
 </head>
 <body>
@@ -1056,7 +1149,7 @@ EXPLORER_HTML = r"""
       <div class="cats" id="cats"></div>
     </div>
     <div id="status" class="load">እየጫነ ነው…</div>
-    <div class="grid" id="grid"></div>
+    <div class="grid listings-grid" id="grid"></div>
     <button class="more" id="more" type="button" style="display:none">ተጨማሪ ይመልከቱ</button>
   </div>
   <script>
@@ -1126,8 +1219,9 @@ EXPLORER_HTML = r"""
             try { extra = JSON.parse(extra); } catch (e) { extra = {}; }
           }
           var photos = item.photos || [];
-          var img = photos.length ? '<img class="img" src="' + esc(photos[0]) + '" alt="" loading="lazy" onerror="this.style.display=\'none\'">' :
-            '<div class="ph">' + (item.main_category === 'መኪና' || item.category === 'መኪና' ? '🚗' : '🏠') + '</div>';
+          var mediaInner = photos.length
+            ? '<img class="img" src="' + esc(photos[0]) + '" alt="" loading="lazy" onerror="this.parentNode.innerHTML=\'<div class=ph>📷</div>\'">'
+            : '<div class="ph">' + (item.main_category === 'መኪና' || item.category === 'መኪና' ? '🚗' : '🏠') + '</div>';
           var title = (item.main_category || item.category || '') + (item.sub_category ? ' • ' + item.sub_category : '');
           var desc = (item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').slice(0, 42);
           var isSell = String(item.req_type || '').toUpperCase() === 'SELL';
@@ -1137,9 +1231,9 @@ EXPLORER_HTML = r"""
           var user = extra.telegram_user ? String(extra.telegram_user).replace('@','') : '';
           var callHref = phone ? ('tel:' + phone) : '#';
           var chatHref = user ? ('https://t.me/' + user) : (item.user_chat_id ? ('tg://user?id=' + item.user_chat_id) : '#');
-          return '<div class="card">' +
-            '<div style="position:relative">' + img +
-            '<div class="meta" style="position:absolute;left:6px;right:6px;bottom:6px">' +
+          return '<div class="card listing-card">' +
+            '<div class="card-media">' + mediaInner +
+            '<div class="meta">' +
             '<span class="badge">👁️ ' + esc(views) + '</span>' +
             '<span class="badge">' + esc(relativeTime(item.created_at)) + '</span></div></div>' +
             '<div class="title">' + esc(title) + '</div>' +
