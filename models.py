@@ -10,6 +10,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor, Json
 
 from config import DATABASE_URL, DB_FILE, logger, VIEW_BASELINE_MIN, VIEW_BASELINE_MAX
+from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_BUCKET
 import config as _app_config
 
 
@@ -939,6 +940,43 @@ def get_public_marketplace_items(limit: int = 20, offset: int = 0):
 
 # ========== BROKER OPERATIONS ==========
 
+
+def upload_broker_document(file_bytes: bytes, filename: str, content_type: str = "image/jpeg") -> str:
+    """
+    Upload bytes to Supabase Storage bucket. Returns public URL or empty string.
+    Requires SUPABASE_URL + SUPABASE_KEY env vars and bucket 'broker-documents'.
+    """
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        logger.warning("Supabase Storage not configured (SUPABASE_URL/KEY missing)")
+        return ""
+    if not file_bytes:
+        return ""
+    try:
+        import urllib.request
+        import urllib.error
+        path = filename.lstrip("/")
+        url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_BUCKET}/{path}"
+        req = urllib.request.Request(
+            url,
+            data=file_bytes,
+            method="POST",
+            headers={
+                "Authorization": f"Bearer {SUPABASE_KEY}",
+                "apikey": SUPABASE_KEY,
+                "Content-Type": content_type,
+                "x-upsert": "true",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            resp.read()
+        public_url = f"{SUPABASE_URL}/storage/v1/object/public/{SUPABASE_BUCKET}/{path}"
+        logger.info("Supabase upload ok: %s", public_url)
+        return public_url
+    except Exception as e:
+        logger.error("Supabase storage upload failed: %s", e, exc_info=True)
+        return ""
+
+
 def add_broker(
     chat_id,
     full_name,
@@ -949,6 +987,7 @@ def add_broker(
     specialty="",
     username="",
     fayda_photo_id=None,
+    fayda_id_url=None,
 ) -> Optional[int]:
     """Insert/update broker with multi-fallback for Supabase schema differences."""
     global LAST_BROKER_ERROR
@@ -964,6 +1003,7 @@ def add_broker(
         specialty = (str(specialty).strip() if specialty else role_type)[:120]
         photo = str(national_id_photo) if national_id_photo else None
         fayda = str(fayda_photo_id) if fayda_photo_id else photo
+        fayda_url = str(fayda_id_url).strip() if fayda_id_url else (fayda if (fayda and str(fayda).startswith("http")) else "")
 
         try:
             ensure_core_tables()
@@ -1031,6 +1071,7 @@ def add_broker(
                 "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS role_type TEXT",
                 "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS national_id_photo TEXT",
                 "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS fayda_photo_id TEXT",
+                "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS fayda_id_url TEXT",
                 "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ONLINE'",
                 "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_approved BOOLEAN DEFAULT TRUE",
                 "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_online BOOLEAN DEFAULT TRUE",
@@ -1100,9 +1141,10 @@ def add_broker(
             "role_type": role_type,
             "national_id_photo": photo,
             "fayda_photo_id": fayda,
+            "fayda_id_url": fayda_url or fayda,
             "status": "ONLINE",
             "is_online": True if is_postgres() else 1,
-            "is_approved": True if is_postgres() else 1,
+            "is_approved": False if is_postgres() else 0,
             "notification_prefs": prefs_val,
         }
 
@@ -1181,7 +1223,7 @@ def add_broker(
         if broker_id is None and existing_id is None:
             attempts = [
                 [id_col, "full_name", "phone", "username", "sub_city", "specialty",
-                 "status", "is_online", "is_approved", "fayda_photo_id", "national_id_photo",
+                 "status", "is_online", "is_approved", "fayda_photo_id", "fayda_id_url", "national_id_photo",
                  "role_type", "notification_prefs", "name"],
                 [id_col, "full_name", "phone", "username", "sub_city", "specialty", "status"],
                 [id_col, "full_name", "phone", "status"],
