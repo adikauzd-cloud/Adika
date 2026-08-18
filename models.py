@@ -1014,8 +1014,9 @@ def add_broker(
         phone = (str(phone).strip() if phone else "")[:40] or "N/A"
         username = (str(username).strip() if username else "")[:120]
         role_type = (str(role_type).strip() if role_type else "ደላላ")[:80]
-        sub_city = (str(sub_city).strip() if sub_city else "")[:80]
-        specialty = (str(specialty).strip() if specialty else role_type)[:120]
+        sub_city = (str(sub_city).strip() if sub_city else "")[:80] or "አዲስ አበባ"
+        specialty = (str(specialty).strip() if specialty else role_type)[:120] or "ደላላ"
+        working_area = sub_city  # Supabase NOT NULL column alias
         photo = str(national_id_photo) if national_id_photo else None
         fayda = str(fayda_photo_id) if fayda_photo_id else photo
         fayda_url = ""
@@ -1059,6 +1060,7 @@ def add_broker(
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS phone_number TEXT",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS username TEXT",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS sub_city TEXT",
+                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS working_area TEXT",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS specialty TEXT",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'ONLINE'",
                     "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS is_approved BOOLEAN DEFAULT FALSE",
@@ -1141,9 +1143,11 @@ def add_broker(
 
             if "full_name" in cols or not cols:
                 ins["full_name"] = full_name
+            if "name" in cols:
+                ins["name"] = full_name
             if "is_approved" in cols or not cols:
                 ins["is_approved"] = approved_val
-            # phone is NOT NULL on Supabase — never omit / never None
+            # NOT NULL-safe fields — never omit / never None
             if "phone" in cols or not cols:
                 ins["phone"] = phone or "N/A"
             if "phone_number" in cols:
@@ -1151,11 +1155,23 @@ def add_broker(
             if "status" in cols:
                 ins["status"] = "ONLINE"
             if "username" in cols:
-                ins["username"] = username or ""
+                ins["username"] = username or "N/A"
             if "sub_city" in cols:
-                ins["sub_city"] = sub_city or ""
+                ins["sub_city"] = sub_city or "አዲስ አበባ"
+            if "working_area" in cols:
+                ins["working_area"] = sub_city or "አዲስ አበባ"
+            if "area" in cols:
+                ins["area"] = sub_city or "አዲስ አበባ"
             if "specialty" in cols:
-                ins["specialty"] = specialty or ""
+                ins["specialty"] = specialty or "ደላላ"
+            if "category" in cols:
+                ins["category"] = specialty or "ደላላ"
+            if "role_type" in cols:
+                ins["role_type"] = role_type or "ደላላ"
+            if "fayda_id_url" in cols and fayda_url:
+                ins["fayda_id_url"] = fayda_url
+            if "fayda_photo_id" in cols and fayda:
+                ins["fayda_photo_id"] = fayda
 
             col_list = list(ins.keys())
             val_list = list(ins.values())
@@ -1188,11 +1204,19 @@ def add_broker(
                 try:
                     if "user_chat_id" in cols:
                         if pg:
-                            cur.execute(
-                                f"INSERT INTO brokers (user_chat_id, full_name, phone, is_approved) "
-                                f"VALUES ({p}, {p}, {p}, {p}) RETURNING id",
-                                (chat_id, full_name, phone or "N/A", approved_val),
-                            )
+                            # include working_area if required by schema
+                            try:
+                                cur.execute(
+                                    f"INSERT INTO brokers (user_chat_id, full_name, phone, working_area, is_approved) "
+                                    f"VALUES ({p}, {p}, {p}, {p}, {p}) RETURNING id",
+                                    (chat_id, full_name, phone or "N/A", sub_city or "አዲስ አበባ", approved_val),
+                                )
+                            except Exception:
+                                cur.execute(
+                                    f"INSERT INTO brokers (user_chat_id, full_name, phone, is_approved) "
+                                    f"VALUES ({p}, {p}, {p}, {p}) RETURNING id",
+                                    (chat_id, full_name, phone or "N/A", approved_val),
+                                )
                             row = cur.fetchone()
                             existing_id = row["id"] if isinstance(row, dict) else row[0]
                         else:
@@ -1220,12 +1244,16 @@ def add_broker(
             "user_chat_id": chat_id,
             "chat_id": chat_id,
             "full_name": full_name,
+            "name": full_name,
             "phone": phone or "N/A",
             "phone_number": phone or "N/A",
-            "username": username,
-            "sub_city": sub_city,
-            "specialty": specialty,
-            "role_type": role_type,
+            "username": username or "N/A",
+            "sub_city": sub_city or "አዲስ አበባ",
+            "working_area": sub_city or "አዲስ አበባ",
+            "area": sub_city or "አዲስ አበባ",
+            "specialty": specialty or "ደላላ",
+            "category": specialty or "ደላላ",
+            "role_type": role_type or "ደላላ",
             "status": "ONLINE",
             "is_approved": approved_val,
             "is_online": online_val,
@@ -1385,6 +1413,7 @@ def ensure_brokers_columns():
                 "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS phone TEXT",
                 "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS username TEXT",
                 "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS sub_city TEXT",
+                    "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS working_area TEXT",
                 "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS specialty TEXT",
                 "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS notification_prefs JSONB DEFAULT '{}'::jsonb",
                 "ALTER TABLE brokers ADD COLUMN IF NOT EXISTS rating REAL DEFAULT 5.0",
