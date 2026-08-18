@@ -985,176 +985,176 @@ EXPLORER_HTML = r"""
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      max-width: 100vw;
-      overflow-x: hidden !important;
-      box-sizing: border-box;
+      margin: 0; padding: 0; width: 100%; max-width: 100vw;
+      overflow-x: hidden !important; box-sizing: border-box;
       font-family: system-ui, -apple-system, sans-serif;
-      background: #E8F3FC;
-      color: #0f172a;
+      background: #E8F3FC; color: #0f172a;
       -webkit-text-size-adjust: 100%;
     }
     *, *::before, *::after { box-sizing: border-box; }
-    .wrap {
-      width: 100%;
-      max-width: 100%;
-      margin: 0 auto;
-      padding: 0 0 40px;
-      min-height: 100vh;
-      overflow-x: hidden;
-    }
+    .wrap { width: 100%; max-width: 100%; margin: 0 auto; padding: 0 0 48px; min-height: 100vh; overflow-x: hidden; }
     .hdr {
-      position: sticky; top: 0; z-index: 20;
-      background: #D4E6F5;
-      border-bottom: 1px solid #bfdbfe;
-      padding: 8px 10px;
-      width: 100%;
+      position: sticky; top: 0; z-index: 30;
+      background: rgba(212, 230, 245, 0.92);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid #bfdbfe; padding: 8px 10px; width: 100%;
     }
+    .hdr-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+    .brand { font-weight: 800; font-size: 14px; color: #1e3a8a; letter-spacing: -0.02em; }
+    .lang-toggle {
+      display: inline-flex; align-items: center; background: #fff;
+      border-radius: 999px; padding: 2px; box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+      border: 1px solid #e2e8f0;
+    }
+    .lang-btn {
+      border: none; background: transparent; padding: 5px 10px;
+      font-size: 11px; font-weight: 700; color: #64748b; border-radius: 999px;
+      cursor: pointer; transition: all 0.15s ease;
+    }
+    .lang-btn.on { background: #2563eb; color: #fff; }
     .tabs { display: flex; gap: 8px; margin-bottom: 8px; width: 100%; }
     .tab {
       flex: 1; min-width: 0; border: none; padding: 10px 6px;
       border-radius: 12px; font-weight: 700; font-size: 12px;
-      background: rgba(255,255,255,0.45); color: #475569;
+      background: rgba(255,255,255,0.5); color: #475569; cursor: pointer;
     }
-    .tab.on { background: #fff; color: #1d4ed8; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .tab.on { background: #fff; color: #1d4ed8; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
     .search-wrap { position: relative; margin-bottom: 8px; width: 100%; }
-    .search-wrap span { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: .5; }
+    .search-wrap span { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: .45; pointer-events: none; }
     .search {
       width: 100%; max-width: 100%;
       padding: 10px 12px 10px 32px; border-radius: 12px;
       border: 1px solid #e2e8f0; background: #fff; font-size: 13px;
+      outline: none; transition: box-shadow 0.15s ease, border-color 0.15s ease;
+    }
+    .search:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
     }
     .cats {
       display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px;
-      width: 100%; max-width: 100%;
-      -ms-overflow-style: none; scrollbar-width: none;
+      width: 100%; -ms-overflow-style: none; scrollbar-width: none;
     }
     .cats::-webkit-scrollbar { display: none; }
     .cat {
-      flex: 0 0 auto; border: 1px solid #dbeafe; background: #fff;
-      border-radius: 999px; padding: 6px 12px; font-size: 11px; font-weight: 600; color: #334155;
+      flex: 0 0 auto; border: none; background: #fff;
+      border-radius: 999px; padding: 6px 12px; font-size: 11px; font-weight: 600;
+      color: #334155; box-shadow: 0 1px 4px rgba(0,0,0,0.05); cursor: pointer;
     }
-    .cat.on { background: linear-gradient(90deg,#2563eb,#4f46e5); color: #fff; border-color: transparent; }
+    .cat.on { background: linear-gradient(90deg,#2563eb,#4f46e5); color: #fff; }
 
-    /* Strict 2-column screen-fit grid */
     .grid, .listings-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-      padding: 10px;
-      width: 100%;
-      max-width: 100%;
-      box-sizing: border-box;
-      margin: 0;
-      overflow-x: hidden;
+      gap: 10px; padding: 10px;
+      width: 100%; max-width: 100%; box-sizing: border-box; margin: 0;
     }
 
-    /* Frameless soft-shadow cards */
     .card, .listing-card {
-      width: 100%;
-      max-width: 100%;
-      min-width: 0;
-      box-sizing: border-box;
+      width: 100%; max-width: 100%; min-width: 0;
       background: #ffffff !important;
       border-radius: 16px !important;
-      border: none !important;
-      outline: none !important;
-      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08) !important;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      padding: 8px;
+      border: none !important; outline: none !important;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06) !important;
+      overflow: hidden; display: flex; flex-direction: column; padding: 8px;
       transition: transform 0.15s ease, box-shadow 0.15s ease;
       -webkit-tap-highlight-color: transparent;
     }
-    .card:active, .listing-card:active {
+    .card:active {
       transform: translateY(-2px);
-      box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12) !important;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1) !important;
     }
 
-    .card-media, .img-wrap {
-      position: relative;
-      width: 100%;
-      height: 110px;
-      border-radius: 10px;
-      overflow: hidden;
-      background: #e2e8f0;
+    .card-media {
+      position: relative; width: 100%; height: 110px;
+      border-radius: 12px; overflow: hidden; background: #e2e8f0;
     }
+    .card-media img, .img {
+      width: 100%; height: 110px; object-fit: cover;
+      border: none !important; outline: none !important; display: block;
+    }
+    .ph {
+      width: 100%; height: 110px; display: flex; align-items: center;
+      justify-content: center; font-size: 32px; background: #e2e8f0;
+    }
+
     .active-badge {
-      position: absolute;
-      top: 8px;
-      left: 8px;
-      width: 10px;
-      height: 10px;
+      position: absolute; top: 8px; left: 8px;
+      width: 10px; height: 10px;
       background-color: #22c55e;
       border-radius: 50%;
-      border: 2px solid #ffffff;
-      box-shadow: 0 0 6px rgba(34, 197, 94, 0.8);
-      z-index: 2;
-      display: block;
+      border: none !important; outline: none !important;
+      z-index: 2; display: block;
+      box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55);
+      animation: pulse-green 1.6s ease-out infinite;
     }
     .active-badge.sold {
       background-color: #ef4444;
-      box-shadow: 0 0 6px rgba(239, 68, 68, 0.8);
+      animation: pulse-red 1.6s ease-out infinite;
     }
-    .card-media img, .img {
-      width: 100%;
-      height: 110px;
-      max-width: 100%;
-      object-fit: cover;
-      border-radius: 10px;
-      display: block;
-      border: none !important;
+    @keyframes pulse-green {
+      0% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.55), 0 0 6px rgba(34, 197, 94, 0.8); }
+      70% { box-shadow: 0 0 0 8px rgba(34, 197, 94, 0), 0 0 10px rgba(34, 197, 94, 0.45); }
+      100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0), 0 0 6px rgba(34, 197, 94, 0.8); }
     }
-    .ph {
-      width: 100%;
-      height: 110px;
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 32px;
-      background: #e2e8f0;
-      border: none !important;
+    @keyframes pulse-red {
+      0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55), 0 0 6px rgba(239, 68, 68, 0.8); }
+      70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0), 0 0 10px rgba(239, 68, 68, 0.45); }
+      100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0), 0 0 6px rgba(239, 68, 68, 0.8); }
     }
-    .title {
-      font-weight: 700; font-size: 13px; margin-top: 8px; line-height: 1.25;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
-    }
-    .sub {
-      font-size: 11px; color: #64748b; margin-top: 2px; line-height: 1.3;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
-    }
-    .price { font-weight: 800; color: #2563eb; font-size: 13px; margin-top: 6px; line-height: 1.2; }
-    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; width: 100%; }
-    .btn {
-      border: none !important; border-radius: 12px; padding: 8px;
-      font-size: 16px; text-decoration: none; text-align: center; min-width: 0;
-    }
-    .btn.call { background: #eff6ff; color: #1d4ed8; }
-    .btn.chat { background: #f8fafc; color: #334155; }
+
     .meta {
       display: flex; justify-content: space-between; gap: 4px;
       position: absolute; left: 6px; right: 6px; bottom: 6px;
     }
     .badge {
-      font-size: 9px; background: rgba(0,0,0,.5); color: #fff;
+      font-size: 9px; background: rgba(0,0,0,.48); color: #fff;
       padding: 2px 6px; border-radius: 999px; max-width: 48%;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
+    .title {
+      font-weight: 700; font-size: 13px; margin-top: 8px; line-height: 1.25;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sub {
+      font-size: 11px; color: #64748b; margin-top: 2px; line-height: 1.3;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .price-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      margin-top: 8px; padding: 5px 10px; border-radius: 999px;
+      background: #EFF6FF; color: #2563EB; font-weight: 800; font-size: 12px;
+      max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 8px; width: 100%; }
+    .btn {
+      border: none !important; border-radius: 12px; padding: 8px;
+      font-size: 16px; text-decoration: none; text-align: center; min-width: 0;
+      transition: transform 0.12s ease;
+    }
+    .btn:active { transform: scale(0.96); }
+    .btn.call { background: #eff6ff; color: #1d4ed8; }
+    .btn.chat { background: #f8fafc; color: #334155; }
     .empty, .err, .load { text-align: center; padding: 40px 16px; color: #64748b; font-size: 14px; }
     .err { color: #b91c1c; background: #fef2f2; border-radius: 12px; margin: 12px 10px; }
     .more {
-      display: block; margin: 16px auto; border: 1px solid #bfdbfe; background: #fff;
-      color: #2563eb; border-radius: 999px; padding: 8px 18px; font-weight: 600; font-size: 12px;
+      display: block; margin: 16px auto; border: none; background: #fff;
+      color: #2563eb; border-radius: 999px; padding: 10px 20px;
+      font-weight: 700; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
   <div class="wrap">
     <div class="hdr">
+      <div class="hdr-top">
+        <div class="brand">Adika</div>
+        <div class="lang-toggle" role="group" aria-label="Language">
+          <button type="button" class="lang-btn on" id="langAM" data-lang="am">AM</button>
+          <button type="button" class="lang-btn" id="langEN" data-lang="en">EN</button>
+        </div>
+      </div>
       <div class="tabs">
         <button class="tab on" id="tabSell" type="button">🛒 የገበያ ቦታ</button>
         <button class="tab" id="tabBuy" type="button">📋 የፈላጊዎች</button>
@@ -1180,6 +1180,40 @@ EXPLORER_HTML = r"""
         try { tg.setBackgroundColor('#E8F3FC'); } catch (e) {}
       }
 
+      var i18n = {
+        am: {
+          sell: '🛒 የገበያ ቦታ',
+          buy: '📋 የፈላጊዎች',
+          search: 'ፈልግ...',
+          loading: 'እየጫነ ነው…',
+          empty: 'ምንም ንብረት አልተገኘም',
+          more: 'ተጨማሪ ይመልከቱ',
+          price: 'ዋጋ',
+          budget: 'በጀት',
+          all: '✨ ሁሉም',
+          car: '🚗 መኪና',
+          house: '🏠 ቤት / ቦታ',
+          biz: '🏢 የሥራ ቦታ',
+          err: 'ስህተት ተከስቷል'
+        },
+        en: {
+          sell: '🛒 Marketplace',
+          buy: '📋 Requests',
+          search: 'Search...',
+          loading: 'Loading…',
+          empty: 'No listings found',
+          more: 'Load more',
+          price: 'Price',
+          budget: 'Budget',
+          all: '✨ All',
+          car: '🚗 Cars',
+          house: '🏠 Homes',
+          biz: '🏢 Business',
+          err: 'Something went wrong'
+        }
+      };
+
+      var lang = localStorage.getItem('adika_lang') || 'am';
       var state = {
         tab: (new URLSearchParams(location.search).get('tab') === 'requests') ? 'requests' : 'marketplace',
         category: '',
@@ -1189,20 +1223,17 @@ EXPLORER_HTML = r"""
         loading: false
       };
 
-      var cats = [
-        { id: '', label: '✨ ሁሉም' },
-        { id: 'መኪና', label: '🚗 መኪና' },
-        { id: 'ቤት', label: '🏠 ቤት / ቦታ' },
-        { id: 'ንግድ', label: '🏢 የሥራ ቦታ' }
-      ];
-
-      var catsEl = document.getElementById('cats');
       var grid = document.getElementById('grid');
       var statusEl = document.getElementById('status');
       var moreBtn = document.getElementById('more');
       var tabSell = document.getElementById('tabSell');
       var tabBuy = document.getElementById('tabBuy');
       var qInput = document.getElementById('q');
+      var catsEl = document.getElementById('cats');
+      var langAM = document.getElementById('langAM');
+      var langEN = document.getElementById('langEN');
+
+      function t(key) { return (i18n[lang] && i18n[lang][key]) || key; }
 
       function esc(s) {
         return String(s == null ? '' : s)
@@ -1214,19 +1245,42 @@ EXPLORER_HTML = r"""
         try {
           var d = new Date(iso);
           var secs = Math.max(0, Math.floor((Date.now() - d.getTime()) / 1000));
-          if (secs < 60) return 'Just now';
-          if (secs < 3600) return Math.floor(secs / 60) + 'm ago';
-          if (secs < 86400) return Math.floor(secs / 3600) + ' hrs ago';
-          if (secs < 172800) return 'Yesterday';
-          return Math.floor(secs / 86400) + 'd ago';
+          if (secs < 60) return lang === 'am' ? 'አሁን' : 'Just now';
+          if (secs < 3600) return Math.floor(secs / 60) + (lang === 'am' ? ' ደቂቃ' : 'm ago');
+          if (secs < 86400) return Math.floor(secs / 3600) + (lang === 'am' ? ' ሰዓት' : ' hrs ago');
+          if (secs < 172800) return lang === 'am' ? 'ትናንት' : 'Yesterday';
+          return Math.floor(secs / 86400) + (lang === 'am' ? ' ቀን' : 'd ago');
         } catch (e) { return ''; }
       }
 
+      function applyLang() {
+        langAM.className = 'lang-btn' + (lang === 'am' ? ' on' : '');
+        langEN.className = 'lang-btn' + (lang === 'en' ? ' on' : '');
+        tabSell.textContent = t('sell');
+        tabBuy.textContent = t('buy');
+        qInput.placeholder = t('search');
+        moreBtn.textContent = t('more');
+        document.documentElement.lang = lang;
+        renderCats();
+        setTabs();
+      }
+
       function renderCats() {
+        var cats = [
+          { id: '', label: t('all') },
+          { id: 'መኪና', label: t('car') },
+          { id: 'ቤት', label: t('house') },
+          { id: 'ንግድ', label: t('biz') }
+        ];
         catsEl.innerHTML = cats.map(function (c) {
           return '<button type="button" class="cat' + (state.category === c.id ? ' on' : '') +
             '" data-id="' + esc(c.id) + '">' + esc(c.label) + '</button>';
         }).join('');
+      }
+
+      function setTabs() {
+        tabSell.className = 'tab' + (state.tab === 'marketplace' ? ' on' : '');
+        tabBuy.className = 'tab' + (state.tab === 'requests' ? ' on' : '');
       }
 
       function cardHtml(item) {
@@ -1237,12 +1291,12 @@ EXPLORER_HTML = r"""
           }
           var photos = item.photos || [];
           var mediaInner = photos.length
-            ? '<img class="img" src="' + esc(photos[0]) + '" alt="" loading="lazy" onerror="this.parentNode.innerHTML=\'<div class=ph>📷</div>\'">'
+            ? '<img class="img" src="' + esc(photos[0]) + '" alt="" loading="lazy" onerror="this.parentNode.querySelector(\'.ph-fallback\')||0;this.style.display=\'none\'">'
             : '<div class="ph">' + (item.main_category === 'መኪና' || item.category === 'መኪና' ? '🚗' : '🏠') + '</div>';
           var title = (item.main_category || item.category || '') + (item.sub_category ? ' • ' + item.sub_category : '');
           var desc = (item.description || '').replace(/[📝💰📞⚡📢🔄📦]/g,'').slice(0, 42);
           var isSell = String(item.req_type || '').toUpperCase() === 'SELL';
-          var price = (isSell ? '💰 ዋጋ: ' : '💰 በጀት: ') + (item.price || '—');
+          var priceLabel = (isSell ? t('price') : t('budget')) + ': ' + (item.price || '—');
           var views = item.view_count || item.views_count || 0;
           var phone = item.phone ? String(item.phone).replace(/\s+/g,'') : '';
           var user = extra.telegram_user ? String(extra.telegram_user).replace('@','') : '';
@@ -1260,19 +1314,14 @@ EXPLORER_HTML = r"""
             '<span class="badge">' + esc(relativeTime(item.created_at)) + '</span></div></div>' +
             '<div class="title">' + esc(title) + '</div>' +
             '<div class="sub">' + esc(desc) + '</div>' +
-            '<div class="price">' + esc(price) + '</div>' +
+            '<div class="price-badge">💰 ' + esc(priceLabel) + '</div>' +
             '<div class="actions">' +
             '<a class="btn call" href="' + esc(callHref) + '">📞</a>' +
             '<a class="btn chat" href="' + esc(chatHref) + '" target="_blank" rel="noreferrer">💬</a>' +
             '</div></div>';
         } catch (e) {
-          return '<div class="card"><div class="sub">Card error</div></div>';
+          return '<div class="card listing-card"><div class="sub">Card error</div></div>';
         }
-      }
-
-      function setTabs() {
-        tabSell.className = 'tab' + (state.tab === 'marketplace' ? ' on' : '');
-        tabBuy.className = 'tab' + (state.tab === 'requests' ? ' on' : '');
       }
 
       async function load(append) {
@@ -1281,7 +1330,7 @@ EXPLORER_HTML = r"""
         if (!append) {
           statusEl.style.display = 'block';
           statusEl.className = 'load';
-          statusEl.textContent = 'እየጫነ ነው…';
+          statusEl.textContent = t('loading');
           grid.innerHTML = '';
         }
         try {
@@ -1301,7 +1350,7 @@ EXPLORER_HTML = r"""
           if (!res.ok || data.status !== 'success') {
             statusEl.style.display = 'block';
             statusEl.className = 'err';
-            statusEl.textContent = (data && data.message) ? data.message : ('API error ' + res.status);
+            statusEl.textContent = (data && data.message) ? data.message : (t('err') + ' ' + res.status);
             moreBtn.style.display = 'none';
             return;
           }
@@ -1310,7 +1359,7 @@ EXPLORER_HTML = r"""
           if (!items.length && !append) {
             statusEl.style.display = 'block';
             statusEl.className = 'empty';
-            statusEl.textContent = 'ምንም ንብረት አልተገኘም';
+            statusEl.textContent = t('empty');
           } else {
             statusEl.style.display = 'none';
             grid.innerHTML += items.map(cardHtml).join('');
@@ -1321,33 +1370,34 @@ EXPLORER_HTML = r"""
         } catch (e) {
           statusEl.style.display = 'block';
           statusEl.className = 'err';
-          statusEl.textContent = 'Network error: ' + (e && e.message ? e.message : e);
+          statusEl.textContent = t('err') + ': ' + (e && e.message ? e.message : e);
         } finally {
           state.loading = false;
         }
       }
 
+      langAM.onclick = function () { lang = 'am'; localStorage.setItem('adika_lang', lang); applyLang(); load(false); };
+      langEN.onclick = function () { lang = 'en'; localStorage.setItem('adika_lang', lang); applyLang(); load(false); };
       tabSell.onclick = function () { state.tab = 'marketplace'; setTabs(); load(false); };
       tabBuy.onclick = function () { state.tab = 'requests'; setTabs(); load(false); };
       catsEl.onclick = function (ev) {
-        var t = ev.target.closest('[data-id]');
-        if (!t) return;
-        state.category = t.getAttribute('data-id') || '';
+        var el = ev.target.closest('[data-id]');
+        if (!el) return;
+        state.category = el.getAttribute('data-id') || '';
         renderCats();
         load(false);
       };
       moreBtn.onclick = function () { load(true); };
-      var t = null;
+      var deb = null;
       qInput.oninput = function () {
-        clearTimeout(t);
-        t = setTimeout(function () {
+        clearTimeout(deb);
+        deb = setTimeout(function () {
           state.q = qInput.value.trim();
           load(false);
         }, 300);
       };
 
-      renderCats();
-      setTabs();
+      applyLang();
       load(false);
     } catch (e) {
       document.body.innerHTML = '<div class="err" style="margin:20px">UI Error: ' +
