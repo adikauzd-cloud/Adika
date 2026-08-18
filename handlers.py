@@ -33,6 +33,7 @@ def _webapp_url(path: str) -> str:
 
 
 from models import (
+    LAST_BROKER_ERROR,
     add_listing, get_listing_by_id, get_listings_by_category_ordered,
     count_listings, update_listing_status, get_public_marketplace_items,
     add_broker, get_broker, update_broker_status, update_broker_notification_prefs,
@@ -1412,8 +1413,18 @@ async def broker_reg_fayda(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "broker_reg_fayda save failed user=%s name=%s phone=%s sub=%s",
             getattr(user, "id", None), full_name, phone, sub_city,
         )
+        detail = ""
+        try:
+            import models as _m
+            detail = getattr(_m, "LAST_BROKER_ERROR", "") or ""
+        except Exception:
+            pass
+        err_msg = "❌ ምዝገባ አልተሳካም። እባክዎ እንደገና ይሞክሩ ወይም /start ይጫኑ።"
+        if detail:
+            err_msg = f"{err_msg}\n<code>{detail[:200]}</code>"
         await msg.reply_text(
-            "❌ ምዝገባ አልተሳካም። እባክዎ እንደገና ይሞክሩ ወይም /start ይጫኑ።",
+            err_msg,
+            parse_mode="HTML",
             reply_markup=ReplyKeyboardMarkup(MAIN_KEYBOARD, resize_keyboard=True),
         )
         context.user_data.clear()
