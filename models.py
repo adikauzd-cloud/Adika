@@ -1011,7 +1011,7 @@ def add_broker(
             return None
 
         full_name = (str(full_name).strip() if full_name else "User")[:200]
-        phone = (str(phone).strip() if phone else "")[:40]
+        phone = (str(phone).strip() if phone else "")[:40] or "N/A"
         username = (str(username).strip() if username else "")[:120]
         role_type = (str(role_type).strip() if role_type else "ደላላ")[:80]
         sub_city = (str(sub_city).strip() if sub_city else "")[:80]
@@ -1143,12 +1143,19 @@ def add_broker(
                 ins["full_name"] = full_name
             if "is_approved" in cols or not cols:
                 ins["is_approved"] = approved_val
-            if "phone" in cols:
-                ins["phone"] = phone
+            # phone is NOT NULL on Supabase — never omit / never None
+            if "phone" in cols or not cols:
+                ins["phone"] = phone or "N/A"
             if "phone_number" in cols:
-                ins["phone_number"] = phone
+                ins["phone_number"] = phone or "N/A"
             if "status" in cols:
                 ins["status"] = "ONLINE"
+            if "username" in cols:
+                ins["username"] = username or ""
+            if "sub_city" in cols:
+                ins["sub_city"] = sub_city or ""
+            if "specialty" in cols:
+                ins["specialty"] = specialty or ""
 
             col_list = list(ins.keys())
             val_list = list(ins.values())
@@ -1182,16 +1189,17 @@ def add_broker(
                     if "user_chat_id" in cols:
                         if pg:
                             cur.execute(
-                                f"INSERT INTO brokers (user_chat_id, full_name, is_approved) "
-                                f"VALUES ({p}, {p}, {p}) RETURNING id",
-                                (chat_id, full_name, approved_val),
+                                f"INSERT INTO brokers (user_chat_id, full_name, phone, is_approved) "
+                                f"VALUES ({p}, {p}, {p}, {p}) RETURNING id",
+                                (chat_id, full_name, phone or "N/A", approved_val),
                             )
                             row = cur.fetchone()
                             existing_id = row["id"] if isinstance(row, dict) else row[0]
                         else:
                             cur.execute(
-                                f"INSERT INTO brokers (user_chat_id, full_name, is_approved) VALUES ({p}, {p}, {p})",
-                                (chat_id, full_name, approved_val),
+                                f"INSERT INTO brokers (user_chat_id, full_name, phone, is_approved) "
+                                f"VALUES ({p}, {p}, {p}, {p})",
+                                (chat_id, full_name, phone or "N/A", approved_val),
                             )
                             existing_id = cur.lastrowid
                         _commit()
@@ -1212,8 +1220,8 @@ def add_broker(
             "user_chat_id": chat_id,
             "chat_id": chat_id,
             "full_name": full_name,
-            "phone": phone,
-            "phone_number": phone,
+            "phone": phone or "N/A",
+            "phone_number": phone or "N/A",
             "username": username,
             "sub_city": sub_city,
             "specialty": specialty,
