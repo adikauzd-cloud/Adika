@@ -1377,8 +1377,11 @@ async def broker_reg_fayda(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo_ref = fayda_url or fayda_id
 
         try:
+            uid = int(user.id) if user and user.id else int(msg.chat_id)
+            if not uid:
+                raise ValueError("missing Telegram user id for user_chat_id")
             bid = add_broker(
-                chat_id=int(user.id),
+                chat_id=uid,
                 full_name=full_name,
                 phone=phone,
                 role_type=category,
